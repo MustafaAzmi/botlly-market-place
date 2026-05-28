@@ -123,11 +123,18 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
         });
 
         if (error) {
-          console.error("[WhatsApp webhook] Failed to persist event", error);
-          return new Response(JSON.stringify({ ok: false, error: "Storage failed" }), {
-            status: 500,
-            headers: jsonHeaders,
-          });
+          const fallback = await supabaseAdmin.from("whatsapp_webhook_events").insert({
+            provider: "meta",
+            payload: payload as Json,
+          } as never);
+
+          if (fallback.error) {
+            console.error("[WhatsApp webhook] Failed to persist event", error, fallback.error);
+            return new Response(JSON.stringify({ ok: false, error: "Storage failed" }), {
+              status: 500,
+              headers: jsonHeaders,
+            });
+          }
         }
 
         return new Response(JSON.stringify({ ok: true }), {
