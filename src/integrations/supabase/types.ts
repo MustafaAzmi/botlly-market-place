@@ -167,6 +167,42 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_webhook_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          from_number: string | null
+          id: string
+          payload: Json
+          phone_number_id: string | null
+          processed_at: string | null
+          source: string
+          wa_message_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type?: string
+          from_number?: string | null
+          id?: string
+          payload: Json
+          phone_number_id?: string | null
+          processed_at?: string | null
+          source?: string
+          wa_message_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          from_number?: string | null
+          id?: string
+          payload?: Json
+          phone_number_id?: string | null
+          processed_at?: string | null
+          source?: string
+          wa_message_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

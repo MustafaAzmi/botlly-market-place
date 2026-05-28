@@ -26,6 +26,7 @@ import { Route as DashboardStoreIndexRouteImport } from './routes/dashboard/stor
 import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/products/index'
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
+import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -112,6 +113,11 @@ const DashboardProductsNewRoute = DashboardProductsNewRouteImport.update({
   path: '/dashboard/products/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
+  id: '/api/whatsapp/webhook',
+  path: '/api/whatsapp/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders': typeof DashboardOrdersIndexRoute
   '/dashboard/products': typeof DashboardProductsIndexRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
+    | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
+    | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders'
     | '/dashboard/products'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
+    | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
@@ -244,6 +256,7 @@ export interface RootRouteChildren {
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
   DashboardOrdersIndexRoute: typeof DashboardOrdersIndexRoute
   DashboardProductsIndexRoute: typeof DashboardProductsIndexRoute
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardProductsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/whatsapp/webhook': {
+      id: '/api/whatsapp/webhook'
+      path: '/api/whatsapp/webhook'
+      fullPath: '/api/whatsapp/webhook'
+      preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -388,6 +408,7 @@ const rootRouteChildren: RootRouteChildren = {
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,
   DashboardOrdersIndexRoute: DashboardOrdersIndexRoute,
   DashboardProductsIndexRoute: DashboardProductsIndexRoute,

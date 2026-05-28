@@ -132,6 +132,26 @@ supabase db push
 | `SUPABASE_PUBLISHABLE_KEY` | Server functions |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin operations (bypass RLS) |
 
+### WhatsApp / Meta Webhook
+
+| المتغير | الاستخدام |
+|---------|-----------|
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | رمز التحقق الذي تضعه أيضاً في Meta Webhooks |
+| `WHATSAPP_APP_SECRET` | للتحقق من توقيع `X-Hub-Signature-256` القادم من Meta |
+| `WHATSAPP_ACCESS_TOKEN` | لإرسال رسائل واتساب لاحقاً |
+| `WHATSAPP_PHONE_NUMBER_ID` | رقم واتساب Business API في Meta |
+
+رابط الويب هوك للإنتاج:
+
+```text
+https://www.bot-lly.tech/api/whatsapp/webhook
+```
+
+في Meta Developer Dashboard استخدم:
+- Callback URL: `https://www.bot-lly.tech/api/whatsapp/webhook`
+- Verify token: نفس قيمة `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+- Webhook fields: فعّل `messages`
+
 > **ملاحظة:** إذا نشرت هذا المشروع خارج Lovable (مثلاً على Vercel أو Netlify)، ستحتاج إلى:
 > 1. إنشاء مشروع Supabase جديد
 > 2. نسخ المفاتيح من إعدادات المشروع

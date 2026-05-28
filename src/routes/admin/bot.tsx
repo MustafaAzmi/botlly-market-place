@@ -59,7 +59,7 @@ function AdminBotPage() {
             <Input
               dir="ltr"
               className="h-11 font-mono text-sm"
-              placeholder="https://api.botly.app/webhook/whatsapp"
+              defaultValue="https://www.bot-lly.tech/api/whatsapp/webhook"
             />
           </Field>
         </Card>
