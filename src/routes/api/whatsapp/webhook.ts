@@ -7,11 +7,11 @@ const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
 function getVerifyToken() {
-  return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+  return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
 }
 
 function getAppSecret() {
-  return process.env.WHATSAPP_APP_SECRET;
+  return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
 }
 
 function timingSafeEqual(a: string, b: string) {
