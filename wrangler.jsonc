@@ -3,6 +3,8 @@
   "name": "botlly-market-place",
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
   "main": "dist/server/index.mjs",
   "assets": {
     "directory": "dist/client"
