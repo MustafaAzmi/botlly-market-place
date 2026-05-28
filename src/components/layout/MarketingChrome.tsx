@@ -51,8 +51,9 @@ export function MarketingFooter() {
           <div>
             <h4 className="text-sm font-semibold mb-3">{t("footer.legal")}</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground">Terms</a></li>
-              <li><a href="#" className="hover:text-foreground">Privacy</a></li>
+              <li><Link to="/terms" className="hover:text-foreground">Terms</Link></li>
+              <li><Link to="/privacy" className="hover:text-foreground">Privacy</Link></li>
+              <li><Link to="/data-deletion" className="hover:text-foreground">Data deletion</Link></li>
             </ul>
           </div>
         </div>
