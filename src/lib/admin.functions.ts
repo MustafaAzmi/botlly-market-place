@@ -68,13 +68,11 @@ const ADMIN_CREDENTIALS = [
 export const loginAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => loginInput.parse(d))
   .handler(async ({ data }) => {
-    const passwordHash = await hashPassword(data.password);
-
     const admin = ADMIN_CREDENTIALS.find(
       (a) =>
         a.email === data.email &&
-        (await hashPassword(a.password)) === passwordHash
-    ) || ADMIN_CREDENTIALS.find((a) => a.email === data.email);
+        a.password === data.password
+    );
 
     if (!admin) {
       throw new Error("Invalid email or password");
@@ -114,7 +112,7 @@ export const listStores = createServerFn({ method: "POST" })
       const { data: stores, error } = await supabaseAdmin
         .from("admin_stores")
         .select("*")
-        .ilike("store_name", \`%\${data.search || ""}\%\`)
+        .ilike("store_name", `%${data.search || ""}%`)
         .range((data.page - 1) * 10, data.page * 10 - 1)
         .order("created_at", { ascending: false });
 
@@ -169,9 +167,19 @@ export const toggleStoreStatus = createServerFn({ method: "POST" })
   .inputValidator((d) => toggleStoreInput.parse(d))
   .handler(async ({ data }) => {
     try {
+      const { data: store, error: fetchError } = await supabaseAdmin
+        .from("admin_stores")
+        .select("banned_from_bot")
+        .eq("id", data.storeId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
       const { error } = await supabaseAdmin
         .from("admin_stores")
-        .update({ banned_from_bot: true })
+        .update({ banned_from_bot: !store?.banned_from_bot })
         .eq("id", data.storeId);
 
       if (error) {
