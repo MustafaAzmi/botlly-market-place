@@ -28,7 +28,7 @@ function getAnthropicApiKey() {
 }
 
 function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514";
+  return process.env.ANTHROPIC_MODEL ?? "claude-3-5-haiku-20241022";
 }
 
 function timingSafeEqual(a: string, b: string) {
