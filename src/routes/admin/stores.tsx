@@ -1,211 +1,224 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { AdminLayout } from "@/components/layout/AdminLayout";
-import { requireAdminClient } from "@/lib/adminGuard";
-import { listStores, setStoreBan } from "@/lib/admin.functions";
-import type { AdminStore } from "@/lib/adminTypes";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Search, Ban, CheckCircle2, ExternalLink, Loader2, AlertCircle } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { AlertCircle, MoreVertical } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/admin/stores")({
-  beforeLoad: () => requireAdminClient(),
-  head: () => ({ meta: [{ title: "المتاجر — أدمن Botly" }] }),
-  component: AdminStoresPage,
-});
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+import { listStores, toggleStoreStatus } from "@/lib/admin.functions";
+import { readAdminSession } from "@/lib/adminSession";
+
+export const Route = createFileRoute("/admin/stores")(
+  {
+    beforeLoad: async () => {
+      const session = readAdminSession();
+      if (!session?.token) {
+        throw new Error("Not authenticated");
+      }
+    },
+  },
+  {
+    component: AdminStoresPage,
+  }
+);
 
 function AdminStoresPage() {
-  const qc = useQueryClient();
-  const fetchStores = useServerFn(listStores);
-  const banFn = useServerFn(setStoreBan);
+  const getSessionFn = useServerFn(readAdminSession);
+  const listStoresFn = useServerFn(listStores);
+  const toggleStatusFn = useServerFn(toggleStoreStatus);
 
-  const { data: stores = [], isLoading, error: fetchError } = useQuery<AdminStore[]>({
-    queryKey: ["admin", "stores"],
-    queryFn: () => fetchStores(),
+  const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+
+  const { data: session } = useQuery({
+    queryKey: ["adminSession"],
+    queryFn: async () => {
+      return await getSessionFn();
+    },
+  });
+
+  const {
+    data: stores = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["stores", page, searchTerm],
+    queryFn: async () => {
+      if (!session?.token) return [];
+      return await listStoresFn({
+        data: {
+          token: session.token,
+          page,
+          search: searchTerm,
+        },
+      });
+    },
     retry: 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    enabled: !!session?.token,
   });
 
-  const banMutation = useMutation({
-    mutationFn: (vars: { id: string; banned: boolean }) =>
-      banFn({ data: vars }),
-    onMutate: async (vars) => {
-      await qc.cancelQueries({ queryKey: ["admin", "stores"] });
-      const prev = qc.getQueryData<AdminStore[]>(["admin", "stores"]);
-      qc.setQueryData<AdminStore[]>(["admin", "stores"], (old) =>
-        (old ?? []).map((s) =>
-          s.id === vars.id ? { ...s, bannedFromBot: vars.banned } : s,
-        ),
-      );
-      return { prev };
-    },
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["admin", "stores"], ctx.prev);
-      toast.error("تعذّر تحديث الحالة. الرجاء المحاولة مجدداً.");
-    },
-    onSuccess: (_d, vars) => {
-      toast.success(vars.banned ? "تم حظر المتجر من البوت" : "تم رفع الحظر");
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["admin", "stores"] }),
-  });
+  const handleToggleStatus = async (storeId: string) => {
+    if (!session?.token) return;
 
-  const [query, setQuery] = useState("");
-  const [cityFilter, setCityFilter] = useState("");
-  const cities = useMemo(
-    () => Array.from(new Set(stores.map((s) => s.city))),
-    [stores],
-  );
-  const filtered = useMemo(
-    () =>
-      stores.filter((s) => {
-        const q = !query ||
-          s.storeName.includes(query) ||
-          s.ownerName.includes(query) ||
-          s.whatsapp.includes(query);
-        const c = !cityFilter || s.city === cityFilter;
-        return q && c;
-      }),
-    [stores, query, cityFilter],
-  );
+    try {
+      await toggleStatusFn({
+        data: { token: session.token, storeId },
+      });
+      toast.success("تم تحديث حالة المتجر");
+      refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "فشل التحديث");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground">جارٍ التحميل...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+        <div className="flex gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium text-red-900">حدث خطأ</p>
+            <p className="text-sm text-red-800">
+              {error instanceof Error ? error.message : "فشل تحميل المتاجر"}
+            </p>
+            <Button
+              onClick={() => refetch()}
+              size="sm"
+              variant="outline"
+              className="mt-3"
+            >
+              إعادة محاولة
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <AdminLayout
-      title="المتاجر"
-      subtitle="كل المتاجر المسجلة على بوتلي. يمكنك حظر أي متجر من الظهور على البوت."
-    >
-      {fetchError && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-          <AlertCircle className="h-5 w-5 text-destructive" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-destructive">خطأ في تحميل البيانات</p>
-            <p className="text-xs text-destructive/80">
-              تعذّر الاتصال بقاعدة البيانات. الرجاء التحقق من الإعدادات والمحاولة مجدداً.
-            </p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">المتاجر</h1>
+        <p className="text-muted-foreground">إدارة المتاجر المسجلة في النظام</p>
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          placeholder="ابحث عن متجر..."
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setPage(1);
+          }}
+          className="max-w-xs"
+        />
+      </div>
+
+      <div className="rounded-lg border">
+        <table className="w-full text-sm">
+          <thead className="border-b bg-muted/50">
+            <tr>
+              <th className="px-6 py-3 text-right font-medium">اسم المتجر</th>
+              <th className="px-6 py-3 text-right font-medium">الواتساب</th>
+              <th className="px-6 py-3 text-right font-medium">البريد</th>
+              <th className="px-6 py-3 text-right font-medium">الحالة</th>
+              <th className="px-6 py-3 text-center font-medium">الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
+                  لا توجد متاجر بعد
+                </td>
+              </tr>
+            ) : (
+              stores.map((store: any) => (
+                <tr key={store.id} className="border-b hover:bg-muted/50">
+                  <td className="px-6 py-4 font-medium">{store.storeName}</td>
+                  <td className="px-6 py-4">{store.whatsapp}</td>
+                  <td className="px-6 py-4">{store.email || "-"}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${
+                        store.active
+                          ? "bg-green-100 text-green-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {store.active ? "نشط" : "معطل"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleToggleStatus(store.id)}
+                        >
+                          {store.active ? "تعطيل" : "تفعيل"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>عرض التفاصيل</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {stores.length > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            عرض {stores.length} متجر
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              السابق
+            </Button>
+            <Button
+              variant="outline"
+              disabled={stores.length < 10}
+              onClick={() => setPage(page + 1)}
+            >
+              التالي
+            </Button>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => qc.invalidateQueries({ queryKey: ["admin", "stores"] })}
-          >
-            إعادة المحاولة
-          </Button>
         </div>
       )}
-
-      <div className="rounded-xl border border-border bg-card shadow-soft">
-        <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="بحث بالاسم أو رقم الواتساب…"
-              className="h-10 ps-9"
-            />
-          </div>
-          <select
-            value={cityFilter}
-            onChange={(e) => setCityFilter(e.target.value)}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="">كل المدن</option>
-            {cities.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>المتجر</TableHead>
-              <TableHead>المدينة</TableHead>
-              <TableHead>الفئة</TableHead>
-              <TableHead>الباقة</TableHead>
-              <TableHead>منتجات</TableHead>
-              <TableHead>طلبات</TableHead>
-              <TableHead>الحالة</TableHead>
-              <TableHead>إجراءات</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                  <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                </TableCell>
-              </TableRow>
-            )}
-            {!isLoading && filtered.map((s) => (
-              <TableRow key={s.id}>
-                <TableCell>
-                  <div className="font-medium">{s.storeName}</div>
-                  <div className="text-xs text-muted-foreground" dir="ltr">
-                    {s.whatsapp}
-                  </div>
-                </TableCell>
-                <TableCell>{s.city}</TableCell>
-                <TableCell>{s.category}</TableCell>
-                <TableCell>
-                  <Badge variant="secondary">{s.plan}</Badge>
-                </TableCell>
-                <TableCell>{s.productsCount}</TableCell>
-                <TableCell>{s.ordersCount}</TableCell>
-                <TableCell>
-                  {s.bannedFromBot ? (
-                    <Badge variant="destructive" className="gap-1">
-                      <Ban className="h-3 w-3" /> محظور
-                    </Badge>
-                  ) : (
-                    <Badge className="gap-1 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20">
-                      <CheckCircle2 className="h-3 w-3" /> نشط
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={!s.bannedFromBot}
-                        disabled={banMutation.isPending}
-                        onCheckedChange={(v) =>
-                          banMutation.mutate({ id: s.id, banned: !v })
-                        }
-                      />
-                      <span className="text-xs text-muted-foreground">البوت</span>
-                    </div>
-                    <Button variant="ghost" size="sm" className="gap-1">
-                      <ExternalLink className="h-3 w-3" /> عرض
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {!isLoading && filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                  لا توجد متاجر مطابقة.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </AdminLayout>
+    </div>
   );
 }
