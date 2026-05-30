@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Search, Ban, CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { Search, Ban, CheckCircle2, ExternalLink, Loader2, AlertCircle } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/admin/stores")({
+export const Route = createFileRoute("/admin/stores")(​{
   beforeLoad: () => requireAdminClient(),
   head: () => ({ meta: [{ title: "المتاجر — أدمن Botly" }] }),
   component: AdminStoresPage,
@@ -32,9 +32,11 @@ function AdminStoresPage() {
   const fetchStores = useServerFn(listStores);
   const banFn = useServerFn(setStoreBan);
 
-  const { data: stores = [], isLoading } = useQuery<AdminStore[]>({
+  const { data: stores = [], isLoading, error: fetchError } = useQuery<AdminStore[]>({
     queryKey: ["admin", "stores"],
     queryFn: () => fetchStores(),
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
   const banMutation = useMutation({
@@ -52,7 +54,7 @@ function AdminStoresPage() {
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["admin", "stores"], ctx.prev);
-      toast.error("تعذّر تحديث الحالة");
+      toast.error("تعذّر تحديث الحالة. الرجاء المحاولة مجدداً.");
     },
     onSuccess: (_d, vars) => {
       toast.success(vars.banned ? "تم حظر المتجر من البوت" : "تم رفع الحظر");
@@ -84,6 +86,26 @@ function AdminStoresPage() {
       title="المتاجر"
       subtitle="كل المتاجر المسجلة على بوتلي. يمكنك حظر أي متجر من الظهور على البوت."
     >
+      {/* Error state */}
+      {fetchError && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <AlertCircle className="h-5 w-5 text-destructive" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-destructive">خطأ في تحميل البيانات</p>
+            <p className="text-xs text-destructive/80">
+              تعذّر الاتصال بقاعدة البيانات. الرجاء التحقق من الإعدادات والمحاولة مجدداً.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => qc.invalidateQueries({ queryKey: ["admin", "stores"] })}
+          >
+            إعادة المحاولة
+          </Button>
+        </div>
+      )}
+
       <div className="rounded-xl border border-border bg-card shadow-soft">
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
