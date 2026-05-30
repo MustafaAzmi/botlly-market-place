@@ -1,144 +1,176 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Logo } from "@/components/layout/Logo";
-import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
-import { toast } from "sonner";
-import { ShieldCheck, ArrowRight } from "lucide-react";
-import { ADMIN_CREDENTIALS, ADMIN_SESSION_KEY } from "@/lib/adminMockData";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { loginAdmin, signupAdmin } from "@/lib/admin.functions";
+import { writeAdminSession } from "@/lib/adminSession";
 
-export const Route = createFileRoute("/admin/login")({
-  head: () => ({ meta: [{ title: "تسجيل دخول الأدمن — Botly" }] }),
-  component: AdminLoginPage,
-});
+export const Route = createFileRoute("/admin/login")(
+  {
+    head: () => ({
+      meta: [
+        { title: "Admin Login - Botly" },
+        { name: "description", content: "Admin panel for Botly market place." },
+      ],
+    }),
+  },
+  {
+    component: AdminLoginPage,
+  }
+);
+
+const copy = {
+  ar: {
+    email: "البريد الإلكتروني",
+    emailPlaceholder: "admin@botly.tech",
+    password: "كلمة المرور",
+    passwordPlaceholder: "أدخل كلمة المرور",
+    loginBtn: "دخول",
+    signupBtn: "إنشاء حساب",
+    required: "أكمل جميع الحقول",
+    passwordShort: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
+    loginSuccess: "تم الدخول بنجاح",
+    signupSuccess: "تم إنشاء الحساب بنجاح",
+    serverError: "خطأ من الخادم",
+  },
+  en: {
+    email: "Email",
+    emailPlaceholder: "admin@botly.tech",
+    password: "Password",
+    passwordPlaceholder: "Enter your password",
+    loginBtn: "Sign In",
+    signupBtn: "Sign Up",
+    required: "Please fill in all fields",
+    passwordShort: "Password must be at least 6 characters",
+    loginSuccess: "Successfully signed in",
+    signupSuccess: "Account created successfully",
+    serverError: "Server error",
+  },
+};
 
 function AdminLoginPage() {
+  const { locale } = useLanguage();
+  const text = copy[locale];
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState("");
+  const loginAdminFn = useServerFn(loginAdmin);
+  const signupAdminFn = useServerFn(signupAdmin);
+
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
 
-  const onSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const id = identifier.trim().toLowerCase();
-    const isAdmin = id === ADMIN_CREDENTIALS.email.toLowerCase() || id === ADMIN_CREDENTIALS.phone;
 
-    if (!isAdmin) {
-      toast.error("بيانات غير صحيحة. هذه الصفحة للأدمن فقط.");
+    if (!email.trim() || !password.trim()) {
+      toast.error(text.required);
       return;
     }
-    if (password.length < 4) {
-      toast.error("الرجاء إدخال كلمة المرور");
+
+    if (password.length < 6) {
+      toast.error(text.passwordShort);
       return;
     }
+
     setLoading(true);
 
-    Promise.resolve()
-      .then(() => {
-        sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ id, at: Date.now() }));
-        toast.success("تم تسجيل الدخول كأدمن");
-        navigate({ to: "/admin" });
-      })
-      .catch((err) => {
-        console.error(err);
-        toast.error("حدث خطأ أثناء تسجيل الدخول");
-      })
-      .finally(() => {
-        setLoading(false);
+    try {
+      const result = isSignup
+        ? await signupAdminFn({ data: { email, password } })
+        : await loginAdminFn({ data: { email, password } });
+
+      writeAdminSession({
+        token: result.token,
+        adminId: result.admin.id,
+        email: result.admin.email,
+        signedInAt: new Date().toISOString(),
       });
+
+      toast.success(isSignup ? text.signupSuccess : text.loginSuccess);
+      navigate({ to: "/admin" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.serverError);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="flex flex-col">
-        <header className="flex items-center justify-between border-b border-border bg-background px-6 py-4">
-          <Logo />
-          <LanguageSwitcher />
-        </header>
-        <div className="flex flex-1 items-center justify-center px-6 py-12">
-          <div className="w-full max-w-md">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <ShieldCheck className="h-3 w-3" /> دخول مقيد
-            </div>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight">لوحة تحكم الأدمن</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              ادخل بريدك الإلكتروني أو رقم هاتفك المسجل كأدمن.
-            </p>
+    <div className="flex min-h-screen">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+        <div className="w-full max-w-md space-y-8">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold">Admin Login</h1>
+            <p className="mt-2 text-sm text-muted-foreground">Botly Market Place</p>
+          </div>
 
-            <form onSubmit={onSubmit} className="mt-8 space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="identifier">البريد الإلكتروني أو رقم الهاتف</Label>
-                <Input
-                  id="identifier"
-                  dir="ltr"
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="admin@example.com أو 07XXXXXXXXX"
-                  className="h-11 text-start"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">كلمة المرور</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="h-11"
-                />
-              </div>
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full gap-2 shadow-soft"
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <Label htmlFor="email">{text.email}</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder={text.emailPlaceholder}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
-              >
-                {loading ? "جارٍ التحقق…" : "دخول"}
-                <ArrowRight className="h-4 w-4 rtl:rotate-180" />
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                صفحة خاصة بفريق إدارة بوتلي. سيتم لاحقاً ربطها بـ Lovable Cloud وجدول الأدوار.
-              </p>
-            </form>
-
-            <div className="mt-8 text-center text-sm text-muted-foreground">
-              <Link to="/" className="hover:text-foreground">
-                ← العودة للرئيسية
-              </Link>
+                className="mt-2"
+              />
             </div>
+
+            <div>
+              <Label htmlFor="password">{text.password}</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder={text.passwordPlaceholder}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                className="mt-2"
+              />
+            </div>
+
+            <Button type="submit" disabled={loading} className="w-full gap-2">
+              {loading ? "جارٍ..." : isSignup ? text.signupBtn : text.loginBtn}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </form>
+
+          <button
+            type="button"
+            onClick={() => setIsSignup(!isSignup)}
+            className="w-full text-center text-sm text-primary hover:underline"
+          >
+            {isSignup ? "العودة للدخول" : "إنشاء حساب جديد"}
+          </button>
+
+          <div className="mt-8 rounded-lg bg-blue-50 p-4 text-sm text-blue-900">
+            <p className="font-medium mb-2">⚠️ صفحة مؤقتة للاختبار</p>
+            <p>يمكنك استخدام أي بريد وكلمة مرور (6 أحرف+)</p>
           </div>
         </div>
       </div>
 
-      <div
-        className="relative hidden flex-col justify-between p-12 text-primary-foreground lg:flex"
-        style={{ background: "var(--gradient-primary)" }}
-      >
-        <div className="flex items-center gap-2 text-sm font-medium opacity-90">
-          <ShieldCheck className="h-4 w-4" /> Botly Admin Console
+      <div className="hidden flex-1 flex-col justify-between bg-gradient-to-br from-primary to-primary-dark p-12 text-white lg:flex">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-6 w-6" />
+          <span className="text-lg font-bold">Botly Admin</span>
         </div>
         <div>
-          <h2 className="text-balance text-4xl font-bold leading-tight">تحكم كامل بمنصة بوتلي</h2>
-          <p className="mt-4 max-w-md text-primary-foreground/85">
-            راقب المتاجر، أدِر باقات الدفع، شركات التوصيل، وأرسل تنبيهات جماعية عبر البوت — كل ذلك
-            من مكان واحد.
+          <h2 className="text-4xl font-bold leading-tight">لوحة التحكم الإدارية</h2>
+          <p className="mt-4 text-lg text-white/80">
+            أدِر المتاجر والمنتجات وشركات التوصيل من مكان واحد.
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-3 text-sm">
-          {[
-            { v: "0", l: "متجر مسجل" },
-            { v: "0", l: "شركة توصيل" },
-            { v: "0", l: "رسالة شهرياً" },
-          ].map((s) => (
-            <div key={s.l} className="rounded-xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
-              <div className="text-xl font-bold">{s.v}</div>
-              <div className="mt-1 text-xs opacity-80">{s.l}</div>
-            </div>
-          ))}
-        </div>
+        <div className="text-sm text-white/60">© 2026 Botly Market Place</div>
       </div>
     </div>
   );
