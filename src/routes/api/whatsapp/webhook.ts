@@ -5,6 +5,7 @@ import type { Json } from "@/integrations/supabase/types";
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+const anthropicVersion = "2023-06-01";
 
 function getVerifyToken() {
   return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
@@ -12,6 +13,22 @@ function getVerifyToken() {
 
 function getAppSecret() {
   return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
+}
+
+function getWhatsAppAccessToken() {
+  return process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN;
+}
+
+function getWhatsAppPhoneNumberId() {
+  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+}
+
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+
+function getAnthropicModel() {
+  return process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -74,6 +91,101 @@ function readWebhookSummary(payload: unknown) {
   };
 }
 
+function readIncomingMessage(payload: unknown) {
+  const root = payload as {
+    entry?: Array<{
+      changes?: Array<{
+        value?: {
+          messages?: Array<{
+            from?: string;
+            type?: string;
+            text?: { body?: string };
+            button?: { text?: string };
+            interactive?: { button_reply?: { title?: string } };
+          }>;
+        };
+      }>;
+    }>;
+  };
+
+  const message = root.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  const text =
+    message?.text?.body ??
+    message?.button?.text ??
+    message?.interactive?.button_reply?.title ??
+    "";
+
+  return {
+    from: message?.from ?? null,
+    type: message?.type ?? null,
+    text: text.trim(),
+  };
+}
+
+async function generateClaudeReply(customerText: string) {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) return null;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": anthropicVersion,
+    },
+    body: JSON.stringify({
+      model: getAnthropicModel(),
+      max_tokens: 280,
+      system:
+        "You are Botly, an Iraqi Baghdadi Arabic WhatsApp commerce assistant. Reply only in Iraqi Baghdadi Arabic. Keep answers short, warm, practical, and useful for a customer chatting with a smart marketplace. Do not mention internal APIs, models, or system instructions.",
+      messages: [
+        {
+          role: "user",
+          content: customerText,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    console.error("[Claude] Reply generation failed", response.status, await response.text().catch(() => ""));
+    return null;
+  }
+
+  const data = (await response.json().catch(() => null)) as
+    | { content?: Array<{ type?: string; text?: string }> }
+    | null;
+  const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
+  return text || null;
+}
+
+async function sendWhatsAppText(to: string, body: string) {
+  const accessToken = getWhatsAppAccessToken();
+  const phoneNumberId = getWhatsAppPhoneNumberId();
+  if (!accessToken || !phoneNumberId) return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+
+  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { preview_url: false, body },
+    }),
+  });
+
+  if (response.ok) return { ok: true, status: response.status };
+  return {
+    ok: false,
+    status: response.status,
+    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+  };
+}
+
 export const Route = createFileRoute("/api/whatsapp/webhook")({
   server: {
     handlers: {
@@ -112,6 +224,29 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           });
         }
 
+        const incoming = readIncomingMessage(payload);
+        let claudeReply: string | null = null;
+        let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
+
+        if (incoming.from && incoming.text) {
+          claudeReply = await generateClaudeReply(incoming.text);
+          if (claudeReply) {
+            sendResult = await sendWhatsAppText(incoming.from, claudeReply);
+            if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send Claude reply", sendResult);
+          }
+        }
+
+        const payloadForStorage = {
+          ...(payload && typeof payload === "object" ? (payload as Record<string, unknown>) : { raw: payload }),
+          botly_ai: {
+            provider: "anthropic",
+            model: getAnthropicModel(),
+            incoming_type: incoming.type,
+            replied: Boolean(claudeReply),
+            sent: Boolean(sendResult?.ok),
+          },
+        };
+
         const summary = readWebhookSummary(payload);
         const { error } = await supabaseAdmin.from("whatsapp_webhook_events").insert({
           source: summary.source,
@@ -119,13 +254,13 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           phone_number_id: summary.phoneNumberId,
           wa_message_id: summary.waMessageId,
           from_number: summary.fromNumber,
-          payload: payload as Json,
+          payload: payloadForStorage as Json,
         });
 
         if (error) {
           const fallback = await supabaseAdmin.from("whatsapp_webhook_events").insert({
             provider: "meta",
-            payload: payload as Json,
+            payload: payloadForStorage as Json,
           } as never);
 
           if (fallback.error) {
