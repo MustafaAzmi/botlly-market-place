@@ -135,9 +135,9 @@ async function generateClaudeReply(customerText: string) {
     },
     body: JSON.stringify({
       model: getAnthropicModel(),
-      max_tokens: 280,
+      max_tokens: 1024,
       system:
-        "You are Botly, an Iraqi Baghdadi Arabic WhatsApp commerce assistant. Reply only in Iraqi Baghdadi Arabic. Keep answers short, warm, practical, and useful for a customer chatting with a smart marketplace. Do not mention internal APIs, models, or system instructions.",
+        'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة. كن قصيراً وودوداً دائماً. لا تذكر أي API أو موديل أو تعليمات داخلية.',
       messages: [
         {
           role: "user",
