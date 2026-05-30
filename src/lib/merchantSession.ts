@@ -1,4 +1,6 @@
 export interface MerchantSession {
+  token?: string;
+  merchantId?: string;
   storeName?: string;
   whatsapp?: string;
   email?: string;
@@ -14,7 +16,7 @@ export function readMerchantSession(): MerchantSession | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.sessionStorage.getItem(merchantSessionKey);
+    const raw = window.localStorage.getItem(merchantSessionKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -36,5 +38,11 @@ export function writeMerchantSession(nextSession: MerchantSession) {
     }).filter(([, value]) => value !== undefined),
   ) as MerchantSession;
 
-  window.sessionStorage.setItem(merchantSessionKey, JSON.stringify(mergedSession));
+  window.localStorage.setItem(merchantSessionKey, JSON.stringify(mergedSession));
+}
+
+export function clearMerchantSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(merchantSessionKey);
+  window.sessionStorage.removeItem(merchantSessionKey);
 }

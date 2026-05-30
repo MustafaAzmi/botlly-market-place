@@ -1,23 +1,50 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { Loader2, Package, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { useT } from "@/i18n/LanguageProvider";
-import { demoProducts, type Product } from "@/lib/mockData";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Package } from "lucide-react";
+import { useT } from "@/i18n/LanguageProvider";
+import { listMerchantProducts, type MerchantProduct } from "@/lib/merchant.functions";
+import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/")({
-  head: () => ({ meta: [{ title: "Products — Botly" }] }),
+  head: () => ({ meta: [{ title: "Products - Botly" }] }),
   component: ProductsPage,
 });
 
 function ProductsPage() {
   const t = useT();
+  const navigate = useNavigate();
+  const listMerchantProductsFn = useServerFn(listMerchantProducts);
   const [query, setQuery] = useState("");
-  const filtered = demoProducts.filter((p) =>
-    p.title.toLowerCase().includes(query.toLowerCase()),
+  const [products, setProducts] = useState<MerchantProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) {
+      navigate({ to: "/auth" });
+      return;
+    }
+
+    listMerchantProductsFn({ data: { token: merchantSession.token } })
+      .then(setProducts)
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "تعذر تحميل المنتجات");
+        navigate({ to: "/auth" });
+      })
+      .finally(() => setLoading(false));
+  }, [listMerchantProductsFn, navigate]);
+
+  const filtered = useMemo(
+    () =>
+      products.filter((product) => product.description.toLowerCase().includes(query.toLowerCase())),
+    [products, query],
   );
 
   return (
@@ -34,7 +61,7 @@ function ProductsPage() {
       }
     >
       <div className="mb-6 flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative max-w-md flex-1">
           <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -45,12 +72,17 @@ function ProductsPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+          <p className="mt-3 text-sm">جاري تحميل منتجاتك...</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((p) => (
-            <ProductCard key={p.id} product={p} />
+          {filtered.map((product) => (
+            <ProductCard key={product.id} product={product} />
           ))}
         </div>
       )}
@@ -58,43 +90,35 @@ function ProductsPage() {
   );
 }
 
-function ProductCard({ product }: { product: Product }) {
-  const t = useT();
+function ProductCard({ product }: { product: MerchantProduct }) {
   return (
     <div className="group overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
       <div
         className="aspect-square bg-secondary bg-cover bg-center"
-        style={{ backgroundImage: `url(${product.image})` }}
+        style={{ backgroundImage: `url(${product.imageUrl})` }}
       />
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate font-semibold">{product.title}</h3>
-            <p className="text-xs text-muted-foreground">{product.category}</p>
+            <h3 className="line-clamp-2 font-semibold">{product.description}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[product.color, product.size].filter(Boolean).join(" - ") || "منتج"}
+            </p>
           </div>
-          <Badge variant="secondary" className="shrink-0 text-xs">
-            {product.availability === "in_stock"
-              ? t("products.availability.inStock")
-              : t("products.availability.outOfStock")}
-          </Badge>
-        </div>
-        <div className="mt-3 flex items-baseline gap-2">
-          <span className="text-lg font-bold">{product.discountPrice ?? product.price}</span>
-          <span className="text-xs text-muted-foreground">{product.currency}</span>
-          {product.discountPrice && (
-            <span className="text-xs text-muted-foreground line-through">
-              {product.price}
-            </span>
+          {product.quantity !== undefined && (
+            <Badge variant="secondary" className="shrink-0 text-xs">
+              {product.quantity}
+            </Badge>
           )}
         </div>
-        <div className="mt-4 flex gap-2">
-          <Button variant="outline" size="sm" className="flex-1 gap-1">
-            <Edit className="h-3.5 w-3.5" />
-            {t("common.edit")}
-          </Button>
-          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+        <div className="mt-3 flex items-baseline gap-2">
+          <span className="text-lg font-bold">{product.discountPrice ?? product.currentPrice}</span>
+          <span className="text-xs text-muted-foreground">{product.currency}</span>
+          {product.discountPrice !== undefined && (
+            <span className="text-xs text-muted-foreground line-through">
+              {product.currentPrice}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -109,7 +133,9 @@ function EmptyState() {
         <Package className="h-7 w-7" />
       </div>
       <h3 className="mt-4 text-lg font-semibold">{t("products.empty.title")}</h3>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">{t("products.empty.desc")}</p>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+        لا توجد منتجات حقيقية بعد. أضف أول منتج حتى يظهر هنا ويقدر البوت يرشحه للزبائن.
+      </p>
       <Button asChild className="mt-6 gap-2">
         <Link to="/dashboard/products/new">
           <Plus className="h-4 w-4" />

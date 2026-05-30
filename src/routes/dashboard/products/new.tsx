@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, ImagePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -16,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCurrencies } from "@/lib/currenciesStore";
+import { createMerchantProduct } from "@/lib/merchant.functions";
+import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/new")({
   head: () => ({ meta: [{ title: "New product - Botly" }] }),
@@ -24,20 +27,22 @@ export const Route = createFileRoute("/dashboard/products/new")({
 
 function NewProductPage() {
   const navigate = useNavigate();
+  const createMerchantProductFn = useServerFn(createMerchantProduct);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [description, setDescription] = useState("");
+  const [size, setSize] = useState("");
+  const [color, setColor] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [currentPrice, setCurrentPrice] = useState("");
+  const [discountPrice, setDiscountPrice] = useState("");
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
-
-  useEffect(() => {
-    return () => {
-      if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
-    };
-  }, [imagePreview]);
 
   const onPickImage = (file: File | undefined) => {
     if (!file) return;
@@ -45,24 +50,58 @@ function NewProductPage() {
       toast.error("اختار صورة للمنتج فقط");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن يكون أقل من 5MB");
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("حجم الصورة يجب أن يكون أقل من 2MB");
       return;
     }
-    if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
-    setImagePreview(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) {
+      navigate({ to: "/auth" });
+      return;
+    }
+
     if (!imagePreview) {
       toast.error("صورة المنتج مطلوبة");
       return;
     }
+    const price = Number(currentPrice);
+    const salePrice = discountPrice.trim() ? Number(discountPrice) : undefined;
+    if (!description.trim() || !Number.isFinite(price)) {
+      toast.error("الوصف والسعر الحالي مطلوبة");
+      return;
+    }
 
-    // TODO(products): upload image to storage and insert product row in Supabase.
-    toast.success("تم حفظ المنتج");
-    navigate({ to: "/dashboard/products" });
+    setSaving(true);
+    try {
+      await createMerchantProductFn({
+        data: {
+          token: merchantSession.token,
+          description: description.trim(),
+          imageUrl: imagePreview,
+          currentPrice: price,
+          discountPrice: salePrice,
+          currency,
+          size: size.trim(),
+          color: color.trim(),
+          quantity: quantity.trim() ? Number(quantity) : undefined,
+        },
+      });
+      toast.success("تم حفظ المنتج");
+      navigate({ to: "/dashboard/products" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر حفظ المنتج");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -118,7 +157,7 @@ function NewProductPage() {
                     <ImagePlus className="mx-auto h-8 w-8 text-primary" />
                     <span className="mt-3 block text-sm font-medium">اختر صورة المنتج</span>
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      PNG أو JPG، أقل من 5MB
+                      PNG أو JPG، أقل من 2MB
                     </span>
                   </span>
                 </button>
@@ -130,6 +169,8 @@ function NewProductPage() {
             <Field id="description" label="وصف مختصر">
               <Textarea
                 id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 placeholder="مثال: تيشيرت قطن مريح، مناسب للاستخدام اليومي"
                 maxLength={280}
@@ -139,16 +180,30 @@ function NewProductPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field id="size" label="المقاس (اختياري)">
-                <Input id="size" placeholder="S / M / L أو 42" className="h-11" />
+                <Input
+                  id="size"
+                  value={size}
+                  onChange={(e) => setSize(e.target.value)}
+                  placeholder="S / M / L أو 42"
+                  className="h-11"
+                />
               </Field>
               <Field id="color" label="اللون (اختياري)">
-                <Input id="color" placeholder="أسود، أبيض..." className="h-11" />
+                <Input
+                  id="color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder="أسود، أبيض..."
+                  className="h-11"
+                />
               </Field>
             </div>
 
             <Field id="quantity" label="الكمية المتوفرة (اختياري)">
               <Input
                 id="quantity"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="numeric"
@@ -164,6 +219,8 @@ function NewProductPage() {
             <Field id="currentPrice" label="السعر الحالي">
               <Input
                 id="currentPrice"
+                value={currentPrice}
+                onChange={(e) => setCurrentPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"
@@ -175,6 +232,8 @@ function NewProductPage() {
             <Field id="discountPrice" label="السعر بعد الخصم (اختياري)">
               <Input
                 id="discountPrice"
+                value={discountPrice}
+                onChange={(e) => setDiscountPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"
@@ -199,8 +258,8 @@ function NewProductPage() {
           </div>
 
           <div className="flex gap-2">
-            <Button type="submit" size="lg" className="flex-1 shadow-soft">
-              حفظ المنتج
+            <Button type="submit" size="lg" className="flex-1 shadow-soft" disabled={saving}>
+              {saving ? "جاري الحفظ..." : "حفظ المنتج"}
             </Button>
             <Button asChild type="button" size="lg" variant="outline">
               <Link to="/dashboard/products">إلغاء</Link>

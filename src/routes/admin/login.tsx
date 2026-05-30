@@ -24,9 +24,7 @@ function AdminLoginPage() {
     e.preventDefault();
     const id = identifier.trim().toLowerCase();
     // TODO(supabase): replace with supabase.auth.signInWithPassword + has_role('admin') check.
-    const isAdmin =
-      id === ADMIN_CREDENTIALS.email.toLowerCase() ||
-      id === ADMIN_CREDENTIALS.phone;
+    const isAdmin = id === ADMIN_CREDENTIALS.email.toLowerCase() || id === ADMIN_CREDENTIALS.phone;
 
     if (!isAdmin) {
       toast.error("بيانات غير صحيحة. هذه الصفحة للأدمن فقط.");
@@ -85,7 +83,12 @@ function AdminLoginPage() {
                   className="h-11"
                 />
               </div>
-              <Button type="submit" size="lg" className="w-full gap-2 shadow-soft" disabled={loading}>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full gap-2 shadow-soft"
+                disabled={loading}
+              >
                 {loading ? "جارٍ التحقق…" : "دخول"}
                 <ArrowRight className="h-4 w-4 rtl:rotate-180" />
               </Button>
@@ -95,7 +98,9 @@ function AdminLoginPage() {
             </form>
 
             <div className="mt-8 text-center text-sm text-muted-foreground">
-              <Link to="/" className="hover:text-foreground">← العودة للرئيسية</Link>
+              <Link to="/" className="hover:text-foreground">
+                ← العودة للرئيسية
+              </Link>
             </div>
           </div>
         </div>
@@ -109,18 +114,17 @@ function AdminLoginPage() {
           <ShieldCheck className="h-4 w-4" /> Botly Admin Console
         </div>
         <div>
-          <h2 className="text-balance text-4xl font-bold leading-tight">
-            تحكم كامل بمنصة بوتلي
-          </h2>
+          <h2 className="text-balance text-4xl font-bold leading-tight">تحكم كامل بمنصة بوتلي</h2>
           <p className="mt-4 max-w-md text-primary-foreground/85">
-            راقب المتاجر، أدِر باقات الدفع، شركات التوصيل، وأرسل تنبيهات جماعية عبر البوت — كل ذلك من مكان واحد.
+            راقب المتاجر، أدِر باقات الدفع، شركات التوصيل، وأرسل تنبيهات جماعية عبر البوت — كل ذلك
+            من مكان واحد.
           </p>
         </div>
         <div className="grid grid-cols-3 gap-3 text-sm">
           {[
-            { v: "2,400+", l: "متجر مسجل" },
-            { v: "120+", l: "شركة توصيل" },
-            { v: "65K+", l: "رسالة شهرياً" },
+            { v: "0", l: "متجر مسجل" },
+            { v: "0", l: "شركة توصيل" },
+            { v: "0", l: "رسالة شهرياً" },
           ].map((s) => (
             <div key={s.l} className="rounded-xl bg-primary-foreground/10 p-3 backdrop-blur-sm">
               <div className="text-xl font-bold">{s.v}</div>

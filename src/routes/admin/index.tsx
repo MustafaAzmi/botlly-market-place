@@ -2,20 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { requireAdminClient } from "@/lib/adminGuard";
-import {
-  adminStores,
-  broadcastHistory,
-  iraqiCities,
-} from "@/lib/adminMockData";
-import {
-  Store,
-  Search,
-  ShoppingBag,
-  Bot,
-  Ban,
-  TrendingUp,
-  MapPin,
-} from "lucide-react";
+import { adminStores, broadcastHistory, iraqiCities } from "@/lib/adminMockData";
+import { Store, Search, ShoppingBag, Bot, Ban, TrendingUp, MapPin } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -24,19 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 export const Route = createFileRoute("/admin/")({
   beforeLoad: () => requireAdminClient(),
@@ -56,15 +33,8 @@ const CITY_TRENDS: Record<string, DayPoint[]> = (() => {
     return `${d.getMonth() + 1}/${d.getDate()}`;
   });
   const out: Record<string, DayPoint[]> = {};
-  cities.forEach((c, ci) => {
-    const seed = (c.length + ci) * 7;
-    out[c] = days.map((day, i) => {
-      const base = c === "all" ? 280 : 40 + ((seed + i * 3) % 60);
-      const noise = ((i * 13 + ci * 5) % 25) - 8;
-      const searches = Math.max(8, base + noise + i * (c === "all" ? 6 : 1.2));
-      const orders = Math.max(2, Math.round(searches * 0.18 + ((i + ci) % 5)));
-      return { day, searches: Math.round(searches), orders };
-    });
+  cities.forEach((c) => {
+    out[c] = days.map((day) => ({ day, searches: 0, orders: 0 }));
   });
   return out;
 })();
@@ -84,9 +54,7 @@ function AdminDashboard() {
     const orders = trend.reduce((a, p) => a + p.orders, 0);
     const banned = cityStores.filter((s) => s.bannedFromBot).length;
     const botActive = cityStores.length - banned;
-    const botUptime = cityStores.length
-      ? Math.round((botActive / cityStores.length) * 100)
-      : 100;
+    const botUptime = cityStores.length ? Math.round((botActive / cityStores.length) * 100) : 0;
     const prevSearches = trend.slice(0, 7).reduce((a, p) => a + p.searches, 0);
     const lastSearches = trend.slice(7).reduce((a, p) => a + p.searches, 0);
     const delta = prevSearches
@@ -155,10 +123,7 @@ function AdminDashboard() {
       {/* KPI grid */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {kpis.map((k) => (
-          <div
-            key={k.label}
-            className="rounded-2xl border border-border bg-card p-5 shadow-soft"
-          >
+          <div key={k.label} className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div
               className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${k.tone}`}
             >

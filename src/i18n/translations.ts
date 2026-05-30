@@ -23,7 +23,8 @@ export const translations = {
 
     "hero.badge": "مدعوم بالذكاء الاصطناعي",
     "hero.title": "حوّل واتساب إلى متجر ذكي يبيع نيابةً عنك",
-    "hero.subtitle": "بوتلي يربط متجرك بواتساب، يفهم طلبات عملائك، ويرسل أفضل المنتجات تلقائياً — ثم يبلّغك أنت وشركة التوصيل.",
+    "hero.subtitle":
+      "بوتلي يربط متجرك بواتساب، يفهم طلبات عملائك، ويرسل أفضل المنتجات تلقائياً — ثم يبلّغك أنت وشركة التوصيل.",
     "hero.cta.primary": "أنشئ متجرك مجاناً",
     "hero.cta.secondary": "شاهد كيف يعمل",
     "hero.stats.merchants": "تاجر نشط",
@@ -67,7 +68,7 @@ export const translations = {
     "auth.title": "أهلاً بك في بوتلي",
     "auth.subtitle": "أنشئ متجرك واربطه بواتساب خلال دقيقتين.",
     "auth.storeName": "اسم المتجر",
-    "auth.storeName.placeholder": "مثال: متجر النور",
+    "auth.storeName.placeholder": "مثال: اسم متجرك",
     "auth.whatsapp": "رقم واتساب",
     "auth.whatsapp.placeholder": "+966 5X XXX XXXX",
     "auth.submit": "إنشاء المتجر",
@@ -193,7 +194,8 @@ export const translations = {
 
     "hero.badge": "AI-powered commerce",
     "hero.title": "Turn WhatsApp into a smart store that sells for you",
-    "hero.subtitle": "Botly connects your catalog to WhatsApp, understands customer requests, and sends the best products automatically — then notifies you and your delivery partner.",
+    "hero.subtitle":
+      "Botly connects your catalog to WhatsApp, understands customer requests, and sends the best products automatically — then notifies you and your delivery partner.",
     "hero.cta.primary": "Create your store",
     "hero.cta.secondary": "See how it works",
     "hero.stats.merchants": "active merchants",
@@ -205,9 +207,11 @@ export const translations = {
     "features.store.title": "Professional storefront",
     "features.store.desc": "A polished store page with your logo, cover, and full catalog.",
     "features.bot.title": "Smart bot",
-    "features.bot.desc": "Understands customer messages in Arabic & English and ranks the best matches.",
+    "features.bot.desc":
+      "Understands customer messages in Arabic & English and ranks the best matches.",
     "features.leads.title": "Automated leads",
-    "features.leads.desc": "Every order reaches you instantly with full customer & delivery context.",
+    "features.leads.desc":
+      "Every order reaches you instantly with full customer & delivery context.",
     "features.analytics.title": "Clear analytics",
     "features.analytics.desc": "Track products, searches and orders from one clean dashboard.",
 
@@ -237,7 +241,7 @@ export const translations = {
     "auth.title": "Welcome to Botly",
     "auth.subtitle": "Create your store and connect it to WhatsApp in 2 minutes.",
     "auth.storeName": "Store name",
-    "auth.storeName.placeholder": "e.g. Noor Store",
+    "auth.storeName.placeholder": "e.g. Your Store",
     "auth.whatsapp": "WhatsApp number",
     "auth.whatsapp.placeholder": "+966 5X XXX XXXX",
     "auth.submit": "Create my store",

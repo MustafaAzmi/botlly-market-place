@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import {
   ArrowRight,
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/auth")({
@@ -114,6 +116,8 @@ function AuthPage() {
   const { locale } = useLanguage();
   const text = copy[locale];
   const navigate = useNavigate();
+  const loginMerchantFn = useServerFn(loginMerchant);
+  const signupMerchantFn = useServerFn(signupMerchant);
   const [mode, setMode] = useState<AuthMode>("login");
   const [showReset, setShowReset] = useState(false);
   const [storeName, setStoreName] = useState("");
@@ -134,18 +138,25 @@ function AuthPage() {
     resetForm();
   };
 
-  const openDashboard = (successMessage: string) => {
+  const saveAuthSession = (
+    successMessage: string,
+    result: Awaited<ReturnType<typeof loginMerchantFn>>,
+  ) => {
     writeMerchantSession({
-      ...(storeName.trim() ? { storeName: storeName.trim() } : {}),
-      whatsapp: whatsapp.trim(),
-      ...(email.trim() ? { email: email.trim() } : {}),
+      token: result.token,
+      merchantId: result.profile.id,
+      storeName: result.profile.storeName,
+      whatsapp: result.profile.whatsapp,
+      email: result.profile.email,
+      bio: result.profile.bio,
+      deliveryPhone: result.profile.deliveryPhone,
       signedInAt: new Date().toISOString(),
     });
     toast.success(successMessage);
-    navigate({ to: "/dashboard/store" });
+    navigate({ to: mode === "signup" ? "/dashboard/store" : "/dashboard" });
   };
 
-  const onAuthSubmit = (e: React.FormEvent) => {
+  const onAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!whatsapp.trim() || !password.trim() || (mode === "signup" && !storeName.trim())) {
@@ -159,11 +170,29 @@ function AuthPage() {
     }
 
     setLoading(true);
-    // TODO(auth): replace this mock flow with Supabase auth + merchant profile storage.
-    setTimeout(() => {
+    try {
+      const result =
+        mode === "signup"
+          ? await signupMerchantFn({
+              data: {
+                storeName: storeName.trim(),
+                whatsapp: whatsapp.trim(),
+                email: email.trim(),
+                password,
+              },
+            })
+          : await loginMerchantFn({
+              data: {
+                whatsapp: whatsapp.trim(),
+                password,
+              },
+            });
+      saveAuthSession(mode === "signup" ? text.signupSuccess : text.loginSuccess, result);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.required);
+    } finally {
       setLoading(false);
-      openDashboard(mode === "signup" ? text.signupSuccess : text.loginSuccess);
-    }, 450);
+    }
   };
 
   const onResetSubmit = (e: React.FormEvent) => {

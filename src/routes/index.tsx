@@ -20,9 +20,16 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Botly — AI WhatsApp Commerce for Merchants" },
-      { name: "description", content: "Botly turns WhatsApp into a smart AI store. Create your storefront, connect a bot, and convert chats into orders." },
+      {
+        name: "description",
+        content:
+          "Botly turns WhatsApp into a smart AI store. Create your storefront, connect a bot, and convert chats into orders.",
+      },
       { property: "og:title", content: "Botly — AI WhatsApp Commerce" },
-      { property: "og:description", content: "Turn WhatsApp into a smart store that sells for you." },
+      {
+        property: "og:description",
+        content: "Turn WhatsApp into a smart store that sells for you.",
+      },
     ],
   }),
   component: LandingPage,
@@ -36,10 +43,7 @@ function LandingPage() {
 
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div
-          className="absolute inset-0 -z-10"
-          style={{ background: "var(--gradient-hero)" }}
-        />
+        <div className="absolute inset-0 -z-10" style={{ background: "var(--gradient-hero)" }} />
         <div className="absolute -top-32 start-1/2 -z-10 h-[400px] w-[800px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
 
         <div className="container mx-auto max-w-6xl px-4 py-20 md:py-28">
@@ -68,12 +72,12 @@ function LandingPage() {
 
             <div className="mx-auto mt-14 grid max-w-2xl grid-cols-3 gap-4 border-t border-border/60 pt-8">
               {[
-                { v: "2,400+", l: t("hero.stats.merchants") },
-                { v: "180K+", l: t("hero.stats.products") },
-                { v: "65K+", l: t("hero.stats.orders") },
+                { v: t("features.store.title"), l: t("hero.stats.merchants") },
+                { v: t("features.bot.title"), l: t("hero.stats.products") },
+                { v: t("features.leads.title"), l: t("hero.stats.orders") },
               ].map((s) => (
                 <div key={s.l}>
-                  <div className="text-2xl font-bold text-foreground sm:text-3xl">{s.v}</div>
+                  <div className="text-sm font-bold text-foreground sm:text-base">{s.v}</div>
                   <div className="mt-1 text-xs text-muted-foreground sm:text-sm">{s.l}</div>
                 </div>
               ))}
@@ -94,20 +98,20 @@ function LandingPage() {
                     <MessageCircle className="h-4 w-4 text-success" />
                     WhatsApp
                   </div>
-                  <ChatBubble side="in">أبحث عن سماعة لاسلكية بسعر مناسب</ChatBubble>
-                  <ChatBubble side="out">وجدت لك ٣ منتجات مناسبة 👇</ChatBubble>
+                  <ChatBubble side="in">أبحث عن منتج مناسب</ChatBubble>
+                  <ChatBubble side="out">أشوف منتجات المتجر وأرشحلك المناسب.</ChatBubble>
                   <div className="rounded-xl border border-border bg-background p-3">
                     <div className="aspect-video rounded-lg bg-secondary" />
-                    <div className="mt-2 text-sm font-medium">AirBuds Pro 2</div>
-                    <div className="text-xs text-muted-foreground">399 SAR</div>
+                    <div className="mt-2 text-sm font-medium">منتج من متجرك</div>
+                    <div className="text-xs text-muted-foreground">السعر من لوحة التاجر</div>
                   </div>
                 </div>
                 <div className="border-s border-border bg-secondary/30 p-6">
                   <div className="mb-4 text-sm font-semibold">Botly Dashboard</div>
                   <div className="space-y-3">
-                    <MiniStat label={t("dashboard.stat.products")} value="24" />
-                    <MiniStat label={t("dashboard.stat.leads")} value="18" />
-                    <MiniStat label={t("dashboard.stat.searches")} value="312" />
+                    <MiniStat label={t("dashboard.stat.products")} value="0" />
+                    <MiniStat label={t("dashboard.stat.leads")} value="0" />
+                    <MiniStat label={t("dashboard.stat.searches")} value="0" />
                   </div>
                 </div>
               </div>
@@ -130,12 +134,17 @@ function LandingPage() {
               { i: Inbox, k: "leads" },
               { i: BarChart3, k: "analytics" },
             ].map(({ i: Icon, k }) => (
-              <div key={k} className="group rounded-2xl border border-border bg-card p-6 shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
+              <div
+                key={k}
+                className="group rounded-2xl border border-border bg-card p-6 shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated"
+              >
                 <div className="mb-4 grid h-11 w-11 place-items-center rounded-xl bg-primary-soft text-primary">
                   <Icon className="h-5 w-5" />
                 </div>
                 <h3 className="text-base font-semibold">{t(`features.${k}.title` as never)}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{t(`features.${k}.desc` as never)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t(`features.${k}.desc` as never)}
+                </p>
               </div>
             ))}
           </div>
@@ -166,7 +175,9 @@ function LandingPage() {
                   <span className="text-xs font-semibold text-muted-foreground">0{idx + 1}</span>
                 </div>
                 <h3 className="font-semibold">{t(`workflow.${k}.title` as never)}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{t(`workflow.${k}.desc` as never)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t(`workflow.${k}.desc` as never)}
+                </p>
               </div>
             ))}
           </div>
@@ -180,7 +191,9 @@ function LandingPage() {
             className="overflow-hidden rounded-3xl p-10 text-center shadow-glow sm:p-14"
             style={{ background: "var(--gradient-primary)" }}
           >
-            <h2 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl">{t("cta.title")}</h2>
+            <h2 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl">
+              {t("cta.title")}
+            </h2>
             <p className="mx-auto mt-4 max-w-xl text-primary-foreground/85">{t("cta.subtitle")}</p>
             <div className="mt-8">
               <Button asChild size="lg" variant="secondary" className="gap-2 shadow-elevated">

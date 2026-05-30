@@ -1,16 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  LayoutDashboard,
-  Package,
-  Store,
-  ShoppingBag,
-  Workflow,
-  LogOut,
-} from "lucide-react";
+import { LayoutDashboard, Package, Store, ShoppingBag, Workflow, LogOut } from "lucide-react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
+import { clearMerchantSession } from "@/lib/merchantSession";
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
@@ -20,7 +14,12 @@ const items = [
   { to: "/dashboard/workflow", icon: Workflow, key: "nav.workflowPage" as const },
 ];
 
-export function DashboardLayout({ children, title, subtitle, actions }: {
+export function DashboardLayout({
+  children,
+  title,
+  subtitle,
+  actions,
+}: {
   children: React.ReactNode;
   title?: string;
   subtitle?: string;
@@ -39,7 +38,8 @@ export function DashboardLayout({ children, title, subtitle, actions }: {
           </div>
           <nav className="flex-1 space-y-1 p-3">
             {items.map((item) => {
-              const active = pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
+              const active =
+                pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (
                 <Link
                   key={item.to}
@@ -57,8 +57,12 @@ export function DashboardLayout({ children, title, subtitle, actions }: {
             })}
           </nav>
           <div className="p-3 border-t border-sidebar-border">
-            <Button asChild variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
-              <Link to="/">
+            <Button
+              asChild
+              variant="ghost"
+              className="w-full justify-start gap-3 text-muted-foreground"
+            >
+              <Link to="/auth" onClick={() => clearMerchantSession()}>
                 <LogOut className="h-4 w-4" />
                 {t("nav.logout")}
               </Link>
@@ -84,7 +88,8 @@ export function DashboardLayout({ children, title, subtitle, actions }: {
           {/* Mobile nav */}
           <nav className="flex gap-1 overflow-x-auto border-b border-border bg-background px-2 py-2 lg:hidden">
             {items.map((item) => {
-              const active = pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
+              const active =
+                pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (
                 <Link
                   key={item.to}
