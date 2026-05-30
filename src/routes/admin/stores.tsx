@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/admin/stores")(​{
+export const Route = createFileRoute("/admin/stores")({
   beforeLoad: () => requireAdminClient(),
   head: () => ({ meta: [{ title: "المتاجر — أدمن Botly" }] }),
   component: AdminStoresPage,
@@ -86,7 +86,6 @@ function AdminStoresPage() {
       title="المتاجر"
       subtitle="كل المتاجر المسجلة على بوتلي. يمكنك حظر أي متجر من الظهور على البوت."
     >
-      {/* Error state */}
       {fetchError && (
         <div className="mb-4 flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
           <AlertCircle className="h-5 w-5 text-destructive" />
