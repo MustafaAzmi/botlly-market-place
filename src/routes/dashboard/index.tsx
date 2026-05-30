@@ -14,7 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { useState } from "react";
+import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/")({
@@ -24,16 +25,24 @@ export const Route = createFileRoute("/dashboard/")({
 
 function DashboardHome() {
   const t = useT();
+  const [storeName, setStoreName] = useState(demoMerchant.storeName);
   const [deliveryWhatsapp, setDeliveryWhatsapp] = useState(demoMerchant.deliveryPhone);
+
+  useEffect(() => {
+    const merchantSession = readMerchantSession();
+    if (merchantSession?.storeName) setStoreName(merchantSession.storeName);
+    if (merchantSession?.deliveryPhone) setDeliveryWhatsapp(merchantSession.deliveryPhone);
+  }, []);
 
   const saveDeliveryWhatsapp = () => {
     // TODO(delivery): persist delivery WhatsApp on merchant profile.
+    writeMerchantSession({ deliveryPhone: deliveryWhatsapp.trim() });
     toast.success("تم حفظ رقم واتساب شركة التوصيل");
   };
 
   return (
     <DashboardLayout
-      title={t("dashboard.greeting", { name: demoMerchant.storeName })}
+      title={t("dashboard.greeting", { name: storeName })}
       subtitle={t("dashboard.subtitle")}
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

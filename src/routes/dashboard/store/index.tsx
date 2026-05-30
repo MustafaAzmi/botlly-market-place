@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
 import { demoMerchant } from "@/lib/mockData";
 
 export const Route = createFileRoute("/dashboard/store/")({
@@ -25,6 +26,14 @@ function StoreProfilePage() {
   const [coverPreview, setCoverPreview] = useState<string | null>(demoMerchant.cover ?? null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const merchantSession = readMerchantSession();
+    if (merchantSession?.storeName) setStoreName(merchantSession.storeName);
+    if (merchantSession?.whatsapp) setWhatsapp(merchantSession.whatsapp);
+    if (merchantSession?.bio) setBio(merchantSession.bio);
+    if (merchantSession?.deliveryPhone) setDeliveryPhone(merchantSession.deliveryPhone);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -54,6 +63,12 @@ function StoreProfilePage() {
     }
 
     // TODO(auth): persist merchant profile, logo, cover, bio, and delivery WhatsApp in Supabase.
+    writeMerchantSession({
+      storeName: storeName.trim(),
+      whatsapp: whatsapp.trim(),
+      bio: bio.trim(),
+      deliveryPhone: deliveryPhone.trim(),
+    });
     toast.success("تم حفظ صفحة المتجر");
     navigate({ to: "/dashboard/products/new" });
   };
@@ -61,7 +76,7 @@ function StoreProfilePage() {
   return (
     <DashboardLayout
       title="صفحة التاجر"
-      subtitle="أكمل هوية المحل، وبعد الحفظ نبدأ مباشرة بإضافة المنتجات."
+      subtitle="بيانات المتجر مأخوذة من التسجيل، تقدر تعدلها فقط وتكمل باقي الصفحة."
       actions={
         <Button asChild variant="outline" size="lg" className="gap-2">
           <Link to="/store/$slug" params={{ slug: "noor-store" }}>
@@ -131,6 +146,9 @@ function StoreProfilePage() {
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
+            <div className="rounded-lg bg-primary-soft px-3 py-2 text-sm text-primary">
+              الاسم والرقم جايين من التسجيل، غيّرهم فقط إذا تحتاج.
+            </div>
             <Field id="storeName" label="اسم المحل أو الشركة">
               <Input
                 id="storeName"

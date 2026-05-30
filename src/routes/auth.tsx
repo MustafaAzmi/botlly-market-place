@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { writeMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -33,8 +34,6 @@ export const Route = createFileRoute("/auth")({
 
 type AuthMode = "login" | "signup";
 type ResetMethod = "whatsapp" | "email";
-
-const merchantSessionKey = "botly.merchant.session";
 
 const copy = {
   ar: {
@@ -136,15 +135,12 @@ function AuthPage() {
   };
 
   const openDashboard = (successMessage: string) => {
-    sessionStorage.setItem(
-      merchantSessionKey,
-      JSON.stringify({
-        storeName: storeName.trim(),
-        whatsapp: whatsapp.trim(),
-        email: email.trim() || null,
-        signedInAt: new Date().toISOString(),
-      }),
-    );
+    writeMerchantSession({
+      ...(storeName.trim() ? { storeName: storeName.trim() } : {}),
+      whatsapp: whatsapp.trim(),
+      ...(email.trim() ? { email: email.trim() } : {}),
+      signedInAt: new Date().toISOString(),
+    });
     toast.success(successMessage);
     navigate({ to: "/dashboard/store" });
   };
