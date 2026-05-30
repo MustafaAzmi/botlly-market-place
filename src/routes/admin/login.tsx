@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ShieldCheck, ArrowRight } from "lucide-react";
 import { ADMIN_CREDENTIALS, ADMIN_SESSION_KEY } from "@/lib/adminMockData";
 
-export const Route = createFileRoute("/admin/login")({
+export const Route = createFileRoute("/admin/login")(​{
   head: () => ({ meta: [{ title: "تسجيل دخول الأدمن — Botly" }] }),
   component: AdminLoginPage,
 });
@@ -35,12 +35,21 @@ function AdminLoginPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ id, at: Date.now() }));
-      setLoading(false);
-      toast.success("تم تسجيل الدخول كأدمن");
-      navigate({ to: "/admin" });
-    }, 500);
+
+    // Use Promise instead of setTimeout to avoid memory leaks
+    Promise.resolve()
+      .then(() => {
+        sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ id, at: Date.now() }));
+        toast.success("تم تسجيل الدخول كأدمن");
+        navigate({ to: "/admin" });
+      })
+      .catch((err) => {
+        console.error(err);
+        toast.error("حدث خطأ أثناء تسجيل الدخول");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   return (
