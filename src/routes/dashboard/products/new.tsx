@@ -1,6 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, ImagePlus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,28 +15,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ImagePlus, ArrowLeft, X } from "lucide-react";
-import { toast } from "sonner";
-import { useEffect, useRef, useState } from "react";
 import { useCurrencies } from "@/lib/currenciesStore";
 
 export const Route = createFileRoute("/dashboard/products/new")({
-  head: () => ({ meta: [{ title: "New product — Botly" }] }),
+  head: () => ({ meta: [{ title: "New product - Botly" }] }),
   component: NewProductPage,
 });
 
-interface ImageItem {
-  id: string;
-  url: string;
-  file: File;
-}
-
 function NewProductPage() {
-  const t = useT();
   const navigate = useNavigate();
   const currencies = useCurrencies().filter((c) => c.active);
-  const [currency, setCurrency] = useState<string>("");
-  const [images, setImages] = useState<ImageItem[]>([]);
+  const [currency, setCurrency] = useState("");
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -42,219 +35,178 @@ function NewProductPage() {
 
   useEffect(() => {
     return () => {
-      images.forEach((i) => URL.revokeObjectURL(i.url));
+      if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [imagePreview]);
 
-  const onPickFiles = (files: FileList | null) => {
-    if (!files) return;
-    const next: ImageItem[] = [];
-    Array.from(files).forEach((f) => {
-      if (!f.type.startsWith("image/")) return;
-      if (f.size > 5 * 1024 * 1024) {
-        toast.error(`${f.name} > 5MB`);
-        return;
-      }
-      next.push({
-        id: `${f.name}-${f.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
-        url: URL.createObjectURL(f),
-        file: f,
-      });
-    });
-    if (next.length) setImages((prev) => [...prev, ...next]);
-    if (inputRef.current) inputRef.current.value = "";
-  };
-
-  const removeImage = (id: string) => {
-    setImages((prev) => {
-      const target = prev.find((p) => p.id === id);
-      if (target) URL.revokeObjectURL(target.url);
-      return prev.filter((p) => p.id !== id);
-    });
+  const onPickImage = (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("اختار صورة للمنتج فقط");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("حجم الصورة يجب أن يكون أقل من 5MB");
+      return;
+    }
+    if (imagePreview?.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    setImagePreview(URL.createObjectURL(file));
   };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO(supabase): upload images to storage, then insert product row.
-    toast.success(t("products.form.save"));
+    if (!imagePreview) {
+      toast.error("صورة المنتج مطلوبة");
+      return;
+    }
+
+    // TODO(products): upload image to storage and insert product row in Supabase.
+    toast.success("تم حفظ المنتج");
     navigate({ to: "/dashboard/products" });
   };
 
   return (
-    <DashboardLayout title={t("products.add")} subtitle={t("products.subtitle")}>
+    <DashboardLayout title="إضافة منتج" subtitle="أضف صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية.">
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
           <Link to="/dashboard/products">
             <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
-            {t("products.title")}
+            المنتجات
           </Link>
         </Button>
       </div>
 
-      <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Card>
-            <Field label={t("products.form.title")}>
-              <Input className="h-11" placeholder="AirBuds Pro 2" required maxLength={120} />
-            </Field>
-            <Field label={t("products.form.description")}>
-              <Textarea rows={5} placeholder="…" maxLength={1500} />
-            </Field>
-            <Field
-              label={`${t("products.form.keywords")} (اختياري)`}
-              hint={t("products.form.keywords.hint")}
-            >
-              <Input className="h-11" placeholder="earbuds, wireless, سماعات" maxLength={200} />
-            </Field>
-          </Card>
-
-          <Card>
-            <div className="mb-3 flex items-center justify-between">
-              <Label className="text-sm font-medium">{t("products.form.images")}</Label>
-              <span className="text-xs text-muted-foreground">
-                {images.length} صورة
-              </span>
-            </div>
-
-            {images.length > 0 && (
-              <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-4">
-                {images.map((img, idx) => (
-                  <div
-                    key={img.id}
-                    className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-secondary"
-                  >
-                    <img
-                      src={img.url}
-                      alt={`product ${idx + 1}`}
-                      className="h-full w-full object-cover"
-                    />
-                    {idx === 0 && (
-                      <span className="absolute start-2 top-2 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
-                        رئيسية
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeImage(img.id)}
-                      className="absolute end-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-background/90 text-foreground opacity-0 shadow-soft transition-opacity group-hover:opacity-100"
-                      aria-label="حذف الصورة"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <label className="flex aspect-[3/1] cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-border bg-secondary/40 text-center transition-colors hover:bg-secondary">
+      <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="space-y-6">
+          <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
+            <Field id="image" label="صورة المنتج">
               <input
                 ref={inputRef}
+                id="image"
                 type="file"
                 accept="image/*"
-                multiple
                 className="sr-only"
-                onChange={(e) => onPickFiles(e.target.files)}
+                onChange={(e) => onPickImage(e.target.files?.[0])}
               />
-              <div>
-                <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-card text-primary shadow-soft">
-                  <ImagePlus className="h-5 w-5" />
+              {imagePreview ? (
+                <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
+                  <img src={imagePreview} alt="Product" className="h-full w-full object-cover" />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="absolute end-3 top-3"
+                    onClick={() => {
+                      if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+                      setImagePreview(null);
+                      if (inputRef.current) inputRef.current.value = "";
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
-                <p className="mt-3 text-sm font-medium">
-                  {images.length > 0 ? "إضافة صور أخرى" : t("products.form.images.hint")}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">PNG, JPG · ≤ 5MB · يمكن اختيار أكثر من صورة</p>
-              </div>
-            </label>
-          </Card>
-        </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/40 text-center transition-colors hover:bg-secondary"
+                >
+                  <span>
+                    <ImagePlus className="mx-auto h-8 w-8 text-primary" />
+                    <span className="mt-3 block text-sm font-medium">اختر صورة المنتج</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">PNG أو JPG، أقل من 5MB</span>
+                  </span>
+                </button>
+              )}
+            </Field>
+          </div>
 
-        <div className="space-y-6">
-          <Card>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label={t("products.form.price")}>
-                <Input className="h-11" type="number" inputMode="decimal" placeholder="0" required min={0} />
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
+            <Field id="description" label="وصف مختصر">
+              <Textarea
+                id="description"
+                rows={4}
+                placeholder="مثال: تيشيرت قطن مريح، مناسب للاستخدام اليومي"
+                maxLength={280}
+                required
+              />
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field id="size" label="المقاس (اختياري)">
+                <Input id="size" placeholder="S / M / L أو 42" className="h-11" />
               </Field>
-              <Field label={t("products.form.currency")}>
-                <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="—" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {currencies.map((c) => (
-                      <SelectItem key={c.code} value={c.code}>
-                        {c.code} — {c.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Field id="color" label="اللون (اختياري)">
+                <Input id="color" placeholder="أسود، أبيض..." className="h-11" />
               </Field>
             </div>
-            <Field label={`${t("products.form.discountPrice")}`}>
-              <Input className="h-11" type="number" inputMode="decimal" placeholder="0" min={0} />
-            </Field>
-          </Card>
 
-          <Card>
-            <Field label={t("products.form.category")}>
-              <Select defaultValue="Electronics">
-                <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+            <Field id="quantity" label="الكمية المتوفرة (اختياري)">
+              <Input id="quantity" type="number" min={0} inputMode="numeric" placeholder="مثال: 12" className="h-11" />
+            </Field>
+          </div>
+        </section>
+
+        <aside className="space-y-6">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
+            <Field id="currentPrice" label="السعر الحالي">
+              <Input
+                id="currentPrice"
+                type="number"
+                min={0}
+                inputMode="decimal"
+                placeholder="0"
+                className="h-11"
+                required
+              />
+            </Field>
+            <Field id="discountPrice" label="السعر بعد الخصم (اختياري)">
+              <Input
+                id="discountPrice"
+                type="number"
+                min={0}
+                inputMode="decimal"
+                placeholder="0"
+                className="h-11"
+              />
+            </Field>
+            <Field id="currency" label="العملة">
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger id="currency" className="h-11">
+                  <SelectValue placeholder="اختر العملة" />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Electronics">Electronics</SelectItem>
-                  <SelectItem value="Fashion">Fashion</SelectItem>
-                  <SelectItem value="Accessories">Accessories</SelectItem>
-                  <SelectItem value="Home">Home</SelectItem>
-                  <SelectItem value="Beauty">Beauty</SelectItem>
+                  {currencies.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.code} - {c.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
-            <Field label={`${t("products.form.color")} (اختياري)`}>
-              <Input className="h-11" placeholder="Black" maxLength={40} />
-            </Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label={t("products.form.condition")}>
-                <Select defaultValue="new">
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="new">{t("products.condition.new")}</SelectItem>
-                    <SelectItem value="used">{t("products.condition.used")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label={t("products.form.availability")}>
-                <Select defaultValue="in_stock">
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="in_stock">{t("products.availability.inStock")}</SelectItem>
-                    <SelectItem value="out_of_stock">{t("products.availability.outOfStock")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </Card>
+          </div>
 
           <div className="flex gap-2">
-            <Button type="submit" size="lg" className="flex-1 shadow-soft">{t("products.form.save")}</Button>
+            <Button type="submit" size="lg" className="flex-1 shadow-soft">
+              حفظ المنتج
+            </Button>
             <Button asChild type="button" size="lg" variant="outline">
-              <Link to="/dashboard/products">{t("products.form.cancel")}</Link>
+              <Link to="/dashboard/products">إلغاء</Link>
             </Button>
           </div>
-        </div>
+        </aside>
       </form>
     </DashboardLayout>
   );
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-soft">{children}</div>;
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
-      <Label className="text-sm font-medium">{label}</Label>
+      <Label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }

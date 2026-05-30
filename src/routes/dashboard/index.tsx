@@ -9,9 +9,13 @@ import {
   TrendingUp,
   ArrowUpRight,
   CheckCircle2,
+  Truck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/")({
   head: () => ({ meta: [{ title: "Dashboard — Botly" }] }),
@@ -20,6 +24,13 @@ export const Route = createFileRoute("/dashboard/")({
 
 function DashboardHome() {
   const t = useT();
+  const [deliveryWhatsapp, setDeliveryWhatsapp] = useState(demoMerchant.deliveryPhone);
+
+  const saveDeliveryWhatsapp = () => {
+    // TODO(delivery): persist delivery WhatsApp on merchant profile.
+    toast.success("تم حفظ رقم واتساب شركة التوصيل");
+  };
+
   return (
     <DashboardLayout
       title={t("dashboard.greeting", { name: demoMerchant.storeName })}
@@ -65,7 +76,27 @@ function DashboardHome() {
 
         {/* Side widgets */}
         <div className="space-y-6">
-
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
+            <div className="mb-3 flex items-center gap-2">
+              <Truck className="h-5 w-5 text-primary" />
+              <div className="font-semibold">واتساب شركة التوصيل</div>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              اختياري، ويستخدم لاحقاً لإرسال الطلبات لشركة التوصيل.
+            </p>
+            <div className="space-y-3">
+              <Input
+                value={deliveryWhatsapp}
+                onChange={(e) => setDeliveryWhatsapp(e.target.value)}
+                placeholder="07XX XXX XXXX"
+                dir="ltr"
+                className="h-11 text-start"
+              />
+              <Button type="button" className="w-full" onClick={saveDeliveryWhatsapp}>
+                ربط رقم التوصيل
+              </Button>
+            </div>
+          </div>
 
           {/* Completion */}
           <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
