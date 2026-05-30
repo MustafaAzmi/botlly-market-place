@@ -17,7 +17,7 @@ function loadLocalEnv() {
 loadLocalEnv();
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
-const model = process.env.ANTHROPIC_MODEL ?? "claude-3-5-haiku-20241022";
+const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 
 if (!apiKey) {
   throw new Error("Missing ANTHROPIC_API_KEY. Set it locally before running this test.");
