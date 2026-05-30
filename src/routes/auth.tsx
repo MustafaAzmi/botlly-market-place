@@ -203,8 +203,12 @@ function AuthPage() {
           </div>
 
           <div className="max-w-xl">
-            <h1 className="text-balance text-5xl font-bold leading-tight tracking-normal">{text.title}</h1>
-            <p className="mt-4 max-w-md text-base leading-7 text-muted-foreground">{text.subtitle}</p>
+            <h1 className="text-balance text-5xl font-bold leading-tight tracking-normal">
+              {text.title}
+            </h1>
+            <p className="mt-4 max-w-md text-base leading-7 text-muted-foreground">
+              {text.subtitle}
+            </p>
           </div>
 
           <div className="grid gap-3 text-sm text-muted-foreground">
@@ -231,7 +235,9 @@ function AuthPage() {
                     <KeyRound className="h-5 w-5" />
                   </div>
                   <h2 className="mt-4 text-xl font-semibold tracking-normal">{text.resetTitle}</h2>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{text.resetSubtitle}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {text.resetSubtitle}
+                  </p>
                 </div>
 
                 <Field
@@ -258,7 +264,12 @@ function AuthPage() {
                       icon={MessageCircle}
                       label={text.resetByWhatsapp}
                     />
-                    <ResetChoice id="reset-email" value="email" icon={Mail} label={text.resetByEmail} />
+                    <ResetChoice
+                      id="reset-email"
+                      value="email"
+                      icon={Mail}
+                      label={text.resetByEmail}
+                    />
                   </RadioGroup>
                 </div>
 
@@ -350,18 +361,30 @@ function AuthPage() {
 
                   {mode === "login" && (
                     <div className="flex justify-end">
-                      <Button type="button" variant="link" className="h-auto px-0" onClick={() => setShowReset(true)}>
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto px-0"
+                        onClick={() => setShowReset(true)}
+                      >
                         {text.forgotPassword}
                       </Button>
                     </div>
                   )}
 
-                  <Button type="submit" size="lg" className="w-full gap-2 shadow-soft" disabled={loading}>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full gap-2 shadow-soft"
+                    disabled={loading}
+                  >
                     {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
                     <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                   </Button>
 
-                  <p className="text-center text-xs leading-5 text-muted-foreground">{text.terms}</p>
+                  <p className="text-center text-xs leading-5 text-muted-foreground">
+                    {text.terms}
+                  </p>
                 </form>
               </>
             )}

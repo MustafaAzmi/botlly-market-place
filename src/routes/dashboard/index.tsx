@@ -37,10 +37,30 @@ function DashboardHome() {
       subtitle={t("dashboard.subtitle")}
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Package} label={t("dashboard.stat.products")} value={dashboardStats.products} trend="+12%" />
-        <StatCard icon={Search} label={t("dashboard.stat.searches")} value={dashboardStats.searches} trend="+38%" />
-        <StatCard icon={ShoppingBag} label={t("dashboard.stat.leads")} value={dashboardStats.leads} trend="+7%" />
-        <StatCard icon={TrendingUp} label={t("dashboard.stat.completion")} value={`${dashboardStats.completion}%`} trend="" />
+        <StatCard
+          icon={Package}
+          label={t("dashboard.stat.products")}
+          value={dashboardStats.products}
+          trend="+12%"
+        />
+        <StatCard
+          icon={Search}
+          label={t("dashboard.stat.searches")}
+          value={dashboardStats.searches}
+          trend="+38%"
+        />
+        <StatCard
+          icon={ShoppingBag}
+          label={t("dashboard.stat.leads")}
+          value={dashboardStats.leads}
+          trend="+7%"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label={t("dashboard.stat.completion")}
+          value={`${dashboardStats.completion}%`}
+          trend=""
+        />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
@@ -119,7 +139,12 @@ function DashboardHome() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, trend }: {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  trend,
+}: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: number | string;
@@ -131,9 +156,7 @@ function StatCard({ icon: Icon, label, value, trend }: {
         <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary-soft text-primary">
           <Icon className="h-5 w-5" />
         </span>
-        {trend && (
-          <span className="text-xs font-medium text-success">{trend}</span>
-        )}
+        {trend && <span className="text-xs font-medium text-success">{trend}</span>}
       </div>
       <div className="mt-4 text-2xl font-bold tracking-tight">{value}</div>
       <div className="text-xs text-muted-foreground mt-1">{label}</div>

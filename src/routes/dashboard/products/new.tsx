@@ -66,7 +66,10 @@ function NewProductPage() {
   };
 
   return (
-    <DashboardLayout title="إضافة منتج" subtitle="أضف صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية.">
+    <DashboardLayout
+      title="إضافة منتج"
+      subtitle="أضف صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية."
+    >
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
           <Link to="/dashboard/products">
@@ -114,7 +117,9 @@ function NewProductPage() {
                   <span>
                     <ImagePlus className="mx-auto h-8 w-8 text-primary" />
                     <span className="mt-3 block text-sm font-medium">اختر صورة المنتج</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">PNG أو JPG، أقل من 5MB</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      PNG أو JPG، أقل من 5MB
+                    </span>
                   </span>
                 </button>
               )}
@@ -142,7 +147,14 @@ function NewProductPage() {
             </div>
 
             <Field id="quantity" label="الكمية المتوفرة (اختياري)">
-              <Input id="quantity" type="number" min={0} inputMode="numeric" placeholder="مثال: 12" className="h-11" />
+              <Input
+                id="quantity"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                placeholder="مثال: 12"
+                className="h-11"
+              />
             </Field>
           </div>
         </section>
