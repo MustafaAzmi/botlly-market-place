@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ShieldCheck, ArrowRight } from "lucide-react";
 import { ADMIN_CREDENTIALS, ADMIN_SESSION_KEY } from "@/lib/adminMockData";
 
-export const Route = createFileRoute("/admin/login")(​{
+export const Route = createFileRoute("/admin/login")({
   head: () => ({ meta: [{ title: "تسجيل دخول الأدمن — Botly" }] }),
   component: AdminLoginPage,
 });
@@ -23,7 +23,6 @@ function AdminLoginPage() {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const id = identifier.trim().toLowerCase();
-    // TODO(supabase): replace with supabase.auth.signInWithPassword + has_role('admin') check.
     const isAdmin = id === ADMIN_CREDENTIALS.email.toLowerCase() || id === ADMIN_CREDENTIALS.phone;
 
     if (!isAdmin) {
@@ -36,7 +35,6 @@ function AdminLoginPage() {
     }
     setLoading(true);
 
-    // Use Promise instead of setTimeout to avoid memory leaks
     Promise.resolve()
       .then(() => {
         sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ id, at: Date.now() }));
