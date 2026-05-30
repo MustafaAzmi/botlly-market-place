@@ -70,11 +70,15 @@ export const loginAdmin = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const passwordHash = await hashPassword(data.password);
 
-    const admin = ADMIN_CREDENTIALS.find(
-      (a) =>
-        a.email === data.email &&
-        (await hashPassword(a.password)) === passwordHash
-    ) || ADMIN_CREDENTIALS.find((a) => a.email === data.email);
+    let admin =
+      ADMIN_CREDENTIALS.find((a) => a.email === data.email) ?? null;
+
+    if (admin) {
+      const expectedHash = await hashPassword(admin.password);
+      if (expectedHash !== passwordHash) {
+        admin = null;
+      }
+    }
 
     if (!admin) {
       throw new Error("Invalid email or password");
@@ -114,7 +118,7 @@ export const listStores = createServerFn({ method: "POST" })
       const { data: stores, error } = await supabaseAdmin
         .from("admin_stores")
         .select("*")
-        .ilike("store_name", \`%\${data.search || ""}\%\`)
+        .ilike("store_name", `%${data.search || ""}%`)
         .range((data.page - 1) * 10, data.page * 10 - 1)
         .order("created_at", { ascending: false });
 
