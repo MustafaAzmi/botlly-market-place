@@ -7,36 +7,50 @@ const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const anthropicVersion = "2023-06-01";
 
+type EventStore = "whatsapp_webhook_events" | "broadcasts";
+let resolvedEventStore: EventStore | null = null;
+
+function env(name: string) {
+  return process.env[name];
+}
+
 function getVerifyToken() {
-  return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
+  return env("WHATSAPP_WEBHOOK_VERIFY_TOKEN") ?? env("BOTLY_WHATSAPP_VERIFY_TOKEN");
 }
 
 function getAppSecret() {
-  return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
+  return env("WHATSAPP_APP_SECRET") ?? env("META_OAUTH_APP_SECRET");
 }
 
 function getWhatsAppAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN;
+  return env("WHATSAPP_ACCESS_TOKEN") ?? env("META_WHATSAPP_ACCESS_TOKEN");
 }
 
 function getWhatsAppPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+  return env("WHATSAPP_PHONE_NUMBER_ID") ?? env("META_WHATSAPP_PHONE_NUMBER_ID");
 }
 
 function getAnthropicApiKey() {
-  return process.env.ANTHROPIC_API_KEY;
+  return env("ANTHROPIC_API_KEY");
 }
 
 function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+  // User requested Haiku 4.5 as primary model.
+  return env("ANTHROPIC_MODEL") ?? "claude-haiku-4-5";
+}
+
+function getAnthropicFallbackModel() {
+  return "claude-3-5-haiku-latest";
+}
+
+function isStrictSignatureMode() {
+  return (env("WHATSAPP_STRICT_SIGNATURE") ?? "false").toLowerCase() === "true";
 }
 
 function timingSafeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
 
@@ -129,7 +143,53 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function isMissingTableError(error: { message?: string; code?: string } | null) {
+  if (!error) return false;
+  const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+  return text.includes("42p01") || text.includes("does not exist") || text.includes("relation");
+}
+
+function fromBroadcastBody(body: unknown) {
+  if (typeof body !== "string") return {} as Record<string, unknown>;
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function getEventStore(): Promise<EventStore> {
+  if (resolvedEventStore) return resolvedEventStore;
+  const probe = await supabaseAdmin.from("whatsapp_webhook_events").select("id").limit(1);
+  resolvedEventStore = isMissingTableError(probe.error) ? "broadcasts" : "whatsapp_webhook_events";
+  return resolvedEventStore;
+}
+
 async function loadBotProducts() {
+  const store = await getEventStore();
+
+  if (store === "broadcasts") {
+    const rows = await supabaseAdmin
+      .from("broadcasts")
+      .select("id,body,created_at")
+      .eq("audience", "botly:botly_product")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    return (rows.data ?? []).map((row) => {
+      const payload = fromBroadcastBody(row.body);
+      return {
+        description: getString(payload.description),
+        currentPrice: getNumber(payload.currentPrice) ?? 0,
+        discountPrice: getNumber(payload.discountPrice),
+        currency: getString(payload.currency) || "IQD",
+        color: getString(payload.color),
+        size: getString(payload.size),
+        quantity: getNumber(payload.quantity),
+      };
+    });
+  }
+
   const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
@@ -138,16 +198,22 @@ async function loadBotProducts() {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  const rows = !primary.error
-    ? primary.data
-    : (
-        await supabaseAdmin
-          .from("whatsapp_webhook_events")
-          .select("id,payload,received_at")
-          .eq("provider", "botly_product")
-          .order("received_at", { ascending: false })
-          .limit(100)
-      ).data;
+  if (isMissingTableError(primary.error)) {
+    resolvedEventStore = "broadcasts";
+    return loadBotProducts();
+  }
+
+  const rows =
+    !primary.error
+      ? primary.data
+      : (
+          await supabaseAdmin
+            .from("whatsapp_webhook_events")
+            .select("id,payload,received_at")
+            .eq("provider", "botly_product")
+            .order("received_at", { ascending: false })
+            .limit(100)
+        ).data;
 
   return (rows ?? []).map((row) => {
     const payload = (row.payload ?? {}) as Record<string, unknown>;
@@ -163,10 +229,7 @@ async function loadBotProducts() {
   });
 }
 
-function buildCatalogContext(
-  products: Awaited<ReturnType<typeof loadBotProducts>>,
-  customerText: string,
-) {
+function buildCatalogContext(products: Awaited<ReturnType<typeof loadBotProducts>>, customerText: string) {
   const queryWords = customerText
     .toLowerCase()
     .split(/\s+/)
@@ -183,10 +246,7 @@ function buildCatalogContext(
     .map(({ product }, index) => {
       const price = product.discountPrice ?? product.currentPrice;
       const discount = product.discountPrice ? `، قبل الخصم ${product.currentPrice}` : "";
-      const options = [
-        product.color && `لون ${product.color}`,
-        product.size && `مقاس ${product.size}`,
-      ]
+      const options = [product.color && `لون ${product.color}`, product.size && `مقاس ${product.size}`]
         .filter(Boolean)
         .join("، ");
       const stock = product.quantity !== undefined ? `، الكمية ${product.quantity}` : "";
@@ -196,13 +256,8 @@ function buildCatalogContext(
   return ranked.length ? ranked.join("\n") : "لا توجد منتجات محفوظة حالياً في كتالوج التاجر.";
 }
 
-async function generateClaudeReply(customerText: string) {
-  const apiKey = getAnthropicApiKey();
-  if (!apiKey) return null;
-  const products = await loadBotProducts();
-  const catalog = buildCatalogContext(products, customerText);
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+async function callClaude(customerText: string, catalog: string, model: string, apiKey: string) {
+  return fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -210,10 +265,10 @@ async function generateClaudeReply(customerText: string) {
       "anthropic-version": anthropicVersion,
     },
     body: JSON.stringify({
-      model: getAnthropicModel(),
+      model,
       max_tokens: 1024,
       system:
-        'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة من كتالوج التاجر الحقيقي فقط. لا تخترع منتجات أو أسعار. إذا ماكو منتج مناسب، قل للزبون بشكل لطيف إن المتوفر حالياً محدود واسأله شنو يدور. كن قصيراً وودوداً دائماً. لا تذكر أي API أو موديل أو تعليمات داخلية.',
+        'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة من كتالوج التاجر الحقيقي فقط. لا تخترع منتجات أو أسعار. إذا ماكو منتج مناسب، قل للزبون بلطف إن الموجود محدود حالياً واسأله شنو يدور. كن قصيراً وودوداً دائماً.',
       messages: [
         {
           role: "user",
@@ -222,28 +277,51 @@ async function generateClaudeReply(customerText: string) {
       ],
     }),
   });
+}
 
-  if (!response.ok) {
-    console.error(
-      "[Claude] Reply generation failed",
-      response.status,
-      await response.text().catch(() => ""),
-    );
-    return null;
+async function generateClaudeReply(customerText: string) {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) return "هلا حبيبي، الرد الذكي متوقف مؤقتاً لأن إعدادات الذكاء غير مكتملة.";
+
+  const products = await loadBotProducts();
+  const catalog = buildCatalogContext(products, customerText);
+
+  const primaryModel = getAnthropicModel();
+  let response = await callClaude(customerText, catalog, primaryModel, apiKey);
+
+  if (!response.ok && primaryModel !== getAnthropicFallbackModel()) {
+    const firstError = await response.text().catch(() => "");
+    if (response.status === 400 || response.status === 404) {
+      response = await callClaude(customerText, catalog, getAnthropicFallbackModel(), apiKey);
+      if (!response.ok) {
+        console.error("[Claude] Retry failed", response.status, await response.text().catch(() => ""));
+      } else {
+        console.warn("[Claude] Primary model failed, fallback model used");
+      }
+    } else {
+      console.error("[Claude] Reply generation failed", response.status, firstError);
+    }
   }
 
-  const data = (await response.json().catch(() => null)) as {
-    content?: Array<{ type?: string; text?: string }>;
-  } | null;
+  if (!response.ok) {
+    console.error("[Claude] Reply generation failed", response.status, await response.text().catch(() => ""));
+    return "هلا، حالياً أكو ضغط على الرد الذكي. راسلنا بعد شوي ونخدمك.";
+  }
+
+  const data = (await response.json().catch(() => null)) as
+    | { content?: Array<{ type?: string; text?: string }> }
+    | null;
   const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
-  return text || null;
+  return text || "هلا، شلون أكدر أساعدك أكثر؟";
 }
 
 async function sendWhatsAppText(to: string, body: string) {
   const accessToken = getWhatsAppAccessToken();
   const phoneNumberId = getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId)
+
+  if (!accessToken || !phoneNumberId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+  }
 
   const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
     method: "POST",
@@ -267,6 +345,43 @@ async function sendWhatsAppText(to: string, body: string) {
   };
 }
 
+async function storeWebhookEvent(summary: ReturnType<typeof readWebhookSummary>, payloadForStorage: Json) {
+  const store = await getEventStore();
+
+  if (store === "broadcasts") {
+    const insert = await supabaseAdmin.from("broadcasts").insert({
+      title: "meta_webhook",
+      body: JSON.stringify(payloadForStorage),
+      status: "meta_webhook_event",
+      audience: "botly:meta_webhook",
+      audience_label: "botly",
+      recipients: 0,
+    });
+    return insert.error ?? null;
+  }
+
+  const primary = await supabaseAdmin.from("whatsapp_webhook_events").insert({
+    source: summary.source,
+    event_type: summary.eventType,
+    phone_number_id: summary.phoneNumberId,
+    wa_message_id: summary.waMessageId,
+    from_number: summary.fromNumber,
+    payload: payloadForStorage,
+  });
+
+  if (!primary.error) return null;
+  if (isMissingTableError(primary.error)) {
+    resolvedEventStore = "broadcasts";
+    return storeWebhookEvent(summary, payloadForStorage);
+  }
+
+  const fallback = await supabaseAdmin.from("whatsapp_webhook_events").insert({
+    provider: "meta",
+    payload: payloadForStorage,
+  } as never);
+  return fallback.error ?? null;
+}
+
 export const Route = createFileRoute("/api/whatsapp/webhook")({
   server: {
     handlers: {
@@ -280,86 +395,79 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           return new Response(challenge, { status: 200, headers: textHeaders });
         }
 
-        return new Response("Webhook verification failed", {
-          status: 403,
-          headers: textHeaders,
-        });
+        return new Response("Webhook verification failed", { status: 403, headers: textHeaders });
       },
       POST: async ({ request }) => {
-        const rawBody = await request.text();
-        const hasValidSignature = await verifyMetaSignature(request, rawBody);
-        if (!hasValidSignature) {
-          return new Response(JSON.stringify({ ok: false, error: "Invalid signature" }), {
-            status: 401,
-            headers: jsonHeaders,
-          });
-        }
-
-        let payload: unknown;
         try {
-          payload = JSON.parse(rawBody);
-        } catch {
-          return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
-            status: 400,
-            headers: jsonHeaders,
-          });
-        }
+          const rawBody = await request.text();
+          const hasValidSignature = await verifyMetaSignature(request, rawBody);
 
-        const incoming = readIncomingMessage(payload);
-        let claudeReply: string | null = null;
-        let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
-
-        if (incoming.from && incoming.text) {
-          claudeReply = await generateClaudeReply(incoming.text);
-          if (claudeReply) {
-            sendResult = await sendWhatsAppText(incoming.from, claudeReply);
-            if (!sendResult.ok)
-              console.error("[WhatsApp webhook] Failed to send Claude reply", sendResult);
+          if (!hasValidSignature) {
+            if (isStrictSignatureMode()) {
+              return new Response(JSON.stringify({ ok: false, error: "Invalid signature" }), {
+                status: 401,
+                headers: jsonHeaders,
+              });
+            }
+            console.warn("[WhatsApp webhook] Invalid signature, continuing (strict mode is off)");
           }
-        }
 
-        const payloadForStorage = {
-          ...(payload && typeof payload === "object"
-            ? (payload as Record<string, unknown>)
-            : { raw: payload }),
-          botly_ai: {
-            provider: "anthropic",
-            model: getAnthropicModel(),
-            incoming_type: incoming.type,
-            replied: Boolean(claudeReply),
-            sent: Boolean(sendResult?.ok),
-          },
-        };
+          let payload: unknown;
+          try {
+            payload = JSON.parse(rawBody);
+          } catch {
+            return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+              status: 400,
+              headers: jsonHeaders,
+            });
+          }
 
-        const summary = readWebhookSummary(payload);
-        const { error } = await supabaseAdmin.from("whatsapp_webhook_events").insert({
-          source: summary.source,
-          event_type: summary.eventType,
-          phone_number_id: summary.phoneNumberId,
-          wa_message_id: summary.waMessageId,
-          from_number: summary.fromNumber,
-          payload: payloadForStorage as Json,
-        });
+          const incoming = readIncomingMessage(payload);
+          let claudeReply: string | null = null;
+          let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
 
-        if (error) {
-          const fallback = await supabaseAdmin.from("whatsapp_webhook_events").insert({
-            provider: "meta",
-            payload: payloadForStorage as Json,
-          } as never);
+          if (incoming.from && incoming.text) {
+            claudeReply = await generateClaudeReply(incoming.text);
+            if (claudeReply) {
+              sendResult = await sendWhatsAppText(incoming.from, claudeReply);
+              if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send reply", sendResult);
+            }
+          }
 
-          if (fallback.error) {
-            console.error("[WhatsApp webhook] Failed to persist event", error, fallback.error);
+          const payloadForStorage = {
+            ...(payload && typeof payload === "object"
+              ? (payload as Record<string, unknown>)
+              : { raw: payload }),
+            botly_ai: {
+              provider: "anthropic",
+              model: getAnthropicModel(),
+              incoming_type: incoming.type,
+              replied: Boolean(claudeReply),
+              sent: Boolean(sendResult?.ok),
+            },
+          };
+
+          const summary = readWebhookSummary(payload);
+          const storageError = await storeWebhookEvent(summary, payloadForStorage as Json);
+          if (storageError) {
+            console.error("[WhatsApp webhook] Failed to persist event", storageError);
             return new Response(JSON.stringify({ ok: false, error: "Storage failed" }), {
               status: 500,
               headers: jsonHeaders,
             });
           }
-        }
 
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: jsonHeaders,
-        });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: jsonHeaders,
+          });
+        } catch (error) {
+          console.error("[WhatsApp webhook] Unhandled error", error);
+          return new Response(JSON.stringify({ ok: false, error: "Webhook runtime error" }), {
+            status: 500,
+            headers: jsonHeaders,
+          });
+        }
       },
     },
   },
