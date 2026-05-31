@@ -111,6 +111,13 @@ function isMissingTableError(error: { message?: string; code?: string } | null) 
   return text.includes("42p01") || text.includes("does not exist") || text.includes("relation");
 }
 
+function explainDbError(prefix: string, error: { message?: string; code?: string } | null) {
+  if (!error) return prefix;
+  const code = error.code ? ` (${error.code})` : "";
+  const message = error.message ? `: ${error.message}` : "";
+  return `${prefix}${code}${message}`;
+}
+
 function eventTime(row: EventRow) {
   return row.created_at ?? row.received_at ?? new Date().toISOString();
 }
@@ -203,7 +210,7 @@ async function listEvents(provider: string) {
       .eq("audience", `botly:${provider}`)
       .order("created_at", { ascending: false })
       .limit(5000);
-    if (list.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
+    if (list.error) throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", list.error));
     return (list.data ?? []).map((row) => fromBroadcastRow(row as Record<string, unknown>));
   }
 
@@ -228,7 +235,8 @@ async function listEvents(provider: string) {
     resolvedEventStore = "broadcasts";
     return listEvents(provider);
   }
-  if (fallback.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
+  if (fallback.error)
+    throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
   return (fallback.data ?? []) as EventRow[];
 }
 
@@ -267,7 +275,8 @@ async function findMerchantById(id: string) {
     resolvedEventStore = "broadcasts";
     return findMerchantById(id);
   }
-  if (fallback.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
+  if (fallback.error)
+    throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
   return (fallback.data as EventRow | null) ?? null;
 }
 
@@ -288,7 +297,7 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
       .select("id,body,created_at")
       .single();
 
-    if (created.error) throw new Error("تعذر حفظ بيانات المتجر.");
+    if (created.error) throw new Error(explainDbError("تعذر حفظ بيانات المتجر", created.error));
     return fromBroadcastRow(created.data as Record<string, unknown>);
   }
 
@@ -317,7 +326,7 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
     resolvedEventStore = "broadcasts";
     return insertEvent(provider, payload);
   }
-  if (fallback.error) throw new Error("تعذر حفظ بيانات المتجر.");
+  if (fallback.error) throw new Error(explainDbError("تعذر حفظ بيانات المتجر", fallback.error));
   return fallback.data as EventRow;
 }
 
