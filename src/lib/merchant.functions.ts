@@ -247,37 +247,18 @@ async function findMerchantByPhone(whatsapp: string) {
 }
 
 async function findMerchantById(id: string) {
+  if (!id || !id.trim()) return null;
   const store = await getEventStore();
 
+  // Avoid direct DB filtering by `id` because some projects use bigint ids.
+  // We filter in-memory by business identity, which is always string-safe.
   if (store === "broadcasts") {
     const rows = await listEvents(MERCHANT_PROVIDER);
     return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
   }
 
-  const primary = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
-    .eq("source", "botly")
-    .eq("event_type", MERCHANT_PROVIDER)
-    .eq("id", id)
-    .maybeSingle();
-
-  if (!primary.error) return (primary.data as EventRow | null) ?? null;
-
-  const fallback = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,received_at")
-    .eq("provider", MERCHANT_PROVIDER)
-    .eq("id", id)
-    .maybeSingle();
-
-  if (isMissingTableError(fallback.error)) {
-    resolvedEventStore = "broadcasts";
-    return findMerchantById(id);
-  }
-  if (fallback.error)
-    throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
-  return (fallback.data as EventRow | null) ?? null;
+  const rows = await listEvents(MERCHANT_PROVIDER);
+  return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
 }
 
 async function insertEvent(provider: string, payload: Record<string, unknown>) {
