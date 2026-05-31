@@ -8,6 +8,17 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const anthropicVersion = "2023-06-01";
 
 type EventStore = "whatsapp_webhook_events" | "broadcasts";
+type BotProduct = {
+  id: string;
+  merchantId: string;
+  description: string;
+  currentPrice: number;
+  discountPrice?: number;
+  currency: string;
+  color: string;
+  size: string;
+  quantity?: number;
+};
 let resolvedEventStore: EventStore | null = null;
 
 function env(name: string) {
@@ -159,6 +170,15 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function getFiniteNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const number = Number(value.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(number) ? number : undefined;
+  }
+  return undefined;
+}
+
 function isMissingTableError(error: { message?: string; code?: string } | null) {
   if (!error) return false;
   const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
@@ -174,6 +194,33 @@ function fromBroadcastBody(body: unknown) {
   }
 }
 
+function productFromPayload(payload: Record<string, unknown>, fallbackId = ""): BotProduct | null {
+  const description =
+    getString(payload.description) ||
+    getString(payload.name) ||
+    getString(payload.productName) ||
+    getString(payload.title);
+  const currentPrice =
+    getFiniteNumber(payload.currentPrice) ??
+    getFiniteNumber(payload.price) ??
+    getFiniteNumber(payload.salePrice) ??
+    0;
+
+  if (!description.trim()) return null;
+
+  return {
+    id: getString(payload.productId) || getString(payload.id) || fallbackId,
+    merchantId: getString(payload.merchantId),
+    description,
+    currentPrice,
+    discountPrice: getFiniteNumber(payload.discountPrice),
+    currency: getString(payload.currency) || "IQD",
+    color: getString(payload.color),
+    size: getString(payload.size),
+    quantity: getFiniteNumber(payload.quantity),
+  };
+}
+
 async function getEventStore(): Promise<EventStore> {
   if (resolvedEventStore) return resolvedEventStore;
   const probe = await supabaseAdmin.from("whatsapp_webhook_events").select("id").limit(1);
@@ -182,67 +229,63 @@ async function getEventStore(): Promise<EventStore> {
 }
 
 async function loadBotProducts() {
-  const store = await getEventStore();
+  const products: BotProduct[] = [];
 
-  if (store === "broadcasts") {
-    const rows = await supabaseAdmin
-      .from("broadcasts")
-      .select("id,body,created_at")
-      .eq("audience", "botly:botly_product")
-      .order("created_at", { ascending: false })
-      .limit(100);
+  const append = (product: BotProduct | null) => {
+    if (!product) return;
+    const key = product.id || `${product.merchantId}:${product.description}:${product.currentPrice}`;
+    if (products.some((existing) => (existing.id || existing.description) === key)) return;
+    products.push(product);
+  };
 
-    return (rows.data ?? []).map((row) => {
-      const payload = fromBroadcastBody(row.body);
-      return {
-        description: getString(payload.description),
-        currentPrice: getNumber(payload.currentPrice) ?? 0,
-        discountPrice: getNumber(payload.discountPrice),
-        currency: getString(payload.currency) || "IQD",
-        color: getString(payload.color),
-        size: getString(payload.size),
-        quantity: getNumber(payload.quantity),
-      };
-    });
-  }
-
-  const primary = await supabaseAdmin
+  const eventPrimary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
     .eq("source", "botly")
     .eq("event_type", "botly_product")
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(500);
 
-  if (isMissingTableError(primary.error)) {
-    resolvedEventStore = "broadcasts";
-    return loadBotProducts();
+  if (!eventPrimary.error) {
+    for (const row of eventPrimary.data ?? []) {
+      append(productFromPayload((row.payload ?? {}) as Record<string, unknown>, String(row.id ?? "")));
+    }
+  } else if (!isMissingTableError(eventPrimary.error)) {
+    console.warn("[Bot catalog] Failed to read source/event_type products", eventPrimary.error);
   }
 
-  const rows =
-    !primary.error
-      ? primary.data
-      : (
-          await supabaseAdmin
-            .from("whatsapp_webhook_events")
-            .select("id,payload,received_at")
-            .eq("provider", "botly_product")
-            .order("received_at", { ascending: false })
-            .limit(100)
-        ).data;
+  const eventFallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,received_at")
+    .eq("provider", "botly_product")
+    .order("received_at", { ascending: false })
+    .limit(500);
 
-  return (rows ?? []).map((row) => {
-    const payload = (row.payload ?? {}) as Record<string, unknown>;
-    return {
-      description: getString(payload.description),
-      currentPrice: getNumber(payload.currentPrice) ?? 0,
-      discountPrice: getNumber(payload.discountPrice),
-      currency: getString(payload.currency) || "IQD",
-      color: getString(payload.color),
-      size: getString(payload.size),
-      quantity: getNumber(payload.quantity),
-    };
-  });
+  if (!eventFallback.error) {
+    for (const row of eventFallback.data ?? []) {
+      append(productFromPayload((row.payload ?? {}) as Record<string, unknown>, String(row.id ?? "")));
+    }
+  } else if (!isMissingTableError(eventFallback.error)) {
+    console.warn("[Bot catalog] Failed to read provider products", eventFallback.error);
+  }
+
+  const broadcastRows = await supabaseAdmin
+    .from("broadcasts")
+    .select("id,body,created_at")
+    .eq("audience", "botly:botly_product")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (!broadcastRows.error) {
+    for (const row of broadcastRows.data ?? []) {
+      append(productFromPayload(fromBroadcastBody(row.body), String(row.id ?? "")));
+    }
+  } else if (!isMissingTableError(broadcastRows.error)) {
+    console.warn("[Bot catalog] Failed to read broadcast products", broadcastRows.error);
+  }
+
+  console.info(`[Bot catalog] Loaded ${products.length} product(s) for WhatsApp replies`);
+  return products;
 }
 
 function buildCatalogContext(products: Awaited<ReturnType<typeof loadBotProducts>>, customerText: string) {
@@ -270,6 +313,54 @@ function buildCatalogContext(products: Awaited<ReturnType<typeof loadBotProducts
     });
 
   return ranked.length ? ranked.join("\n") : "لا توجد منتجات محفوظة حالياً في كتالوج التاجر.";
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\u064B-\u065F]/g, "")
+    .replace(/أ|إ|آ/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/iphone|iphon|ايفون/g, "iphone")
+    .replace(/galaxy|جالكسي/g, "galaxy")
+    // Keep runtime-compatible character class for Netlify/Node bundling.
+    // Unicode property escapes (\p{L}) caused runtime parsing issues in production.
+    .replace(/[^a-z0-9\u0600-\u06FF\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findRelevantProducts(
+  products: Awaited<ReturnType<typeof loadBotProducts>>,
+  customerText: string,
+) {
+  const normalizedQuery = normalizeSearchText(customerText);
+  const terms = normalizedQuery.split(" ").filter((word) => word.length > 1);
+  if (!terms.length) return [];
+
+  return products
+    .map((product) => {
+      const searchable = normalizeSearchText(
+        [product.description, product.color, product.size].filter(Boolean).join(" "),
+      );
+      const score = terms.reduce((sum, term) => sum + (searchable.includes(term) ? 1 : 0), 0);
+      return { product, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item) => item.product);
+}
+
+function formatDirectProductReply(products: Array<Awaited<ReturnType<typeof loadBotProducts>>[number]>) {
+  if (!products.length) return null;
+  return products
+    .map((product) => {
+      const price = product.discountPrice ?? product.currentPrice;
+      return `${product.description}: ${price} ${product.currency}`;
+    })
+    .join("\n");
 }
 
 async function callClaude(customerText: string, catalog: string, model: string, apiKey: string) {
@@ -319,6 +410,24 @@ async function generateClaudeReply(customerText: string) {
   }
 
   const products = await loadBotProducts();
+  if (!products.length) {
+    return {
+      text: "حالياً غير متوفر , سنعلمك حال توفر المنتج",
+      model: "catalog-direct",
+      error: null as string | null,
+    };
+  }
+
+  const directMatches = findRelevantProducts(products, customerText);
+  const directReply = formatDirectProductReply(directMatches);
+  if (directReply) {
+    return {
+      text: directReply,
+      model: "catalog-direct",
+      error: null as string | null,
+    };
+  }
+
   const catalog = buildCatalogContext(products, customerText);
 
   let lastError = "";
