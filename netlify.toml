@@ -1,5 +1,5 @@
 [build]
-  command = "NITRO_PRESET=netlify npm run build"
+  command = "NITRO_PRESET=netlify npm run build && npm install --prefix dist/server --omit=dev"
   publish = "dist/client"
   functions = "dist/server"
 
@@ -10,6 +10,3 @@
   from = "/*"
   to = "/.netlify/functions/server"
   status = 200
-
-[[plugins]]
-  package = "@netlify/plugin-functions-install-core"
