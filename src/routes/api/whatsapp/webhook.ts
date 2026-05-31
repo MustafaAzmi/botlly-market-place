@@ -35,12 +35,8 @@ function getAnthropicApiKey() {
 }
 
 function getAnthropicModel() {
-  // User requested Haiku 4.5 as primary model.
+  // User requested Haiku 4.5 as the only model.
   return env("ANTHROPIC_MODEL") ?? "claude-haiku-4-5";
-}
-
-function getAnthropicFallbackModel() {
-  return "claude-3-5-haiku-latest";
 }
 
 function isStrictSignatureMode() {
@@ -281,38 +277,28 @@ async function callClaude(customerText: string, catalog: string, model: string, 
 
 async function generateClaudeReply(customerText: string) {
   const apiKey = getAnthropicApiKey();
-  if (!apiKey) return "هلا حبيبي، الرد الذكي متوقف مؤقتاً لأن إعدادات الذكاء غير مكتملة.";
+  if (!apiKey) {
+    console.error("[Claude] Missing ANTHROPIC_API_KEY");
+    return null;
+  }
 
   const products = await loadBotProducts();
   const catalog = buildCatalogContext(products, customerText);
 
-  const primaryModel = getAnthropicModel();
-  let response = await callClaude(customerText, catalog, primaryModel, apiKey);
-
-  if (!response.ok && primaryModel !== getAnthropicFallbackModel()) {
-    const firstError = await response.text().catch(() => "");
-    if (response.status === 400 || response.status === 404) {
-      response = await callClaude(customerText, catalog, getAnthropicFallbackModel(), apiKey);
-      if (!response.ok) {
-        console.error("[Claude] Retry failed", response.status, await response.text().catch(() => ""));
-      } else {
-        console.warn("[Claude] Primary model failed, fallback model used");
-      }
-    } else {
-      console.error("[Claude] Reply generation failed", response.status, firstError);
-    }
-  }
+  const model = getAnthropicModel();
+  const response = await callClaude(customerText, catalog, model, apiKey);
 
   if (!response.ok) {
-    console.error("[Claude] Reply generation failed", response.status, await response.text().catch(() => ""));
-    return "هلا، حالياً أكو ضغط على الرد الذكي. راسلنا بعد شوي ونخدمك.";
+    const providerError = await response.text().catch(() => "");
+    console.error("[Claude] Reply generation failed", response.status, providerError);
+    return null;
   }
 
   const data = (await response.json().catch(() => null)) as
     | { content?: Array<{ type?: string; text?: string }> }
     | null;
   const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
-  return text || "هلا، شلون أكدر أساعدك أكثر؟";
+  return text || null;
 }
 
 async function sendWhatsAppText(to: string, body: string) {
