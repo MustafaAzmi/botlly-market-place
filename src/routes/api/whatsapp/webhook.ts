@@ -45,6 +45,20 @@ function getHaiku45ModelCandidates() {
   return [...new Set(candidates.filter((value) => value.trim().length > 0))];
 }
 
+function mapAnthropicErrorToUserMessage(rawError: string) {
+  const lower = rawError.toLowerCase();
+  if (lower.includes("credit balance is too low") || lower.includes("billing")) {
+    return "خدمة الرد الذكي متوقفة مؤقتاً بسبب مشكلة رصيد في مزود الذكاء. نرجع نخدمك أول ما يتحدث الرصيد.";
+  }
+  if (lower.includes("invalid_api_key") || lower.includes("authentication")) {
+    return "خدمة الرد الذكي متوقفة مؤقتاً بسبب مشكلة إعدادات التوثيق.";
+  }
+  if (lower.includes("rate_limit")) {
+    return "خدمة الرد الذكي مزدحمة مؤقتاً، حاول بعد دقائق.";
+  }
+  return "خدمة الرد الذكي متوقفة مؤقتاً بسبب خطأ تقني.";
+}
+
 function isStrictSignatureMode() {
   return (env("WHATSAPP_STRICT_SIGNATURE") ?? "false").toLowerCase() === "true";
 }
@@ -437,9 +451,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               sendResult = await sendWhatsAppText(incoming.from, claudeReply);
               if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send reply", sendResult);
             } else if (incoming.from && claudeError) {
-              // Don't keep the bot silent: send direct technical status to owner while fixing.
-              const diagnostic = `تعذر رد Claude Haiku 4.5 حالياً. ${claudeError.slice(0, 220)}`;
-              sendResult = await sendWhatsAppText(incoming.from, diagnostic);
+              const userSafeError = mapAnthropicErrorToUserMessage(claudeError);
+              sendResult = await sendWhatsAppText(incoming.from, userSafeError);
               if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send diagnostic reply", sendResult);
             }
           }
