@@ -133,7 +133,8 @@ export const Route = createFileRoute("/api/seed-product")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const seedToken = env("BOTLY_SEED_TOKEN") ?? env("WHATSAPP_WEBHOOK_VERIFY_TOKEN");
+        const seedToken =
+          env("BOTLY_SEED_TOKEN") ?? env("WHATSAPP_WEBHOOK_VERIFY_TOKEN") ?? env("BOTLY_WHATSAPP_VERIFY_TOKEN");
         const auth = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
         if (!seedToken || auth !== seedToken) {
           return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
