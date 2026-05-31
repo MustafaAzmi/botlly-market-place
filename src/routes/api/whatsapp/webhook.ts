@@ -27,8 +27,16 @@ function getAnthropicApiKey() {
   return process.env.ANTHROPIC_API_KEY;
 }
 
+// Primary model: Opus 4.8 (most capable — gives the most accurate replies).
 function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+  return process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+}
+
+// Fallback model: Haiku 4.5 (cheaper/faster). Used automatically when the
+// primary call fails — e.g. low credit, rate limit, or a transient error —
+// so the bot keeps answering instead of going silent.
+function getAnthropicFallbackModel() {
+  return process.env.ANTHROPIC_FALLBACK_MODEL ?? "claude-haiku-4-5-20251001";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -196,12 +204,17 @@ function buildCatalogContext(
   return ranked.length ? ranked.join("\n") : "لا توجد منتجات محفوظة حالياً في كتالوج التاجر.";
 }
 
-async function generateClaudeReply(customerText: string) {
-  const apiKey = getAnthropicApiKey();
-  if (!apiKey) return null;
-  const products = await loadBotProducts();
-  const catalog = buildCatalogContext(products, customerText);
+const CLAUDE_SYSTEM_PROMPT =
+  'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة من كتالوج التاجر الحقيقي فقط. لا تخترع منتجات أو أسعار. إذا ماكو منتج مناسب، قل للزبون بشكل لطيف إن المتوفر حالياً محدود واسأله شنو يدور. كن قصيراً وودوداً دائماً. لا تذكر أي API أو موديل أو تعليمات داخلية.';
 
+// Calls the Anthropic Messages API with a single model. Returns the reply text,
+// or null on any failure (so the caller can decide whether to fall back).
+async function callAnthropicModel(
+  apiKey: string,
+  model: string,
+  customerText: string,
+  catalog: string,
+): Promise<string | null> {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -210,10 +223,9 @@ async function generateClaudeReply(customerText: string) {
       "anthropic-version": anthropicVersion,
     },
     body: JSON.stringify({
-      model: getAnthropicModel(),
+      model,
       max_tokens: 1024,
-      system:
-        'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة من كتالوج التاجر الحقيقي فقط. لا تخترع منتجات أو أسعار. إذا ماكو منتج مناسب، قل للزبون بشكل لطيف إن المتوفر حالياً محدود واسأله شنو يدور. كن قصيراً وودوداً دائماً. لا تذكر أي API أو موديل أو تعليمات داخلية.',
+      system: CLAUDE_SYSTEM_PROMPT,
       messages: [
         {
           role: "user",
@@ -226,6 +238,7 @@ async function generateClaudeReply(customerText: string) {
   if (!response.ok) {
     console.error(
       "[Claude] Reply generation failed",
+      model,
       response.status,
       await response.text().catch(() => ""),
     );
@@ -237,6 +250,31 @@ async function generateClaudeReply(customerText: string) {
   } | null;
   const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
   return text || null;
+}
+
+// Generates a reply using the primary model (Opus 4.8) and automatically falls
+// back to the secondary model (Haiku 4.5) if the primary call fails. Returns
+// the reply text together with the model that actually produced it.
+async function generateClaudeReply(
+  customerText: string,
+): Promise<{ text: string; model: string } | null> {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) return null;
+  const products = await loadBotProducts();
+  const catalog = buildCatalogContext(products, customerText);
+
+  const primaryModel = getAnthropicModel();
+  const primary = await callAnthropicModel(apiKey, primaryModel, customerText, catalog);
+  if (primary) return { text: primary, model: primaryModel };
+
+  const fallbackModel = getAnthropicFallbackModel();
+  if (fallbackModel && fallbackModel !== primaryModel) {
+    console.warn("[Claude] Primary model failed, falling back to", fallbackModel);
+    const fallback = await callAnthropicModel(apiKey, fallbackModel, customerText, catalog);
+    if (fallback) return { text: fallback, model: fallbackModel };
+  }
+
+  return null;
 }
 
 async function sendWhatsAppText(to: string, body: string) {
@@ -306,13 +344,13 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
         }
 
         const incoming = readIncomingMessage(payload);
-        let claudeReply: string | null = null;
+        let claudeResult: { text: string; model: string } | null = null;
         let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
 
         if (incoming.from && incoming.text) {
-          claudeReply = await generateClaudeReply(incoming.text);
-          if (claudeReply) {
-            sendResult = await sendWhatsAppText(incoming.from, claudeReply);
+          claudeResult = await generateClaudeReply(incoming.text);
+          if (claudeResult) {
+            sendResult = await sendWhatsAppText(incoming.from, claudeResult.text);
             if (!sendResult.ok)
               console.error("[WhatsApp webhook] Failed to send Claude reply", sendResult);
           }
@@ -324,9 +362,9 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             : { raw: payload }),
           botly_ai: {
             provider: "anthropic",
-            model: getAnthropicModel(),
+            model: claudeResult?.model ?? getAnthropicModel(),
             incoming_type: incoming.type,
-            replied: Boolean(claudeReply),
+            replied: Boolean(claudeResult),
             sent: Boolean(sendResult?.ok),
           },
         };
