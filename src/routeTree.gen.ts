@@ -17,7 +17,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
-import { Route as ApiSeedProductRouteImport } from './routes/api/seed-product'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
@@ -70,11 +69,6 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const StoreSlugRoute = StoreSlugRouteImport.update({
   id: '/store/$slug',
   path: '/store/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSeedProductRoute = ApiSeedProductRouteImport.update({
-  id: '/api/seed-product',
-  path: '/api/seed-product',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStoresRoute = AdminStoresRouteImport.update({
@@ -156,7 +150,6 @@ export interface FileRoutesByFullPath {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
-  '/api/seed-product': typeof ApiSeedProductRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -180,7 +173,6 @@ export interface FileRoutesByTo {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
-  '/api/seed-product': typeof ApiSeedProductRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
@@ -205,7 +197,6 @@ export interface FileRoutesById {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
-  '/api/seed-product': typeof ApiSeedProductRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -231,7 +222,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
-    | '/api/seed-product'
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
@@ -255,7 +245,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
-    | '/api/seed-product'
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
@@ -279,7 +268,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
-    | '/api/seed-product'
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
@@ -304,7 +292,6 @@ export interface RootRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
-  ApiSeedProductRoute: typeof ApiSeedProductRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
@@ -372,13 +359,6 @@ declare module '@tanstack/react-router' {
       path: '/store/$slug'
       fullPath: '/store/$slug'
       preLoaderRoute: typeof StoreSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/seed-product': {
-      id: '/api/seed-product'
-      path: '/api/seed-product'
-      fullPath: '/api/seed-product'
-      preLoaderRoute: typeof ApiSeedProductRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stores': {
@@ -488,7 +468,6 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,
-  ApiSeedProductRoute: ApiSeedProductRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
