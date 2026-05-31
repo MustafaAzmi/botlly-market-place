@@ -11,19 +11,15 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginAdmin, signupAdmin } from "@/lib/admin.functions";
 import { writeAdminSession } from "@/lib/adminSession";
 
-export const Route = createFileRoute("/admin/login")(
-  {
-    head: () => ({
-      meta: [
-        { title: "Admin Login - Botly" },
-        { name: "description", content: "Admin panel for Botly market place." },
-      ],
-    }),
-  },
-  {
-    component: AdminLoginPage,
-  }
-);
+export const Route = createFileRoute("/admin/login")({
+  head: () => ({
+    meta: [
+      { title: "Admin Login - Botly" },
+      { name: "description", content: "Admin panel for Botly market place." },
+    ],
+  }),
+  component: AdminLoginPage,
+});
 
 const copy = {
   ar: {
