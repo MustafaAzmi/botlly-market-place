@@ -311,13 +311,17 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
   return fallback.data as EventRow;
 }
 
-async function createSession(merchantId: string) {
+async function createSession(merchant: EventRow) {
   const token = randomToken();
   const tokenHash = await sha256(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const payload = merchant.payload ?? {};
+  const merchantId = merchantIdentity(merchant);
 
   await insertEvent(SESSION_PROVIDER, {
     merchantId,
+    merchantRowId: merchant.id,
+    merchantPhone: getString(payload.whatsappNormalized) || normalizePhone(getString(payload.whatsapp)),
     tokenHash,
     expiresAt,
     createdAt: new Date().toISOString(),
@@ -339,7 +343,12 @@ async function getAuthorizedMerchant(token: string) {
   if (!session) throw new Error("انتهت الجلسة. سجل دخول مرة ثانية.");
 
   const merchantId = getString(session.payload?.merchantId);
-  const merchant = await findMerchantById(merchantId);
+  const merchantRowId = getString(session.payload?.merchantRowId);
+  const merchantPhone = getString(session.payload?.merchantPhone);
+
+  let merchant = merchantId ? await findMerchantById(merchantId) : null;
+  if (!merchant && merchantRowId) merchant = await findMerchantById(merchantRowId);
+  if (!merchant && merchantPhone) merchant = await findMerchantByPhone(merchantPhone);
   if (!merchant) throw new Error("لم يتم العثور على المتجر.");
   return merchant;
 }
@@ -383,7 +392,7 @@ export const signupMerchant = createServerFn({ method: "POST" })
     });
 
     const profile = toProfile(row);
-    const token = await createSession(profile.id);
+    const token = await createSession(row);
     return { token, profile };
   });
 
@@ -399,7 +408,7 @@ export const loginMerchant = createServerFn({ method: "POST" })
     if (!salt || actualHash !== expectedHash) throw new Error("كلمة المرور غير صحيحة.");
 
     const profile = toProfile(row);
-    const token = await createSession(profile.id);
+    const token = await createSession(row);
     return { token, profile };
   });
 
