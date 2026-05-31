@@ -8,6 +8,8 @@ const PRODUCT_PROVIDER = "botly_product";
 const SESSION_PROVIDER = "botly_session";
 const SESSION_TTL_DAYS = 30;
 
+type EventStore = "whatsapp_webhook_events" | "broadcasts";
+
 type EventRow = {
   id: string;
   payload: Record<string, unknown>;
@@ -86,6 +88,8 @@ const productInput = tokenInput.extend({
   quantity: z.number().int().min(0).max(999_999).optional(),
 });
 
+let resolvedEventStore: EventStore | null = null;
+
 function normalizePhone(phone: string) {
   return phone
     .replace(/[^\d+]/g, "")
@@ -101,21 +105,24 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function requireDataStoreTable(error: { message?: string } | null) {
-  if (!error) return;
-  throw new Error(
-    "قاعدة بيانات التجار غير جاهزة. شغل migration الخاص بجدول whatsapp_webhook_events أولاً.",
-  );
+function isMissingTableError(error: { message?: string; code?: string } | null) {
+  if (!error) return false;
+  const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+  return text.includes("42p01") || text.includes("does not exist") || text.includes("relation");
 }
 
 function eventTime(row: EventRow) {
   return row.created_at ?? row.received_at ?? new Date().toISOString();
 }
 
+function merchantIdentity(row: EventRow) {
+  return getString(row.payload?.merchantId) || row.id;
+}
+
 function toProfile(row: EventRow): MerchantProfile {
   const payload = row.payload ?? {};
   return {
-    id: row.id,
+    id: merchantIdentity(row),
     storeName: getString(payload.storeName),
     whatsapp: getString(payload.whatsapp),
     email: getString(payload.email) || undefined,
@@ -131,7 +138,7 @@ function toProfile(row: EventRow): MerchantProfile {
 function toProduct(row: EventRow): MerchantProduct {
   const payload = row.payload ?? {};
   return {
-    id: row.id,
+    id: getString(payload.productId) || row.id,
     description: getString(payload.description),
     imageUrl: getString(payload.imageUrl),
     currentPrice: getNumber(payload.currentPrice) ?? 0,
@@ -141,6 +148,20 @@ function toProduct(row: EventRow): MerchantProduct {
     color: getString(payload.color) || undefined,
     quantity: getNumber(payload.quantity),
     createdAt: getString(payload.createdAt) || eventTime(row),
+  };
+}
+
+function fromBroadcastRow(row: Record<string, unknown>): EventRow {
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(String(row.body ?? "{}")) as Record<string, unknown>;
+  } catch {
+    payload = {};
+  }
+  return {
+    id: String(row.id ?? ""),
+    payload,
+    created_at: String(row.created_at ?? new Date().toISOString()),
   };
 }
 
@@ -165,7 +186,27 @@ async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
 }
 
+async function getEventStore(): Promise<EventStore> {
+  if (resolvedEventStore) return resolvedEventStore;
+  const probe = await supabaseAdmin.from("whatsapp_webhook_events").select("id").limit(1);
+  resolvedEventStore = isMissingTableError(probe.error) ? "broadcasts" : "whatsapp_webhook_events";
+  return resolvedEventStore;
+}
+
 async function listEvents(provider: string) {
+  const store = await getEventStore();
+
+  if (store === "broadcasts") {
+    const list = await supabaseAdmin
+      .from("broadcasts")
+      .select("id,body,created_at")
+      .eq("audience", `botly:${provider}`)
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (list.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
+    return (list.data ?? []).map((row) => fromBroadcastRow(row as Record<string, unknown>));
+  }
+
   const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
@@ -183,7 +224,11 @@ async function listEvents(provider: string) {
     .order("received_at", { ascending: false })
     .limit(5000);
 
-  requireDataStoreTable(fallback.error);
+  if (isMissingTableError(fallback.error)) {
+    resolvedEventStore = "broadcasts";
+    return listEvents(provider);
+  }
+  if (fallback.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
   return (fallback.data ?? []) as EventRow[];
 }
 
@@ -194,6 +239,13 @@ async function findMerchantByPhone(whatsapp: string) {
 }
 
 async function findMerchantById(id: string) {
+  const store = await getEventStore();
+
+  if (store === "broadcasts") {
+    const rows = await listEvents(MERCHANT_PROVIDER);
+    return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
+  }
+
   const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
@@ -211,11 +263,35 @@ async function findMerchantById(id: string) {
     .eq("id", id)
     .maybeSingle();
 
-  requireDataStoreTable(fallback.error);
+  if (isMissingTableError(fallback.error)) {
+    resolvedEventStore = "broadcasts";
+    return findMerchantById(id);
+  }
+  if (fallback.error) throw new Error("تعذر قراءة بيانات المتجر من قاعدة البيانات.");
   return (fallback.data as EventRow | null) ?? null;
 }
 
 async function insertEvent(provider: string, payload: Record<string, unknown>) {
+  const store = await getEventStore();
+
+  if (store === "broadcasts") {
+    const created = await supabaseAdmin
+      .from("broadcasts")
+      .insert({
+        title: provider,
+        body: JSON.stringify(payload),
+        status: "botly_event",
+        audience: `botly:${provider}`,
+        audience_label: "botly",
+        recipients: 0,
+      })
+      .select("id,body,created_at")
+      .single();
+
+    if (created.error) throw new Error("تعذر حفظ بيانات المتجر.");
+    return fromBroadcastRow(created.data as Record<string, unknown>);
+  }
+
   const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .insert({
@@ -237,7 +313,11 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
     .select("id,payload,received_at")
     .single();
 
-  requireDataStoreTable(fallback.error);
+  if (isMissingTableError(fallback.error)) {
+    resolvedEventStore = "broadcasts";
+    return insertEvent(provider, payload);
+  }
+  if (fallback.error) throw new Error("تعذر حفظ بيانات المتجر.");
   return fallback.data as EventRow;
 }
 
@@ -294,8 +374,10 @@ export const signupMerchant = createServerFn({ method: "POST" })
     const now = new Date().toISOString();
     const passwordHash = await hashPassword(data.password, salt);
     const whatsappNormalized = normalizePhone(data.whatsapp);
+    const merchantId = crypto.randomUUID();
 
     const row = await insertEvent(MERCHANT_PROVIDER, {
+      merchantId,
       storeName: data.storeName,
       whatsapp: data.whatsapp,
       whatsappNormalized,
@@ -348,11 +430,14 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
 
     if (nextPhone !== currentPhone) {
       const existing = await findMerchantByPhone(data.whatsapp);
-      if (existing && existing.id !== row.id) throw new Error("رقم الواتساب مستخدم بمتجر آخر.");
+      if (existing && merchantIdentity(existing) !== merchantIdentity(row)) {
+        throw new Error("رقم الواتساب مستخدم بمتجر آخر.");
+      }
     }
 
     const payload = {
       ...currentPayload,
+      merchantId: merchantIdentity(row),
       storeName: data.storeName,
       whatsapp: data.whatsapp,
       whatsappNormalized: nextPhone,
@@ -360,18 +445,12 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
       deliveryPhone: data.deliveryPhone || "",
       logoUrl: data.logoUrl || getString(currentPayload.logoUrl),
       coverUrl: data.coverUrl || getString(currentPayload.coverUrl),
+      createdAt: getString(currentPayload.createdAt) || eventTime(row),
       updatedAt: new Date().toISOString(),
     };
 
-    const { data: updated, error } = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .update({ payload })
-      .eq("id", row.id)
-      .select("id,payload,received_at")
-      .single();
-
-    requireDataStoreTable(error);
-    return toProfile(updated as EventRow);
+    const updated = await insertEvent(MERCHANT_PROVIDER, payload);
+    return toProfile(updated);
   });
 
 export const createMerchantProduct = createServerFn({ method: "POST" })
@@ -381,7 +460,8 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
     const now = new Date().toISOString();
 
     const row = await insertEvent(PRODUCT_PROVIDER, {
-      merchantId: merchant.id,
+      productId: crypto.randomUUID(),
+      merchantId: merchantIdentity(merchant),
       description: data.description,
       imageUrl: data.imageUrl,
       currentPrice: data.currentPrice,
@@ -401,8 +481,9 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }) => {
     const merchant = await getAuthorizedMerchant(data.token);
+    const merchantId = merchantIdentity(merchant);
     const rows = await listEvents(PRODUCT_PROVIDER);
-    return rows.filter((row) => getString(row.payload?.merchantId) === merchant.id).map(toProduct);
+    return rows.filter((row) => getString(row.payload?.merchantId) === merchantId).map(toProduct);
   });
 
 export const getMerchantDashboard = createServerFn({ method: "POST" })
