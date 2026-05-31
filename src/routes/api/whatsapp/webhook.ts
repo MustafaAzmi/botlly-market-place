@@ -39,6 +39,12 @@ function getAnthropicModel() {
   return env("ANTHROPIC_MODEL") ?? "claude-haiku-4-5";
 }
 
+function getHaiku45ModelCandidates() {
+  const preferred = getAnthropicModel();
+  const candidates = [preferred, "claude-haiku-4-5", "claude-haiku-4-5-20251001"];
+  return [...new Set(candidates.filter((value) => value.trim().length > 0))];
+}
+
 function isStrictSignatureMode() {
   return (env("WHATSAPP_STRICT_SIGNATURE") ?? "false").toLowerCase() === "true";
 }
@@ -279,26 +285,34 @@ async function generateClaudeReply(customerText: string) {
   const apiKey = getAnthropicApiKey();
   if (!apiKey) {
     console.error("[Claude] Missing ANTHROPIC_API_KEY");
-    return null;
+    return { text: null, model: null as string | null, error: "Missing ANTHROPIC_API_KEY" };
   }
 
   const products = await loadBotProducts();
   const catalog = buildCatalogContext(products, customerText);
 
-  const model = getAnthropicModel();
-  const response = await callClaude(customerText, catalog, model, apiKey);
+  let lastError = "";
+  for (const model of getHaiku45ModelCandidates()) {
+    const response = await callClaude(customerText, catalog, model, apiKey);
+    if (!response.ok) {
+      const providerError = await response.text().catch(() => "");
+      lastError = `model=${model} status=${response.status} body=${providerError}`;
+      console.error("[Claude] Reply generation failed", lastError);
+      continue;
+    }
 
-  if (!response.ok) {
-    const providerError = await response.text().catch(() => "");
-    console.error("[Claude] Reply generation failed", response.status, providerError);
-    return null;
+    const data = (await response.json().catch(() => null)) as
+      | { content?: Array<{ type?: string; text?: string }> }
+      | null;
+    const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
+    if (text) return { text, model, error: null as string | null };
   }
 
-  const data = (await response.json().catch(() => null)) as
-    | { content?: Array<{ type?: string; text?: string }> }
-    | null;
-  const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
-  return text || null;
+  return {
+    text: null,
+    model: null as string | null,
+    error: lastError || "Unknown Claude provider failure",
+  };
 }
 
 async function sendWhatsAppText(to: string, body: string) {
@@ -410,13 +424,23 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
 
           const incoming = readIncomingMessage(payload);
           let claudeReply: string | null = null;
+          let claudeError: string | null = null;
+          let usedModel: string | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
 
           if (incoming.from && incoming.text) {
-            claudeReply = await generateClaudeReply(incoming.text);
+            const aiResult = await generateClaudeReply(incoming.text);
+            claudeReply = aiResult.text;
+            claudeError = aiResult.error;
+            usedModel = aiResult.model;
             if (claudeReply) {
               sendResult = await sendWhatsAppText(incoming.from, claudeReply);
               if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send reply", sendResult);
+            } else if (incoming.from && claudeError) {
+              // Don't keep the bot silent: send direct technical status to owner while fixing.
+              const diagnostic = `تعذر رد Claude Haiku 4.5 حالياً. ${claudeError.slice(0, 220)}`;
+              sendResult = await sendWhatsAppText(incoming.from, diagnostic);
+              if (!sendResult.ok) console.error("[WhatsApp webhook] Failed to send diagnostic reply", sendResult);
             }
           }
 
@@ -426,10 +450,11 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               : { raw: payload }),
             botly_ai: {
               provider: "anthropic",
-              model: getAnthropicModel(),
+              model: usedModel ?? getAnthropicModel(),
               incoming_type: incoming.type,
               replied: Boolean(claudeReply),
               sent: Boolean(sendResult?.ok),
+              error: claudeError,
             },
           };
 
