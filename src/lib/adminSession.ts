@@ -8,7 +8,7 @@ export interface AdminSession {
   signedInAt: string;
 }
 
-const SESSION_KEY = "botly_admin_session";
+const SESSION_KEY = "botly.admin.session";
 
 export function writeAdminSession(session: AdminSession): void {
   if (typeof sessionStorage === "undefined") return;

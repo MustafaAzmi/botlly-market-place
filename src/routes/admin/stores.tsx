@@ -17,35 +17,23 @@ import { Label } from "@/components/ui/label";
 
 import { listStores, toggleStoreStatus } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
+import { requireAdminClient } from "@/lib/adminGuard";
 
-export const Route = createFileRoute("/admin/stores")(
-  {
-    beforeLoad: async () => {
-      const session = readAdminSession();
-      if (!session?.token) {
-        throw new Error("Not authenticated");
-      }
-    },
-  },
-  {
-    component: AdminStoresPage,
-  }
-);
+export const Route = createFileRoute("/admin/stores")({
+  beforeLoad: () => requireAdminClient(),
+  component: AdminStoresPage,
+});
 
 function AdminStoresPage() {
-  const getSessionFn = useServerFn(readAdminSession);
   const listStoresFn = useServerFn(listStores);
   const toggleStatusFn = useServerFn(toggleStoreStatus);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
 
-  const { data: session } = useQuery({
-    queryKey: ["adminSession"],
-    queryFn: async () => {
-      return await getSessionFn();
-    },
-  });
+  // readAdminSession reads sessionStorage; this component only renders on the
+  // client (after the beforeLoad guard), so it's safe to read it directly.
+  const session = readAdminSession();
 
   const {
     data: stores = [],

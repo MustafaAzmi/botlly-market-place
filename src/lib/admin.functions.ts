@@ -41,6 +41,14 @@ const toggleStoreInput = tokenInput.extend({
   storeId: z.string().uuid(),
 });
 
+// Merchants are stored in the shared event-sourcing table, written by
+// merchant.functions.ts with source='botly' and event_type='botly_merchant'.
+const MERCHANT_EVENT_TYPE = "botly_merchant";
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 // Admin Authentication
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -68,17 +76,11 @@ const ADMIN_CREDENTIALS = [
 export const loginAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => loginInput.parse(d))
   .handler(async ({ data }) => {
-    const passwordHash = await hashPassword(data.password);
-
-    let admin =
-      ADMIN_CREDENTIALS.find((a) => a.email === data.email) ?? null;
-
-    if (admin) {
-      const expectedHash = await hashPassword(admin.password);
-      if (expectedHash !== passwordHash) {
-        admin = null;
-      }
-    }
+    const admin = ADMIN_CREDENTIALS.find(
+      (a) =>
+        a.email === data.email &&
+        a.password === data.password
+    );
 
     if (!admin) {
       throw new Error("Invalid email or password");
@@ -110,82 +112,85 @@ export const signupAdmin = createServerFn({ method: "POST" })
     };
   });
 
-// Stores Management
+// Stores Management — reads the real merchants registered through the merchant
+// signup flow (stored as botly_merchant events), not a separate admin table.
+const PAGE_SIZE = 10;
+
 export const listStores = createServerFn({ method: "POST" })
   .inputValidator((d) => storeListInput.parse(d))
   .handler(async ({ data }) => {
-    try {
-      const { data: stores, error } = await supabaseAdmin
-        .from("admin_stores")
-        .select("*")
-        .ilike("store_name", `%${data.search || ""}%`)
-        .range((data.page - 1) * 10, data.page * 10 - 1)
-        .order("created_at", { ascending: false });
+    const { data: rows, error } = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", MERCHANT_EVENT_TYPE)
+      .order("created_at", { ascending: false })
+      .limit(5000);
 
-      if (error) {
-        console.warn("Supabase error:", error);
-        // Return mock data for now
-        return [
-          {
-            id: "store_1",
-            storeName: "متجري الأول",
-            ownerName: "أحمد",
-            whatsapp: "+964791234567",
-            email: "store1@example.com",
-            city: "بغداد",
-            category: "ملابس",
-            active: true,
-            createdAt: new Date().toISOString(),
-          },
-        ];
-      }
-
-      return stores.map((s: any) => ({
-        id: s.id,
-        storeName: s.store_name,
-        ownerName: s.owner_name,
-        whatsapp: s.whatsapp,
-        email: s.email,
-        city: s.city,
-        category: s.category,
-        active: !s.banned_from_bot,
-        createdAt: s.created_at,
-      })) as AdminStore[];
-    } catch {
-      // Return mock data on error
-      return [
-        {
-          id: "store_1",
-          storeName: "متجري الأول",
-          ownerName: "أحمد",
-          whatsapp: "+964791234567",
-          email: "store1@example.com",
-          city: "بغداد",
-          category: "ملابس",
-          active: true,
-          createdAt: new Date().toISOString(),
-        },
-      ];
+    if (error) {
+      throw new Error("تعذر تحميل المتاجر من قاعدة البيانات.");
     }
+
+    const stores: AdminStore[] = (rows ?? []).map((row: any) => {
+      const p = (row.payload ?? {}) as Record<string, unknown>;
+      return {
+        id: row.id,
+        storeName: getString(p.storeName),
+        ownerName: getString(p.ownerName) || getString(p.storeName),
+        whatsapp: getString(p.whatsapp),
+        email: getString(p.email) || undefined,
+        city: getString(p.city),
+        category: getString(p.category),
+        active: p.bannedFromBot !== true,
+        createdAt: getString(p.createdAt) || row.created_at || new Date().toISOString(),
+      };
+    });
+
+    const search = (data.search || "").trim().toLowerCase();
+    const filtered = search
+      ? stores.filter(
+          (s) =>
+            s.storeName.toLowerCase().includes(search) ||
+            s.whatsapp.toLowerCase().includes(search) ||
+            (s.email ?? "").toLowerCase().includes(search),
+        )
+      : stores;
+
+    const start = (data.page - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
   });
 
 export const toggleStoreStatus = createServerFn({ method: "POST" })
   .inputValidator((d) => toggleStoreInput.parse(d))
   .handler(async ({ data }) => {
-    try {
-      const { error } = await supabaseAdmin
-        .from("admin_stores")
-        .update({ banned_from_bot: true })
-        .eq("id", data.storeId);
+    const { data: row, error: fetchError } = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload")
+      .eq("id", data.storeId)
+      .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
-
-      return { success: true };
-    } catch (err) {
-      throw new Error(
-        err instanceof Error ? err.message : "Failed to toggle store status"
-      );
+    if (fetchError || !row) {
+      throw new Error("لم يتم العثور على المتجر.");
     }
+
+    const payload = ((row as any).payload ?? {}) as Record<string, unknown>;
+    const nextBanned = payload.bannedFromBot !== true;
+
+    const { error } = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .update({
+        payload: {
+          ...payload,
+          bannedFromBot: nextBanned,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+      .eq("id", data.storeId);
+
+    if (error) {
+      throw new Error("تعذر تحديث حالة المتجر.");
+    }
+
+    // active = the opposite of banned; the UI shows نشط/معطل from this.
+    return { success: true, active: !nextBanned };
   });

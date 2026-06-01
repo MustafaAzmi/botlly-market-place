@@ -26,6 +26,7 @@ export type MerchantProfile = {
   deliveryPhone?: string;
   logoUrl?: string;
   coverUrl?: string;
+  bannedFromBot: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -137,6 +138,7 @@ function toProfile(row: EventRow): MerchantProfile {
     deliveryPhone: getString(payload.deliveryPhone) || undefined,
     logoUrl: getString(payload.logoUrl) || undefined,
     coverUrl: getString(payload.coverUrl) || undefined,
+    bannedFromBot: payload.bannedFromBot === true,
     createdAt: getString(payload.createdAt) || eventTime(row),
     updatedAt: getString(payload.updatedAt) || eventTime(row),
   };
@@ -387,6 +389,7 @@ export const signupMerchant = createServerFn({ method: "POST" })
       deliveryPhone: "",
       logoUrl: "",
       coverUrl: "",
+      bannedFromBot: false,
       createdAt: now,
       updatedAt: now,
     });
