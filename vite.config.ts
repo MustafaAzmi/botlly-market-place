@@ -7,7 +7,14 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  nitro: true,
+  // `noExternals: ["tslib"]` forces Nitro to bundle tslib into the server output
+  // instead of externalizing it. Nitro's dependency tracer only copies a partial
+  // set of tslib's files (it misses tslib.es6.mjs that the exports map points to),
+  // which breaks Netlify's function packaging step ("Could not resolve tslib").
+  // Inlining it sidesteps the trace entirely.
+  nitro: {
+    noExternals: ["tslib"],
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
