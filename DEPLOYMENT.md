@@ -3,18 +3,17 @@
 دليل خطوة بخطوة لتشغيل المنصة على الإنتاج. كل القيم السرية تنحط كـ
 **Environment Variables / Secrets** على منصة النشر — **مو بالكود**.
 
-> **منصة النشر الفعلية: Cloudflare Workers**
-> الدومين: `https://botlly-market-place.mustafa-azmi-mustafa.workers.dev`
-> (ملف `netlify.toml` موجود كخيار بديل، بس النشر الحالي على Cloudflare.)
+> **منصة النشر الفعلية: Netlify**
+> الدومين: `https://www.bot-lly.tech`
+> ⚠️ تأكد إن عنوان الـ Webhook بـ Meta يأشر على دومين Netlify،
+> مو على دومين Cloudflare القديم (`*.workers.dev`).
 
 ---
 
 ## 1) متغيرات البيئة المطلوبة
 
-على Cloudflare: **Workers & Pages → اختر المشروع → Settings → Variables and Secrets**
-(القيم السرية حطّها كـ **Secret**، مو Plaintext.)
-
-بديل عبر CLI: `npx wrangler secret put WHATSAPP_ACCESS_TOKEN`
+على Netlify: **Site configuration → Environment variables → Add a variable**
+(فعّلها لكل deploy contexts: Production, Deploy Previews, Branch deploys.)
 
 ### قاعدة البيانات (Supabase)
 | المتغير | من وين تجيبه |
@@ -46,7 +45,7 @@
 |---------|--------|
 | `META_OAUTH_APP_ID` | developers.facebook.com → App settings → Basic → App ID |
 | `META_OAUTH_APP_SECRET` | نفس App Secret حق واتساب |
-| `META_OAUTH_REDIRECT_URI` | `https://botlly-market-place.mustafa-azmi-mustafa.workers.dev/api/auth/meta/callback` |
+| `META_OAUTH_REDIRECT_URI` | `https://www.bot-lly.tech/api/auth/meta/callback` |
 
 ### مهام مجدولة (Cron)
 | المتغير | القيمة |
@@ -59,7 +58,7 @@
 
 في **developers.facebook.com → تطبيقك → Use cases → WhatsApp → Configuration**:
 
-1. **Callback URL:** `https://botlly-market-place.mustafa-azmi-mustafa.workers.dev/api/whatsapp/webhook`
+1. **Callback URL:** `https://www.bot-lly.tech/api/whatsapp/webhook` ⚠️ (مو دومين Cloudflare!)
 2. **Verify token:** `carwash_verify_2026` (نفس قيمة `WHATSAPP_WEBHOOK_VERIFY_TOKEN`)
 3. اضغط **Verify and Save**
 4. تحت **Webhook fields** — اشترك بحقل ✅ **`messages`** (هذا الأهم — بدونه ما توصل رسائل الزبائن)
