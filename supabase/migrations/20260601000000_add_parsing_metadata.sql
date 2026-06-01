@@ -1,7 +1,7 @@
 -- Add parsing metadata table for tracking AI model decisions
 CREATE TABLE public.product_parsing_metadata (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  webhook_event_id UUID NOT NULL REFERENCES public.whatsapp_webhook_events(id) ON DELETE CASCADE,
+  webhook_event_id BIGINT NOT NULL REFERENCES public.whatsapp_webhook_events(id) ON DELETE CASCADE,
   ai_provider TEXT DEFAULT 'openai',
   ai_model TEXT,
   parsing_version TEXT DEFAULT 'v2',
@@ -13,7 +13,7 @@ CREATE TABLE public.product_parsing_metadata (
   extracted_keywords TEXT[],
   language_detected TEXT,
   spam_score NUMERIC(3,2),
-  duplicate_match_id UUID,
+  duplicate_match_id BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -31,7 +31,7 @@ CREATE INDEX idx_parsing_metadata_fallback_used
 -- Table for messages that couldn't be parsed (requires manual review)
 CREATE TABLE public.unparseable_messages (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  webhook_event_id UUID NOT NULL REFERENCES public.whatsapp_webhook_events(id),
+  webhook_event_id BIGINT NOT NULL REFERENCES public.whatsapp_webhook_events(id),
   raw_text TEXT NOT NULL,
   extracted_fields JSONB,
   failure_reason TEXT,

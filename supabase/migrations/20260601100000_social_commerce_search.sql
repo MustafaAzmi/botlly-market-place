@@ -47,7 +47,7 @@ CREATE OR REPLACE FUNCTION public.search_botly_products(
   max_results int DEFAULT 8
 )
 RETURNS TABLE (
-  id uuid,
+  id bigint,
   payload jsonb,
   similarity real,
   created_at timestamptz
@@ -66,11 +66,11 @@ AS $$
   -- the same productId. Keep only the latest row per productId.
   latest AS (
     SELECT DISTINCT ON (COALESCE(p.payload->>'productId', p.id::text))
-      p.id, p.payload, p.created_at
+      p.id, p.payload, p.updated_at AS created_at
     FROM public.whatsapp_webhook_events p
     WHERE p.source = 'botly'
       AND p.event_type = 'botly_product'
-    ORDER BY COALESCE(p.payload->>'productId', p.id::text), p.created_at DESC
+    ORDER BY COALESCE(p.payload->>'productId', p.id::text), p.updated_at DESC
   )
   SELECT
     l.id,
