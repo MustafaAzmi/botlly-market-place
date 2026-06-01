@@ -137,60 +137,73 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+// Merchants that the admin has hidden/blocked from the bot. Their products must
+// never appear in customer search results, regardless of payment status.
+async function loadBannedMerchantIds(): Promise<Set<string>> {
+  const banned = new Set<string>();
+  const { data } = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload")
+    .eq("source", "botly")
+    .eq("event_type", "botly_merchant")
+    .limit(5000);
+
+  for (const row of data ?? []) {
+    const payload = (row.payload ?? {}) as Record<string, unknown>;
+    if (payload.bannedFromBot === true) banned.add(row.id);
+  }
+  return banned;
+}
+
+function mapProductRow(row: { payload: unknown }) {
+  const payload = (row.payload ?? {}) as Record<string, unknown>;
+  return {
+    merchantId: getString(payload.merchantId),
+    description: getString(payload.description),
+    currentPrice: getNumber(payload.currentPrice) ?? 0,
+    discountPrice: getNumber(payload.discountPrice),
+    currency: getString(payload.currency) || "IQD",
+    color: getString(payload.color),
+    size: getString(payload.size),
+    quantity: getNumber(payload.quantity),
+  };
+}
+
 async function loadBotProducts() {
-  // Try primary query: source='botly' + event_type='botly_product'
-  // (used by insertEvent in merchant.functions.ts)
+  const banned = await loadBannedMerchantIds();
+
+  // Primary query: source='botly' + event_type='botly_product'
+  // (used by insertEvent in merchant.functions.ts).
   const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
     .eq("source", "botly")
     .eq("event_type", "botly_product")
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(200);
 
-  if (primary.data && primary.data.length > 0) {
-    const rows = primary.data as typeof primary.data;
-    return rows.map((row) => {
-      const payload = (row.payload ?? {}) as Record<string, unknown>;
-      return {
-        description: getString(payload.description),
-        currentPrice: getNumber(payload.currentPrice) ?? 0,
-        discountPrice: getNumber(payload.discountPrice),
-        currency: getString(payload.currency) || "IQD",
-        color: getString(payload.color),
-        size: getString(payload.size),
-        quantity: getNumber(payload.quantity),
-      };
-    });
+  let rows = primary.data as Array<{ payload: unknown }> | null;
+
+  // Fallback: provider='botly_product' (older schema path).
+  if (!rows || rows.length === 0) {
+    const fallback = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,received_at")
+      .eq("provider", "botly_product")
+      .order("received_at", { ascending: false })
+      .limit(200);
+    rows = fallback.data as Array<{ payload: unknown }> | null;
   }
 
-  // Fallback: try provider='botly_product' as backup
-  const fallback = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,received_at")
-    .eq("provider", "botly_product")
-    .order("received_at", { ascending: false })
-    .limit(100);
-
-  const rows = (fallback.data ?? []) as typeof fallback.data;
-
   if (!rows || rows.length === 0) {
-    console.warn("[Bot Products] No products found in database. Check that merchants have added products.");
+    console.warn(
+      "[Bot Products] No products found in database. Check that merchants have added products.",
+    );
     return [];
   }
 
-  return rows.map((row) => {
-    const payload = (row.payload ?? {}) as Record<string, unknown>;
-    return {
-      description: getString(payload.description),
-      currentPrice: getNumber(payload.currentPrice) ?? 0,
-      discountPrice: getNumber(payload.discountPrice),
-      currency: getString(payload.currency) || "IQD",
-      color: getString(payload.color),
-      size: getString(payload.size),
-      quantity: getNumber(payload.quantity),
-    };
-  });
+  // Drop products that belong to a blocked merchant.
+  return rows.map(mapProductRow).filter((p) => !p.merchantId || !banned.has(p.merchantId));
 }
 
 function buildCatalogContext(
