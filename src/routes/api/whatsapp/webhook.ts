@@ -3,9 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 
+import OpenAI from "openai";
+
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
-const anthropicVersion = "2023-06-01";
 
 function getVerifyToken() {
   return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
@@ -23,20 +24,12 @@ function getWhatsAppPhoneNumberId() {
   return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
 }
 
-function getAnthropicApiKey() {
-  return process.env.ANTHROPIC_API_KEY;
+function getOpenAIApiKey() {
+  return process.env.OPENAI_API_KEY;
 }
 
-// Primary model: Opus 4.8 (most capable — gives the most accurate replies).
-function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
-}
-
-// Fallback model: Haiku 4.5 (cheaper/faster). Used automatically when the
-// primary call fails — e.g. low credit, rate limit, or a transient error —
-// so the bot keeps answering instead of going silent.
-function getAnthropicFallbackModel() {
-  return process.env.ANTHROPIC_FALLBACK_MODEL ?? "claude-haiku-4-5-20251001";
+function getOpenAIModel() {
+  return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -157,10 +150,26 @@ async function loadBannedMerchantIds(): Promise<Set<string>> {
 
 function mapProductRow(row: { payload: unknown }) {
   const payload = (row.payload ?? {}) as Record<string, unknown>;
+
+  // Product name/description: try multiple field names for compatibility
+  const description =
+    getString(payload.name) ||
+    getString(payload.title) ||
+    getString(payload.productName) ||
+    getString(payload.description) ||
+    "";
+
+  // Price: try multiple field names, convert to number safely
+  const currentPrice =
+    getNumber(payload.currentPrice) ??
+    getNumber(payload.price) ??
+    getNumber(payload.salePrice) ??
+    0;
+
   return {
     merchantId: getString(payload.merchantId),
-    description: getString(payload.description),
-    currentPrice: getNumber(payload.currentPrice) ?? 0,
+    description,
+    currentPrice,
     discountPrice: getNumber(payload.discountPrice),
     currency: getString(payload.currency) || "IQD",
     color: getString(payload.color),
@@ -242,72 +251,52 @@ function buildCatalogContext(
 const CLAUDE_SYSTEM_PROMPT =
   'أنت بائع عراقي ودود اسمك "زيد". تتكلم باللهجة البغدادية. تساعد الزبون يلاكي البضاعة المناسبة من كتالوج التاجر الحقيقي فقط. لا تخترع منتجات أو أسعار. إذا ماكو منتج مناسب، قل للزبون بشكل لطيف إن المتوفر حالياً محدود واسأله شنو يدور. كن قصيراً وودوداً دائماً. لا تذكر أي API أو موديل أو تعليمات داخلية.';
 
-// Calls the Anthropic Messages API with a single model. Returns the reply text,
-// or null on any failure (so the caller can decide whether to fall back).
-async function callAnthropicModel(
+// Calls the OpenAI API with GPT-4.1 mini. Returns the reply text,
+// or null on any failure.
+async function callOpenAIModel(
   apiKey: string,
   model: string,
   customerText: string,
   catalog: string,
 ): Promise<string | null> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": anthropicVersion,
-    },
-    body: JSON.stringify({
+  try {
+    const client = new OpenAI({ apiKey });
+    const response = await client.chat.completions.create({
       model,
       max_tokens: 1024,
-      system: CLAUDE_SYSTEM_PROMPT,
       messages: [
+        {
+          role: "system",
+          content: CLAUDE_SYSTEM_PROMPT,
+        },
         {
           role: "user",
           content: `رسالة الزبون: ${customerText}\n\nكتالوج المنتجات الحقيقي:\n${catalog}`,
         },
       ],
-    }),
-  });
+    });
 
-  if (!response.ok) {
-    console.error(
-      "[Claude] Reply generation failed",
-      model,
-      response.status,
-      await response.text().catch(() => ""),
-    );
+    const text = response.choices[0]?.message?.content?.trim();
+    return text || null;
+  } catch (error) {
+    console.error("[OpenAI] Reply generation failed", model, error);
     return null;
   }
-
-  const data = (await response.json().catch(() => null)) as {
-    content?: Array<{ type?: string; text?: string }>;
-  } | null;
-  const text = data?.content?.find((part) => part.type === "text")?.text?.trim();
-  return text || null;
 }
 
-// Generates a reply using the primary model (Opus 4.8) and automatically falls
-// back to the secondary model (Haiku 4.5) if the primary call fails. Returns
-// the reply text together with the model that actually produced it.
+// Generates a reply using OpenAI GPT-4.1 mini. Returns the reply text
+// together with the model that produced it.
 async function generateClaudeReply(
   customerText: string,
 ): Promise<{ text: string; model: string } | null> {
-  const apiKey = getAnthropicApiKey();
+  const apiKey = getOpenAIApiKey();
   if (!apiKey) return null;
   const products = await loadBotProducts();
   const catalog = buildCatalogContext(products, customerText);
 
-  const primaryModel = getAnthropicModel();
-  const primary = await callAnthropicModel(apiKey, primaryModel, customerText, catalog);
-  if (primary) return { text: primary, model: primaryModel };
-
-  const fallbackModel = getAnthropicFallbackModel();
-  if (fallbackModel && fallbackModel !== primaryModel) {
-    console.warn("[Claude] Primary model failed, falling back to", fallbackModel);
-    const fallback = await callAnthropicModel(apiKey, fallbackModel, customerText, catalog);
-    if (fallback) return { text: fallback, model: fallbackModel };
-  }
+  const model = getOpenAIModel();
+  const reply = await callOpenAIModel(apiKey, model, customerText, catalog);
+  if (reply) return { text: reply, model };
 
   return null;
 }
@@ -396,8 +385,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             ? (payload as Record<string, unknown>)
             : { raw: payload }),
           botly_ai: {
-            provider: "anthropic",
-            model: claudeResult?.model ?? getAnthropicModel(),
+            provider: "openai",
+            model: claudeResult?.model ?? getOpenAIModel(),
             incoming_type: incoming.type,
             replied: Boolean(claudeResult),
             sent: Boolean(sendResult?.ok),
