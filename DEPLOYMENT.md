@@ -33,7 +33,7 @@
 | `WHATSAPP_WABA_ID` | `25752676937730999` | ✅ جاهز |
 | `WHATSAPP_ACCESS_TOKEN` | توكن دائم من System User | ⚠️ يجب التأكد |
 | `WHATSAPP_APP_SECRET` | App settings → Basic → App Secret | ⬜ مطلوب |
-| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | `botly_093a41d4313b1ca5c98d59662159d843` | ✅ مُولّد |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | `carwash_verify_2026` | ✅ (يطابق خانة Meta) |
 
 ### الذكاء الاصطناعي (OpenAI)
 | المتغير | من وين |
@@ -60,7 +60,7 @@
 في **developers.facebook.com → تطبيقك → Use cases → WhatsApp → Configuration**:
 
 1. **Callback URL:** `https://botlly-market-place.mustafa-azmi-mustafa.workers.dev/api/whatsapp/webhook`
-2. **Verify token:** `botly_093a41d4313b1ca5c98d59662159d843`
+2. **Verify token:** `carwash_verify_2026` (نفس قيمة `WHATSAPP_WEBHOOK_VERIFY_TOKEN`)
 3. اضغط **Verify and Save**
 4. تحت **Webhook fields** — اشترك بحقل ✅ **`messages`** (هذا الأهم — بدونه ما توصل رسائل الزبائن)
 5. **انشر التطبيق (Publish)** — الـ webhook ما يشتغل مع الزبائن الحقيقيين وهو غير منشور
