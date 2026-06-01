@@ -1,202 +1,216 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { AdminLayout } from "@/components/layout/AdminLayout";
-import { requireAdminClient } from "@/lib/adminGuard";
-import { adminStores, broadcastHistory, iraqiCities, type BroadcastMessage } from "@/lib/adminMockData";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Send, Users, MapPin, Crown, MousePointerClick, MessageSquare } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useMemo, useState } from "react";
+import { MessageSquare, Send, Users } from "lucide-react";
 import { toast } from "sonner";
 
-type Audience = "all" | "city" | "plan" | "selection";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { requireAdminClient } from "@/lib/adminGuard";
+import {
+  listAdminMessages,
+  listMerchants,
+  sendAdminBroadcast,
+  type AdminMessageRecord,
+  type MerchantAdminView,
+} from "@/lib/admin.functions";
+import { readAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/broadcasts")({
   beforeLoad: () => requireAdminClient(),
-  head: () => ({ meta: [{ title: "الرسائل الجماعية — أدمن Botly" }] }),
+  head: () => ({ meta: [{ title: "رسائل التجار — أدمن Botly" }] }),
   component: AdminBroadcastsPage,
 });
 
+type Audience = "all" | "selection";
+
 function AdminBroadcastsPage() {
-  const [history, setHistory] = useState<BroadcastMessage[]>(broadcastHistory);
+  const session = readAdminSession();
+  const listMerchantsFn = useServerFn(listMerchants);
+  const sendBroadcastFn = useServerFn(sendAdminBroadcast);
+  const listMessagesFn = useServerFn(listAdminMessages);
+
+  const [merchants, setMerchants] = useState<MerchantAdminView[]>([]);
+  const [history, setHistory] = useState<AdminMessageRecord[]>([]);
   const [audience, setAudience] = useState<Audience>("all");
-  const [city, setCity] = useState(iraqiCities[0]);
-  const [plan, setPlan] = useState<"free" | "basic" | "pro" | "enterprise">("pro");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [title, setTitle] = useState("");
+  const [search, setSearch] = useState("");
   const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
 
-  const recipients = useMemo(() => {
-    if (audience === "all") return adminStores;
-    if (audience === "city") return adminStores.filter(s => s.city === city);
-    if (audience === "plan") return adminStores.filter(s => s.plan === plan);
-    return adminStores.filter(s => selectedIds.includes(s.id));
-  }, [audience, city, plan, selectedIds]);
+  useEffect(() => {
+    if (!session?.token) return;
+    listMerchantsFn({ data: { token: session.token } })
+      .then(setMerchants)
+      .catch(() => setMerchants([]));
+    listMessagesFn({ data: { token: session.token } })
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, [listMerchantsFn, listMessagesFn, session?.token]);
 
-  const audienceLabel = useMemo(() => {
-    if (audience === "all") return "كل التجار";
-    if (audience === "city") return `مدينة ${city}`;
-    if (audience === "plan") return `باقة ${plan}`;
-    return `${selectedIds.length} تاجر مختار`;
-  }, [audience, city, plan, selectedIds.length]);
+  const filteredMerchants = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return merchants;
+    return merchants.filter((m) => m.storeName.toLowerCase().includes(q) || m.whatsapp.includes(q));
+  }, [merchants, search]);
 
-  const send = () => {
-    if (!title.trim() || !body.trim()) return toast.error("العنوان والنص مطلوبان");
-    if (recipients.length === 0) return toast.error("لا يوجد مستلمون");
-    // TODO(supabase + bot): insert into broadcast_messages, enqueue WhatsApp send job.
-    const msg: BroadcastMessage = {
-      id: `b${Date.now()}`,
-      title, body, audience, audienceLabel,
-      recipients: recipients.length,
-      sentAt: new Date().toISOString().slice(0, 10),
-      status: "sent",
-    };
-    setHistory(prev => [msg, ...prev]);
-    setTitle(""); setBody(""); setSelectedIds([]);
-    toast.success(`تم إرسال الرسالة إلى ${recipients.length} تاجر عبر البوت`);
-  };
+  const recipientsCount = audience === "all" ? merchants.length : selectedIds.length;
 
   const toggleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const send = async () => {
+    if (!session?.token) return;
+    if (!body.trim()) {
+      toast.error("اكتب نص الرسالة");
+      return;
+    }
+    if (audience === "selection" && selectedIds.length === 0) {
+      toast.error("اختر تاجر واحد على الأقل");
+      return;
+    }
+
+    setSending(true);
+    try {
+      const result = await sendBroadcastFn({
+        data: {
+          token: session.token,
+          body: body.trim(),
+          merchantIds: audience === "selection" ? selectedIds : undefined,
+        },
+      });
+      toast.success(`تم الإرسال إلى ${result.sent} من ${result.total} (فشل ${result.failed})`);
+      setBody("");
+      const refreshed = await listMessagesFn({ data: { token: session.token } });
+      setHistory(refreshed);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر الإرسال");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
     <AdminLayout
-      title="الرسائل الجماعية"
-      subtitle="أرسل تنبيهات أو إعلانات للتجار عبر بوت واتساب — للجميع أو لمجموعة محددة."
+      title="رسائل التجار"
+      subtitle="أرسل تذكيرات الاشتراك والعروض والإشعارات عبر واتساب"
     >
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
-            <h3 className="text-sm font-semibold">اختر الجمهور</h3>
-            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-              {[
-                { v: "all" as Audience, icon: Users, label: "كل التجار" },
-                { v: "city" as Audience, icon: MapPin, label: "حسب المدينة" },
-                { v: "plan" as Audience, icon: Crown, label: "حسب الباقة" },
-                { v: "selection" as Audience, icon: MousePointerClick, label: "اختيار يدوي" },
-              ].map(opt => (
-                <button
-                  key={opt.v}
-                  onClick={() => setAudience(opt.v)}
-                  className={`flex flex-col items-start gap-2 rounded-lg border p-3 text-start transition ${
-                    audience === opt.v
-                      ? "border-primary bg-primary-soft"
-                      : "border-border hover:border-primary/40"
-                  }`}
-                >
-                  <opt.icon className={`h-4 w-4 ${audience === opt.v ? "text-primary" : "text-muted-foreground"}`} />
-                  <span className="text-sm font-medium">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {audience === "city" && (
-              <div className="mt-4 space-y-2">
-                <Label>اختر المدينة</Label>
-                <select value={city} onChange={(e) => setCity(e.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                  {iraqiCities.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            )}
-
-            {audience === "plan" && (
-              <div className="mt-4 space-y-2">
-                <Label>اختر الباقة</Label>
-                <select value={plan} onChange={(e) => setPlan(e.target.value as typeof plan)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="free">Free</option>
-                  <option value="basic">Basic</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              </div>
-            )}
-
-            {audience === "selection" && (
-              <div className="mt-4 max-h-72 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                {adminStores.map(s => (
-                  <label key={s.id} className="flex cursor-pointer items-center justify-between rounded-md p-2 hover:bg-secondary">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(s.id)}
-                        onChange={() => toggleSelect(s.id)}
-                        className="h-4 w-4 accent-primary"
-                      />
-                      <div>
-                        <div className="text-sm font-medium">{s.storeName}</div>
-                        <div className="text-xs text-muted-foreground">{s.city} · {s.ownerName}</div>
-                      </div>
-                    </div>
-                    <span className="text-xs text-muted-foreground" dir="ltr">{s.whatsapp}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+        {/* Composer */}
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-soft lg:col-span-2">
+          <div className="flex items-center gap-2">
+            <Send className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold">رسالة جديدة</h3>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
-            <h3 className="text-sm font-semibold">صياغة الرسالة</h3>
-            <div className="mt-4 space-y-4">
-              <div className="space-y-2">
-                <Label>العنوان</Label>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="مثال: تحديث جديد للبوت" />
-              </div>
-              <div className="space-y-2">
-                <Label>نص الرسالة</Label>
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  rows={6}
-                  className="w-full rounded-md border border-input bg-background p-3 text-sm"
-                  placeholder="اكتب رسالتك التي ستصل للتجار عبر بوت واتساب…"
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={audience === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAudience("all")}
+            >
+              كل التجار ({merchants.length})
+            </Button>
+            <Button
+              type="button"
+              variant={audience === "selection" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAudience("selection")}
+            >
+              تجار محددون ({selectedIds.length})
+            </Button>
+          </div>
+
+          {audience === "selection" && (
+            <div className="rounded-lg border border-border">
+              <div className="border-b p-2">
+                <Input
+                  placeholder="ابحث عن تاجر..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-9"
                 />
-                <p className="text-xs text-muted-foreground">يدعم المتغيرات: {"{{store_name}}"}، {"{{owner_name}}"}، {"{{city}}"}</p>
+              </div>
+              <div className="max-h-48 overflow-y-auto p-2">
+                {filteredMerchants.length === 0 ? (
+                  <p className="p-3 text-center text-sm text-muted-foreground">لا يوجد تجار</p>
+                ) : (
+                  filteredMerchants.map((m) => (
+                    <label
+                      key={m.merchantId}
+                      className="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={selectedIds.includes(m.merchantId)}
+                        onCheckedChange={() => toggleSelect(m.merchantId)}
+                      />
+                      <span className="flex-1 text-sm">{m.storeName}</span>
+                      <span className="text-xs text-muted-foreground" dir="ltr">
+                        {m.whatsapp}
+                      </span>
+                    </label>
+                  ))
+                )}
               </div>
             </div>
+          )}
+
+          <div>
+            <Label htmlFor="body">نص الرسالة</Label>
+            <Textarea
+              id="body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="مثال: تذكير — اشتراكك بمنصة Botly ينتهي قريباً. جدّد حتى يستمر ظهور متجرك."
+              rows={5}
+              className="mt-2"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              <Users className="h-4 w-4" /> {recipientsCount} مستلم
+            </span>
+            <Button type="button" onClick={send} disabled={sending} className="gap-2">
+              <Send className="h-4 w-4" />
+              {sending ? "جارٍ الإرسال..." : "إرسال"}
+            </Button>
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
-            <h3 className="text-sm font-semibold">معاينة الإرسال</h3>
-            <div className="mt-4 rounded-lg bg-primary-soft p-4">
-              <div className="text-xs text-muted-foreground">الجمهور المختار</div>
-              <div className="mt-1 text-lg font-semibold">{audienceLabel}</div>
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-background px-3 py-1 text-sm font-medium text-primary">
-                <Users className="h-3.5 w-3.5" /> {recipients.length} مستلم
-              </div>
-            </div>
-            <Button onClick={send} size="lg" className="mt-4 w-full gap-2 shadow-soft">
-              <Send className="h-4 w-4" /> إرسال الآن عبر البوت
-            </Button>
-            <p className="mt-2 text-center text-xs text-muted-foreground">
-              سيتم إرسال الرسالة فوراً إلى جميع المستلمين المختارين.
-            </p>
+        {/* History */}
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <div className="mb-4 flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold">سجل الرسائل</h3>
           </div>
-
-          <div className="rounded-xl border border-border bg-card p-6 shadow-soft">
-            <h3 className="text-sm font-semibold">السجل</h3>
-            <div className="mt-3 space-y-3">
-              {history.map(h => (
-                <div key={h.id} className="rounded-lg border border-border p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-sm font-medium">{h.title}</span>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px]">{h.status}</Badge>
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {h.audienceLabel} · {h.recipients} مستلم · {h.sentAt}
+          {history.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              لا توجد رسائل بعد.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {history.map((msg) => (
+                <div key={msg.id} className="rounded-lg border border-border p-3 text-sm">
+                  <div className="line-clamp-2">{msg.body}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge className="bg-green-100 text-green-800">{msg.sent} نجح</Badge>
+                    {msg.failed > 0 && (
+                      <Badge className="bg-red-100 text-red-800">{msg.failed} فشل</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">{msg.target}</span>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          )}
         </div>
       </div>
     </AdminLayout>

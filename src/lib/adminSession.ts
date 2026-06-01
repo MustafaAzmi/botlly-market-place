@@ -4,7 +4,7 @@
 export interface AdminSession {
   token: string;
   adminId: string;
-  email: string;
+  whatsapp: string;
   signedInAt: string;
 }
 

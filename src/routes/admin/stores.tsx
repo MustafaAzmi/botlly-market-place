@@ -5,17 +5,26 @@ import { AlertCircle, MoreVertical } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
-import { listStores, toggleStoreStatus } from "@/lib/admin.functions";
+import {
+  listMerchants,
+  setMerchantSubscription,
+  setMerchantSuspended,
+  setMerchantVisibility,
+  type MerchantAdminView,
+} from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 
@@ -24,189 +33,281 @@ export const Route = createFileRoute("/admin/stores")({
   component: AdminStoresPage,
 });
 
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ar", { day: "numeric", month: "short" });
+  } catch {
+    return "—";
+  }
+}
+
 function AdminStoresPage() {
-  const listStoresFn = useServerFn(listStores);
-  const toggleStatusFn = useServerFn(toggleStoreStatus);
+  const listMerchantsFn = useServerFn(listMerchants);
+  const setVisibilityFn = useServerFn(setMerchantVisibility);
+  const setSuspendedFn = useServerFn(setMerchantSuspended);
+  const setSubscriptionFn = useServerFn(setMerchantSubscription);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [page, setPage] = useState(1);
-
-  // readAdminSession reads sessionStorage; this component only renders on the
-  // client (after the beforeLoad guard), so it's safe to read it directly.
   const session = readAdminSession();
 
   const {
-    data: stores = [],
+    data: merchants = [],
     isLoading,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["stores", page, searchTerm],
+    queryKey: ["admin-merchants"],
     queryFn: async () => {
       if (!session?.token) return [];
-      return await listStoresFn({
-        data: {
-          token: session.token,
-          page,
-          search: searchTerm,
-        },
-      });
+      return await listMerchantsFn({ data: { token: session.token } });
     },
-    retry: 2,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     enabled: !!session?.token,
+    retry: 1,
   });
 
-  const handleToggleStatus = async (storeId: string) => {
+  const run = async (fn: () => Promise<unknown>, successMsg: string) => {
     if (!session?.token) return;
-
     try {
-      await toggleStatusFn({
-        data: { token: session.token, storeId },
-      });
-      toast.success("تم تحديث حالة المتجر");
+      await fn();
+      toast.success(successMsg);
       refetch();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل التحديث");
     }
   };
 
-  if (isLoading) {
+  const filtered = merchants.filter((m: MerchantAdminView) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-          <p className="text-muted-foreground">جارٍ التحميل...</p>
-        </div>
-      </div>
+      m.storeName.toLowerCase().includes(q) ||
+      m.whatsapp.toLowerCase().includes(q) ||
+      (m.email ?? "").toLowerCase().includes(q)
     );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-        <div className="flex gap-3">
-          <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="font-medium text-red-900">حدث خطأ</p>
-            <p className="text-sm text-red-800">
-              {error instanceof Error ? error.message : "فشل تحميل المتاجر"}
-            </p>
-            <Button
-              onClick={() => refetch()}
-              size="sm"
-              variant="outline"
-              className="mt-3"
-            >
-              إعادة محاولة
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">المتاجر</h1>
-        <p className="text-muted-foreground">إدارة المتاجر المسجلة في النظام</p>
-      </div>
-
-      <div className="flex gap-2">
-        <Input
-          placeholder="ابحث عن متجر..."
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value);
-            setPage(1);
-          }}
-          className="max-w-xs"
-        />
-      </div>
-
-      <div className="rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/50">
-            <tr>
-              <th className="px-6 py-3 text-right font-medium">اسم المتجر</th>
-              <th className="px-6 py-3 text-right font-medium">الواتساب</th>
-              <th className="px-6 py-3 text-right font-medium">البريد</th>
-              <th className="px-6 py-3 text-right font-medium">الحالة</th>
-              <th className="px-6 py-3 text-center font-medium">الإجراءات</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stores.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
-                  لا توجد متاجر بعد
-                </td>
-              </tr>
-            ) : (
-              stores.map((store: any) => (
-                <tr key={store.id} className="border-b hover:bg-muted/50">
-                  <td className="px-6 py-4 font-medium">{store.storeName}</td>
-                  <td className="px-6 py-4">{store.whatsapp}</td>
-                  <td className="px-6 py-4">{store.email || "-"}</td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${
-                        store.active
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {store.active ? "نشط" : "معطل"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => handleToggleStatus(store.id)}
-                        >
-                          {store.active ? "تعطيل" : "تفعيل"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>عرض التفاصيل</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {stores.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            عرض {stores.length} متجر
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-            >
-              السابق
-            </Button>
-            <Button
-              variant="outline"
-              disabled={stores.length < 10}
-              onClick={() => setPage(page + 1)}
-            >
-              التالي
-            </Button>
-          </div>
+    <AdminLayout title="المتاجر" subtitle="تحكّم بظهور المتاجر في البحث والاشتراكات">
+      <div className="space-y-6">
+        <div className="flex gap-2">
+          <Input
+            placeholder="ابحث باسم المتجر أو الرقم..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="max-w-xs"
+          />
         </div>
-      )}
-    </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
+              <div className="flex-1">
+                <p className="font-medium text-red-900">حدث خطأ</p>
+                <p className="text-sm text-red-800">
+                  {error instanceof Error ? error.message : "فشل تحميل المتاجر"}
+                </p>
+                <Button onClick={() => refetch()} size="sm" variant="outline" className="mt-3">
+                  إعادة محاولة
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-right font-medium">المتجر</th>
+                  <th className="px-4 py-3 text-right font-medium">الواتساب</th>
+                  <th className="px-4 py-3 text-right font-medium">المنصة</th>
+                  <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
+                  <th className="px-4 py-3 text-center font-medium">المنتجات</th>
+                  <th className="px-4 py-3 text-right font-medium">آخر مزامنة</th>
+                  <th className="px-4 py-3 text-center font-medium">الظهور</th>
+                  <th className="px-4 py-3 text-center font-medium">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
+                      لا توجد متاجر بعد
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((m: MerchantAdminView) => (
+                    <tr key={m.merchantId} className="border-b hover:bg-muted/40">
+                      <td className="px-4 py-3 font-medium">{m.storeName}</td>
+                      <td className="px-4 py-3" dir="ltr">
+                        {m.whatsapp || "—"}
+                      </td>
+                      <td className="px-4 py-3">{m.platform}</td>
+                      <td className="px-4 py-3">
+                        <SubscriptionBadge status={m.subscriptionStatus} />
+                      </td>
+                      <td className="px-4 py-3 text-center">{m.productCount}</td>
+                      <td className="px-4 py-3">{formatDate(m.lastSyncedAt)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {m.visibleInSearch ? (
+                          <Badge className="bg-green-100 text-green-800">ظاهر</Badge>
+                        ) : m.suspended ? (
+                          <Badge className="bg-red-100 text-red-800">موقوف</Badge>
+                        ) : (
+                          <Badge className="bg-gray-200 text-gray-700">مخفي</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuLabel>الظهور في البحث</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                run(
+                                  () =>
+                                    setVisibilityFn({
+                                      data: {
+                                        token: session!.token,
+                                        merchantId: m.merchantId,
+                                        enabled: true,
+                                      },
+                                    }),
+                                  "تم تفعيل ظهور المتجر",
+                                )
+                              }
+                            >
+                              تفعيل الظهور
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                run(
+                                  () =>
+                                    setVisibilityFn({
+                                      data: {
+                                        token: session!.token,
+                                        merchantId: m.merchantId,
+                                        enabled: false,
+                                      },
+                                    }),
+                                  "تم إخفاء المتجر من البحث",
+                                )
+                              }
+                            >
+                              إخفاء من البحث
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>حالة المتجر</DropdownMenuLabel>
+                            {m.suspended ? (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  run(
+                                    () =>
+                                      setSuspendedFn({
+                                        data: {
+                                          token: session!.token,
+                                          merchantId: m.merchantId,
+                                          suspended: false,
+                                        },
+                                      }),
+                                    "تمت إعادة تفعيل المتجر",
+                                  )
+                                }
+                              >
+                                إعادة تفعيل
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  run(
+                                    () =>
+                                      setSuspendedFn({
+                                        data: {
+                                          token: session!.token,
+                                          merchantId: m.merchantId,
+                                          suspended: true,
+                                        },
+                                      }),
+                                    "تم تعليق المتجر",
+                                  )
+                                }
+                              >
+                                تعليق المتجر
+                              </DropdownMenuItem>
+                            )}
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>الاشتراك</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                run(
+                                  () =>
+                                    setSubscriptionFn({
+                                      data: {
+                                        token: session!.token,
+                                        merchantId: m.merchantId,
+                                        status: "active",
+                                      },
+                                    }),
+                                  "تم تعليم الاشتراك كفعّال",
+                                )
+                              }
+                            >
+                              اشتراك فعّال
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                run(
+                                  () =>
+                                    setSubscriptionFn({
+                                      data: {
+                                        token: session!.token,
+                                        merchantId: m.merchantId,
+                                        status: "expired",
+                                      },
+                                    }),
+                                  "تم تعليم الاشتراك كمنتهٍ",
+                                )
+                              }
+                            >
+                              اشتراك منتهٍ
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!isLoading && !error && (
+          <p className="text-sm text-muted-foreground">عرض {filtered.length} متجر</p>
+        )}
+      </div>
+    </AdminLayout>
   );
+}
+
+function SubscriptionBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    active: { label: "فعّال", className: "bg-green-100 text-green-800" },
+    expired: { label: "منتهٍ", className: "bg-red-100 text-red-800" },
+    trial: { label: "تجريبي", className: "bg-amber-100 text-amber-800" },
+    none: { label: "بدون", className: "bg-gray-200 text-gray-700" },
+  };
+  const cfg = map[status] ?? map.none;
+  return <Badge className={cfg.className}>{cfg.label}</Badge>;
 }

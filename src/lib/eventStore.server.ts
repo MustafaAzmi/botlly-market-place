@@ -15,7 +15,10 @@ export type BotlyEventType =
   | "botly_session"
   | "botly_meta_connection"
   | "botly_social_post"
-  | "botly_lead";
+  | "botly_lead"
+  | "botly_admin"
+  | "botly_admin_session"
+  | "botly_admin_message";
 
 export type EventRow = {
   id: string;
@@ -102,12 +105,30 @@ export async function latestEventWhere(
   return rows.find((row) => getString(row.payload?.[field]) === value) ?? null;
 }
 
-async function sha256(input: string): Promise<string> {
+export async function sha256(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(hash))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+// URL-safe random token (32 bytes).
+export function randomToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+// Normalize a phone number to a comparable form (+<digits>).
+export function normalizePhone(phone: string): string {
+  return phone
+    .replace(/[^\d+]/g, "")
+    .replace(/^00/, "+")
+    .trim();
 }
 
 // Validate a merchant session token and return the resolved merchant id.

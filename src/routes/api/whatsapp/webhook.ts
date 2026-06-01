@@ -25,6 +25,7 @@ import {
 import type { ConfidenceScore, ParsingMetadata, ParsedProduct } from "@/lib/whatsapp/types";
 import { extractSearchIntent, searchProducts, type ProductMatch } from "@/lib/whatsapp/search";
 import { notifyMerchantsOfLead } from "@/lib/whatsapp/notifications";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -35,14 +36,6 @@ function getVerifyToken() {
 
 function getAppSecret() {
   return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
-}
-
-function getWhatsAppAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN;
-}
-
-function getWhatsAppPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
 }
 
 function getOpenAIApiKey() {
@@ -368,33 +361,7 @@ async function storeParsingMetadata(
   }
 }
 
-async function sendWhatsAppText(to: string, body: string) {
-  const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId)
-    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
-
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { preview_url: false, body },
-    }),
-  });
-
-  if (response.ok) return { ok: true, status: response.status };
-  return {
-    ok: false,
-    status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
-  };
-}
+// sendWhatsAppText is imported from the shared sender (src/lib/whatsapp/send.server).
 
 export const Route = createFileRoute("/api/whatsapp/webhook")({
   server: {
