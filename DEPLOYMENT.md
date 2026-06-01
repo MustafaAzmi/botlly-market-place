@@ -28,11 +28,11 @@
 ### واتساب (WhatsApp Cloud API)
 | المتغير | القيمة / المصدر | الحالة |
 |---------|-----------------|--------|
-| `WHATSAPP_PHONE_NUMBER_ID` | `982535121605582` | ✅ جاهز |
-| `WHATSAPP_WABA_ID` | `25752676937730999` | ✅ جاهز |
+| `WHATSAPP_PHONE_NUMBER_ID` | `<your-phone-number-id>` | ✅ جاهز |
+| `WHATSAPP_WABA_ID` | `<your-waba-id>` | ✅ جاهز |
 | `WHATSAPP_ACCESS_TOKEN` | توكن دائم من System User | ⚠️ يجب التأكد |
 | `WHATSAPP_APP_SECRET` | App settings → Basic → App Secret | ⬜ مطلوب |
-| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | `carwash_verify_2026` | ✅ (يطابق خانة Meta) |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | `<your-verify-token>` | ✅ (يطابق خانة Meta) |
 
 ### الذكاء الاصطناعي (OpenAI)
 | المتغير | من وين |
@@ -59,7 +59,7 @@
 في **developers.facebook.com → تطبيقك → Use cases → WhatsApp → Configuration**:
 
 1. **Callback URL:** `https://www.bot-lly.tech/api/whatsapp/webhook` ⚠️ (مو دومين Cloudflare!)
-2. **Verify token:** `carwash_verify_2026` (نفس قيمة `WHATSAPP_WEBHOOK_VERIFY_TOKEN`)
+2. **Verify token:** `<your-verify-token>` (نفس قيمة `WHATSAPP_WEBHOOK_VERIFY_TOKEN`)
 3. اضغط **Verify and Save**
 4. تحت **Webhook fields** — اشترك بحقل ✅ **`messages`** (هذا الأهم — بدونه ما توصل رسائل الزبائن)
 5. **انشر التطبيق (Publish)** — الـ webhook ما يشتغل مع الزبائن الحقيقيين وهو غير منشور
@@ -100,7 +100,7 @@
 ## 6) اختبار التوكن يدوياً (اختياري)
 
 ```bash
-curl "https://graph.facebook.com/v24.0/982535121605582?fields=verified_name,display_phone_number,quality_rating&access_token=YOUR_TOKEN"
+curl "https://graph.facebook.com/v24.0/<your-phone-number-id>?fields=verified_name,display_phone_number,quality_rating&access_token=YOUR_TOKEN"
 ```
 
 إذا رجّع اسم المتجر = التوكن شغّال ✅
