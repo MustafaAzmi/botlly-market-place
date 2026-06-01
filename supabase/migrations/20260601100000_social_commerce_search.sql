@@ -56,27 +56,37 @@ LANGUAGE sql
 STABLE
 AS $$
   WITH banned AS (
-    SELECT e.id::text AS merchant_id
+    SELECT COALESCE(e.payload->>'merchantId', e.id::text) AS merchant_id
     FROM public.whatsapp_webhook_events e
     WHERE e.source = 'botly'
       AND e.event_type = 'botly_merchant'
       AND (e.payload->>'bannedFromBot')::boolean IS TRUE
+  ),
+  -- Event-sourced products are append-only: status edits append a new row with
+  -- the same productId. Keep only the latest row per productId.
+  latest AS (
+    SELECT DISTINCT ON (COALESCE(p.payload->>'productId', p.id::text))
+      p.id, p.payload, p.created_at
+    FROM public.whatsapp_webhook_events p
+    WHERE p.source = 'botly'
+      AND p.event_type = 'botly_product'
+    ORDER BY COALESCE(p.payload->>'productId', p.id::text), p.created_at DESC
   )
   SELECT
-    p.id,
-    p.payload,
-    similarity(public.botly_product_search_text(p.payload), lower(search_query)) AS similarity,
-    p.created_at
-  FROM public.whatsapp_webhook_events p
-  WHERE p.source = 'botly'
-    AND p.event_type = 'botly_product'
-    AND COALESCE(p.payload->>'status', 'active') = 'active'
-    AND (p.payload->>'merchantId') NOT IN (SELECT merchant_id FROM banned)
-    AND (
-      public.botly_product_search_text(p.payload) % lower(search_query)
-      OR public.botly_product_search_text(p.payload) ILIKE '%' || lower(search_query) || '%'
+    l.id,
+    l.payload,
+    similarity(public.botly_product_search_text(l.payload), lower(search_query)) AS similarity,
+    l.created_at
+  FROM latest l
+  WHERE COALESCE(l.payload->>'status', 'active') = 'active'
+    AND NOT EXISTS (
+      SELECT 1 FROM banned b WHERE b.merchant_id = l.payload->>'merchantId'
     )
-  ORDER BY similarity DESC, p.created_at DESC
+    AND (
+      public.botly_product_search_text(l.payload) % lower(search_query)
+      OR public.botly_product_search_text(l.payload) ILIKE '%' || lower(search_query) || '%'
+    )
+  ORDER BY similarity DESC, l.created_at DESC
   LIMIT GREATEST(max_results, 1);
 $$;
 

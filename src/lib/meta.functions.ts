@@ -3,6 +3,11 @@ import { z } from "zod";
 
 import { appendEvent, listEvents, authorizeMerchantId, getString } from "@/lib/eventStore.server";
 import { buildLoginUrl, isMetaConfigured } from "@/lib/meta/oauth";
+import { getMerchantConnections } from "@/lib/meta/connections";
+import { needsRefresh, isExpired, refreshConnectionToken } from "@/lib/meta/token-refresh";
+import { fetchInstagramMedia, fetchFacebookPosts } from "@/lib/meta/graph-api";
+import { importMediaBatch } from "@/lib/meta/import";
+import { throttle } from "@/lib/meta/rate-limit";
 import type { MetaConnection } from "@/lib/meta/types";
 
 const tokenInput = z.object({
@@ -89,3 +94,83 @@ export const listMetaConnections = createServerFn({ method: "POST" })
 export const getMetaStatus = createServerFn({ method: "GET" }).handler(async () => {
   return { configured: isMetaConfigured() };
 });
+
+// Manually trigger an incremental sync for the merchant's connected accounts.
+export const syncMerchantPosts = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchantId = await authorizeMerchantId(data.token);
+    const connections = await getMerchantConnections(merchantId);
+
+    let imported = 0;
+    let pendingReview = 0;
+    let skipped = 0;
+
+    for (const base of connections) {
+      if (base.status !== "active") continue;
+
+      let conn = base;
+      if (isExpired(conn)) {
+        await refreshConnectionToken(conn);
+        continue;
+      }
+      if (needsRefresh(conn)) conn = await refreshConnectionToken(conn);
+
+      try {
+        let summary = null;
+        if (conn.instagramBusinessAccountId) {
+          await throttle();
+          const media = await fetchInstagramMedia(
+            conn.instagramBusinessAccountId,
+            conn.accessToken,
+            { sinceIso: conn.lastSyncedAt, limit: 25 },
+          );
+          summary = await importMediaBatch(conn, media, "instagram");
+        } else if (conn.facebookPageId) {
+          await throttle();
+          const posts = await fetchFacebookPosts(conn.facebookPageId, conn.accessToken, {
+            sinceIso: conn.lastSyncedAt,
+            limit: 25,
+          });
+          summary = await importMediaBatch(conn, posts, "facebook");
+        }
+
+        if (summary) {
+          imported += summary.imported;
+          pendingReview += summary.pendingReview;
+          skipped += summary.skippedDuplicates;
+        }
+
+        await appendEvent("botly_meta_connection", {
+          kind: "connection",
+          ...conn,
+          lastSyncedAt: new Date().toISOString(),
+          lastImportSummary: summary,
+        });
+      } catch (error) {
+        console.error("[Manual Sync] Failed for merchant", merchantId, error);
+        throw new Error("تعذر استيراد المنشورات. حاول مرة ثانية بعد قليل.");
+      }
+    }
+
+    return { imported, pendingReview, skipped };
+  });
+
+// Disconnect all of a merchant's Meta connections (revoke locally). Imported
+// products are preserved; only the connection + token are deactivated.
+export const disconnectMeta = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchantId = await authorizeMerchantId(data.token);
+    const connections = await getMerchantConnections(merchantId);
+    for (const conn of connections) {
+      if (conn.status === "revoked") continue;
+      await appendEvent("botly_meta_connection", {
+        kind: "connection",
+        ...conn,
+        status: "revoked",
+        accessToken: "",
+      });
+    }
+    return { ok: true };
+  });

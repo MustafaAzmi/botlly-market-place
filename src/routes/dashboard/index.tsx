@@ -28,6 +28,7 @@ import {
   getMetaConnectUrl,
   getMetaStatus,
   listMetaConnections,
+  syncMerchantPosts,
   type MetaConnectionView,
 } from "@/lib/meta.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
@@ -45,12 +46,14 @@ function DashboardHome() {
   const getMetaConnectUrlFn = useServerFn(getMetaConnectUrl);
   const getMetaStatusFn = useServerFn(getMetaStatus);
   const listMetaConnectionsFn = useServerFn(listMetaConnections);
+  const syncMerchantPostsFn = useServerFn(syncMerchantPosts);
   const [dashboard, setDashboard] = useState<MerchantDashboard | null>(null);
   const [deliveryWhatsapp, setDeliveryWhatsapp] = useState("");
   const [loading, setLoading] = useState(true);
   const [metaConfigured, setMetaConfigured] = useState(false);
   const [metaConnections, setMetaConnections] = useState<MetaConnectionView[]>([]);
   const [connectingMeta, setConnectingMeta] = useState(false);
+  const [syncingMeta, setSyncingMeta] = useState(false);
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -110,6 +113,23 @@ function DashboardHome() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر بدء ربط الحساب");
       setConnectingMeta(false);
+    }
+  };
+
+  const syncNow = async () => {
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) {
+      navigate({ to: "/auth" });
+      return;
+    }
+    setSyncingMeta(true);
+    try {
+      const result = await syncMerchantPostsFn({ data: { token: merchantSession.token } });
+      toast.success(`تم استيراد ${result.imported} منتج (${result.pendingReview} بحاجة مراجعة)`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تحديث المنشورات");
+    } finally {
+      setSyncingMeta(false);
     }
   };
 
@@ -247,6 +267,22 @@ function DashboardHome() {
                   )}
                   {metaConnections.length > 0 ? "ربط حساب إضافي" : "ربط انستغرام / فيسبوك"}
                 </Button>
+                {metaConnections.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 w-full gap-2"
+                    onClick={syncNow}
+                    disabled={syncingMeta}
+                  >
+                    {syncingMeta ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    تحديث المنشورات الآن
+                  </Button>
+                )}
                 {!metaConfigured && (
                   <p className="mt-2 text-center text-xs text-muted-foreground">
                     الميزة قيد التفعيل حالياً.

@@ -26,10 +26,12 @@ import { Route as AdminBroadcastsRouteImport } from './routes/admin/broadcasts'
 import { Route as AdminBotRouteImport } from './routes/admin/bot'
 import { Route as DashboardWorkflowIndexRouteImport } from './routes/dashboard/workflow/index'
 import { Route as DashboardStoreIndexRouteImport } from './routes/dashboard/store/index'
+import { Route as DashboardReviewIndexRouteImport } from './routes/dashboard/review/index'
 import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/products/index'
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
+import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
 import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
 
 const TermsRoute = TermsRouteImport.update({
@@ -117,6 +119,11 @@ const DashboardStoreIndexRoute = DashboardStoreIndexRouteImport.update({
   path: '/dashboard/store/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardReviewIndexRoute = DashboardReviewIndexRouteImport.update({
+  id: '/dashboard/review/',
+  path: '/dashboard/review/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardProductsIndexRoute = DashboardProductsIndexRouteImport.update({
   id: '/dashboard/products/',
   path: '/dashboard/products/',
@@ -135,6 +142,11 @@ const DashboardProductsNewRoute = DashboardProductsNewRouteImport.update({
 const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
   id: '/api/whatsapp/webhook',
   path: '/api/whatsapp/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronSyncSocialRoute = ApiCronSyncSocialRouteImport.update({
+  id: '/api/cron/sync-social',
+  path: '/api/cron/sync-social',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthMetaCallbackRoute = ApiAuthMetaCallbackRouteImport.update({
@@ -159,10 +171,12 @@ export interface FileRoutesByFullPath {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
+  '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
@@ -183,10 +197,12 @@ export interface FileRoutesByTo {
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders': typeof DashboardOrdersIndexRoute
   '/dashboard/products': typeof DashboardProductsIndexRoute
+  '/dashboard/review': typeof DashboardReviewIndexRoute
   '/dashboard/store': typeof DashboardStoreIndexRoute
   '/dashboard/workflow': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
@@ -208,10 +224,12 @@ export interface FileRoutesById {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
+  '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
@@ -234,10 +252,12 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
+    | '/api/cron/sync-social'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
+    | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
     | '/api/auth/meta/callback'
@@ -258,10 +278,12 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
+    | '/api/cron/sync-social'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders'
     | '/dashboard/products'
+    | '/dashboard/review'
     | '/dashboard/store'
     | '/dashboard/workflow'
     | '/api/auth/meta/callback'
@@ -282,10 +304,12 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
+    | '/api/cron/sync-social'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
+    | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
     | '/api/auth/meta/callback'
@@ -307,10 +331,12 @@ export interface RootRouteChildren {
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  ApiCronSyncSocialRoute: typeof ApiCronSyncSocialRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
   DashboardOrdersIndexRoute: typeof DashboardOrdersIndexRoute
   DashboardProductsIndexRoute: typeof DashboardProductsIndexRoute
+  DashboardReviewIndexRoute: typeof DashboardReviewIndexRoute
   DashboardStoreIndexRoute: typeof DashboardStoreIndexRoute
   DashboardWorkflowIndexRoute: typeof DashboardWorkflowIndexRoute
   ApiAuthMetaCallbackRoute: typeof ApiAuthMetaCallbackRoute
@@ -437,6 +463,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardStoreIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/review/': {
+      id: '/dashboard/review/'
+      path: '/dashboard/review'
+      fullPath: '/dashboard/review/'
+      preLoaderRoute: typeof DashboardReviewIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard/products/': {
       id: '/dashboard/products/'
       path: '/dashboard/products'
@@ -465,6 +498,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/sync-social': {
+      id: '/api/cron/sync-social'
+      path: '/api/cron/sync-social'
+      fullPath: '/api/cron/sync-social'
+      preLoaderRoute: typeof ApiCronSyncSocialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/meta/callback': {
       id: '/api/auth/meta/callback'
       path: '/api/auth/meta/callback'
@@ -491,10 +531,12 @@ const rootRouteChildren: RootRouteChildren = {
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  ApiCronSyncSocialRoute: ApiCronSyncSocialRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,
   DashboardOrdersIndexRoute: DashboardOrdersIndexRoute,
   DashboardProductsIndexRoute: DashboardProductsIndexRoute,
+  DashboardReviewIndexRoute: DashboardReviewIndexRoute,
   DashboardStoreIndexRoute: DashboardStoreIndexRoute,
   DashboardWorkflowIndexRoute: DashboardWorkflowIndexRoute,
   ApiAuthMetaCallbackRoute: ApiAuthMetaCallbackRoute,
