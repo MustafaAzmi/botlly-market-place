@@ -29,7 +29,7 @@ function getOpenAIApiKey() {
 }
 
 function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 }
 
 function timingSafeEqual(a: string, b: string) {
