@@ -13,20 +13,18 @@ import {
   extractArabicKeywords,
 } from "@/lib/whatsapp/iraqi-arabic";
 import { detectSpam, isRepeatedMessage } from "@/lib/whatsapp/spam-detector";
-import { scoreProductParsing, scoreLanguageClarity } from "@/lib/whatsapp/confidence-scoring";
+import { scoreProductParsing } from "@/lib/whatsapp/confidence-scoring";
 import { fallbackExtraction } from "@/lib/whatsapp/fallback-extraction";
 import {
   buildIraqiReplyPrompt,
   applyGuardrails,
   sanitizeReplyForWhatsApp,
   generateFallbackReply,
+  type GuardrailConfig,
 } from "@/lib/whatsapp/reply-generator";
-import type {
-  ConfidenceScore,
-  ParsingMetadata,
-  ParsedProduct,
-  GuardrailConfig,
-} from "@/lib/whatsapp/types";
+import type { ConfidenceScore, ParsingMetadata, ParsedProduct } from "@/lib/whatsapp/types";
+import { extractSearchIntent, searchProducts, type ProductMatch } from "@/lib/whatsapp/search";
+import { notifyMerchantsOfLead } from "@/lib/whatsapp/notifications";
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -145,131 +143,10 @@ function readIncomingMessage(payload: unknown) {
   };
 }
 
-function getString(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
-function getNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-// Merchants that the admin has hidden/blocked from the bot. Their products must
-// never appear in customer search results, regardless of payment status.
-async function loadBannedMerchantIds(): Promise<Set<string>> {
-  const banned = new Set<string>();
-  const { data } = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload")
-    .eq("source", "botly")
-    .eq("event_type", "botly_merchant")
-    .limit(5000);
-
-  for (const row of data ?? []) {
-    const payload = (row.payload ?? {}) as Record<string, unknown>;
-    if (payload.bannedFromBot === true) banned.add(row.id);
-  }
-  return banned;
-}
-
-function mapProductRow(row: { payload: unknown }) {
-  const payload = (row.payload ?? {}) as Record<string, unknown>;
-
-  // Product name/description: try multiple field names for compatibility
-  const description =
-    getString(payload.name) ||
-    getString(payload.title) ||
-    getString(payload.productName) ||
-    getString(payload.description) ||
-    "";
-
-  // Price: try multiple field names, convert to number safely
-  const currentPrice =
-    getNumber(payload.currentPrice) ??
-    getNumber(payload.price) ??
-    getNumber(payload.salePrice) ??
-    0;
-
-  return {
-    merchantId: getString(payload.merchantId),
-    description,
-    currentPrice,
-    discountPrice: getNumber(payload.discountPrice),
-    currency: getString(payload.currency) || "IQD",
-    color: getString(payload.color),
-    size: getString(payload.size),
-    quantity: getNumber(payload.quantity),
-  };
-}
-
-async function loadBotProducts() {
-  const banned = await loadBannedMerchantIds();
-
-  // Primary query: source='botly' + event_type='botly_product'
-  // (used by insertEvent in merchant.functions.ts).
-  const primary = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
-    .eq("source", "botly")
-    .eq("event_type", "botly_product")
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  let rows = primary.data as Array<{ payload: unknown }> | null;
-
-  // Fallback: provider='botly_product' (older schema path).
-  if (!rows || rows.length === 0) {
-    const fallback = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .select("id,payload,received_at")
-      .eq("provider", "botly_product")
-      .order("received_at", { ascending: false })
-      .limit(200);
-    rows = fallback.data as Array<{ payload: unknown }> | null;
-  }
-
-  if (!rows || rows.length === 0) {
-    console.warn(
-      "[Bot Products] No products found in database. Check that merchants have added products.",
-    );
-    return [];
-  }
-
-  // Drop products that belong to a blocked merchant.
-  return rows.map(mapProductRow).filter((p) => !p.merchantId || !banned.has(p.merchantId));
-}
-
-function buildCatalogContext(
-  products: Awaited<ReturnType<typeof loadBotProducts>>,
-  customerText: string,
-) {
-  const queryWords = customerText
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((word) => word.length > 2);
-
-  const ranked = products
-    .map((product) => {
-      const haystack = [product.description, product.color, product.size].join(" ").toLowerCase();
-      const score = queryWords.reduce((sum, word) => sum + (haystack.includes(word) ? 1 : 0), 0);
-      return { product, score };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map(({ product }, index) => {
-      const price = product.discountPrice ?? product.currentPrice;
-      const discount = product.discountPrice ? `، قبل الخصم ${product.currentPrice}` : "";
-      const options = [
-        product.color && `لون ${product.color}`,
-        product.size && `مقاس ${product.size}`,
-      ]
-        .filter(Boolean)
-        .join("، ");
-      const stock = product.quantity !== undefined ? `، الكمية ${product.quantity}` : "";
-      return `${index + 1}. ${product.description} - السعر ${price} ${product.currency}${discount}${options ? `، ${options}` : ""}${stock}`;
-    });
-
-  return ranked.length ? ranked.join("\n") : "لا توجد منتجات محفوظة حالياً في كتالوج التاجر.";
-}
+// NOTE: Product search now runs in PostgreSQL (pg_trgm) via @/lib/whatsapp/search.
+// The previous in-memory catalogue loader/ranker was removed — GPT extracts
+// intent, the database performs the actual match, and banned-merchant filtering
+// happens inside the search_botly_products RPC.
 
 const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي اسمك "زيد". كلامك عراقي طبيعي بغدادي فقط.
 لازم:
@@ -323,7 +200,24 @@ async function callOpenAIModel(
   }
 }
 
-// Enhanced reply generation with validation, scoring, fallback, and guardrails
+// Build a catalogue context string from real database search matches. Only
+// matched products are shown to the model, so it can phrase a natural reply
+// without ever inventing products or prices.
+function buildCatalogFromMatches(matches: ProductMatch[]): string {
+  if (matches.length === 0) {
+    return "لا توجد منتجات مطابقة في قاعدة البيانات.";
+  }
+  return matches
+    .map((m, i) => {
+      const options = m.color ? `، لون ${m.color}` : "";
+      const price = m.price ? `، السعر ${m.price} ${m.currency}` : "";
+      return `${i + 1}. ${m.title}${price}${options}`;
+    })
+    .join("\n");
+}
+
+// Enhanced reply generation: GPT extracts intent, PostgreSQL does the search,
+// GPT phrases the reply from matches only, guardrails prevent hallucination.
 async function generateClaudeReplyEnhanced(
   customerText: string,
   fromNumber?: string,
@@ -333,6 +227,7 @@ async function generateClaudeReplyEnhanced(
   confidence: ConfidenceScore;
   fallbackUsed: boolean;
   metadata: ParsingMetadata;
+  matches: ProductMatch[];
 } | null> {
   // Step 1: Check for spam and repeated messages
   const spamAnalysis = detectSpam(customerText);
@@ -353,26 +248,23 @@ async function generateClaudeReplyEnhanced(
   // Step 2: Language detection and normalization
   const arabicAnalysis = detectIraqiDialect(customerText);
   const normalizedText = normalizeArabicText(customerText);
-  const languageClarity = scoreLanguageClarity(customerText);
 
-  // Step 3: Try AI parsing
+  // Step 3: Intent extraction (GPT) + actual product search (PostgreSQL/pg_trgm).
+  // GPT extracts meaning only; the database performs the match.
   const apiKey = getOpenAIApiKey();
   if (!apiKey) return null;
 
-  const products = await loadBotProducts();
-  const catalog = buildCatalogContext(products, normalizedText);
+  const intent = await extractSearchIntent(customerText);
+  const matches = await searchProducts(intent, 8);
+  const catalog = buildCatalogFromMatches(matches);
   const model = getOpenAIModel();
 
   // Build enhanced system prompt with dialect awareness
-  const systemPrompt = buildIraqiReplyPrompt(
-    normalizedText,
-    catalog,
-    {
-      language: arabicAnalysis.dialect,
-      spamScore: spamAnalysis.score,
-      messageTimestamp: new Date(),
-    },
-  );
+  const systemPrompt = buildIraqiReplyPrompt(normalizedText, catalog, {
+    language: arabicAnalysis.dialect,
+    spamScore: spamAnalysis.score,
+    messageTimestamp: new Date(),
+  });
 
   let aiReply = await callOpenAIModel(apiKey, model, normalizedText, catalog, systemPrompt);
   let fallbackUsed = false;
@@ -443,6 +335,7 @@ async function generateClaudeReplyEnhanced(
     confidence: confidenceScore,
     fallbackUsed,
     metadata,
+    matches,
   };
 }
 
@@ -453,7 +346,7 @@ async function storeParsingMetadata(
   confidenceScore?: ConfidenceScore,
 ): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from("product_parsing_metadata").insert({
+    const { error } = await supabaseAdmin.from("product_parsing_metadata" as never).insert({
       webhook_event_id: webhookEventId,
       ai_provider: metadata.ai_provider,
       ai_model: metadata.ai_model,
@@ -553,6 +446,17 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             if (!sendResult.ok) {
               console.error("[WhatsApp webhook] Failed to send reply", sendResult);
             }
+
+            // Lead generation: notify the matched merchant about the interested
+            // customer (best-effort, non-blocking).
+            if (enhancedResult.matches.length > 0) {
+              notifyMerchantsOfLead(
+                incoming.from,
+                incoming.text,
+                enhancedResult.matches,
+                sendWhatsAppText,
+              ).catch((err) => console.error("[WhatsApp webhook] Lead notification failed", err));
+            }
           }
         }
 
@@ -589,7 +493,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             fallback_used: enhancedResult?.fallbackUsed,
             language_detected: enhancedResult?.metadata.language,
             spam_score: enhancedResult?.metadata.spamScore,
-          })
+          } as never)
           .select("id");
 
         if (error) {

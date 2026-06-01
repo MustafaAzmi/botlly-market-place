@@ -30,6 +30,7 @@ import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/p
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
+import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -136,6 +137,11 @@ const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
   path: '/api/whatsapp/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthMetaCallbackRoute = ApiAuthMetaCallbackRouteImport.update({
+  id: '/api/auth/meta/callback',
+  path: '/api/auth/meta/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/products/': typeof DashboardProductsIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
+  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -182,6 +189,7 @@ export interface FileRoutesByTo {
   '/dashboard/products': typeof DashboardProductsIndexRoute
   '/dashboard/store': typeof DashboardStoreIndexRoute
   '/dashboard/workflow': typeof DashboardWorkflowIndexRoute
+  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/dashboard/products/': typeof DashboardProductsIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
+  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/dashboard/products/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
+    | '/api/auth/meta/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
     | '/dashboard/products'
     | '/dashboard/store'
     | '/dashboard/workflow'
+    | '/api/auth/meta/callback'
   id:
     | '__root__'
     | '/'
@@ -277,6 +288,7 @@ export interface FileRouteTypes {
     | '/dashboard/products/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
+    | '/api/auth/meta/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -301,6 +313,7 @@ export interface RootRouteChildren {
   DashboardProductsIndexRoute: typeof DashboardProductsIndexRoute
   DashboardStoreIndexRoute: typeof DashboardStoreIndexRoute
   DashboardWorkflowIndexRoute: typeof DashboardWorkflowIndexRoute
+  ApiAuthMetaCallbackRoute: typeof ApiAuthMetaCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -452,6 +465,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/meta/callback': {
+      id: '/api/auth/meta/callback'
+      path: '/api/auth/meta/callback'
+      fullPath: '/api/auth/meta/callback'
+      preLoaderRoute: typeof ApiAuthMetaCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -477,6 +497,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardProductsIndexRoute: DashboardProductsIndexRoute,
   DashboardStoreIndexRoute: DashboardStoreIndexRoute,
   DashboardWorkflowIndexRoute: DashboardWorkflowIndexRoute,
+  ApiAuthMetaCallbackRoute: ApiAuthMetaCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
