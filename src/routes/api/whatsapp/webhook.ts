@@ -41,7 +41,7 @@ function getOpenAIApiKey() {
 }
 
 function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -394,33 +394,31 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           if (incoming.from && incoming.text) {
             try {
               enhancedResult = await generateClaudeReplyEnhanced(incoming.text, incoming.from);
-              console.log("[Webhook] Reply:", enhancedResult?.text?.slice(0, 80) ?? "null");
+              console.log("[Webhook] Reply:", enhancedResult?.text?.slice(0, 80) ?? "null — no AI reply");
             } catch (err) {
               console.error("[Webhook] generateClaudeReplyEnhanced threw:", err);
             }
 
-            if (enhancedResult) {
-              try {
-                sendResult = await sendWhatsAppText(incoming.from, enhancedResult.text);
-                console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
-              } catch (err) {
-                console.error("[Webhook] sendWhatsAppText threw:", err);
-              }
+            const replyText = enhancedResult?.text ?? "أهلاً، شو تدور؟";
+            try {
+              sendResult = await sendWhatsAppText(incoming.from, replyText);
+              console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
+            } catch (err) {
+              console.error("[Webhook] sendWhatsAppText threw:", err);
+            }
 
-              if (enhancedResult.matches.length > 0) {
-                notifyMerchantsOfLead(
-                  incoming.from,
-                  incoming.text,
-                  enhancedResult.matches,
-                  sendWhatsAppText,
-                ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
-              }
+            if (enhancedResult?.matches && enhancedResult.matches.length > 0) {
+              notifyMerchantsOfLead(
+                incoming.from,
+                incoming.text,
+                enhancedResult.matches,
+                sendWhatsAppText,
+              ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
             }
           } else {
-            console.log("[Webhook] No from/text — status update or empty message, skipping reply");
+            console.log("[Webhook] No from/text — status update, skipping reply");
           }
 
-          // Storage is fully non-blocking — never prevents the 200 response
           const summary = readWebhookSummary(payload);
           const payloadForStorage = {
             ...(payload && typeof payload === "object"
@@ -438,36 +436,40 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             },
           };
 
-          supabaseAdmin
-            .from("whatsapp_webhook_events")
-            .insert({
-              source: summary.source,
-              event_type: summary.eventType,
-              phone_number_id: summary.phoneNumberId,
-              wa_message_id: summary.waMessageId,
-              from_number: summary.fromNumber,
-              payload: payloadForStorage as Json,
-              product_confidence: enhancedResult?.confidence.overall,
-              fallback_used: enhancedResult?.fallbackUsed,
-              language_detected: enhancedResult?.metadata.language,
-              spam_score: enhancedResult?.metadata.spamScore,
-            } as never)
-            .select("id")
-            .then(({ data, error }) => {
-              if (error) {
-                console.error("[Storage] Event insert failed:", error.message);
-                return;
-              }
-              const webhookEventId = data?.[0]?.id;
-              if (webhookEventId && enhancedResult?.metadata) {
-                storeParsingMetadata(
-                  webhookEventId,
-                  enhancedResult.metadata,
-                  enhancedResult.confidence,
-                ).catch((err) => console.error("[Storage] Metadata insert failed:", err));
-              }
-            })
-            .catch((err) => console.error("[Storage] Event insert threw:", err));
+          try {
+            supabaseAdmin
+              .from("whatsapp_webhook_events")
+              .insert({
+                source: summary.source,
+                event_type: summary.eventType,
+                phone_number_id: summary.phoneNumberId,
+                wa_message_id: summary.waMessageId,
+                from_number: summary.fromNumber,
+                payload: payloadForStorage as Json,
+                product_confidence: enhancedResult?.confidence.overall,
+                fallback_used: enhancedResult?.fallbackUsed,
+                language_detected: enhancedResult?.metadata.language,
+                spam_score: enhancedResult?.metadata.spamScore,
+              } as never)
+              .select("id")
+              .then(({ data, error }) => {
+                if (error) {
+                  console.error("[Storage] Event insert failed:", error.message);
+                  return;
+                }
+                const webhookEventId = data?.[0]?.id;
+                if (webhookEventId && enhancedResult?.metadata) {
+                  storeParsingMetadata(
+                    webhookEventId,
+                    enhancedResult.metadata,
+                    enhancedResult.confidence,
+                  ).catch((err) => console.error("[Storage] Metadata insert failed:", err));
+                }
+              })
+              .catch((err) => console.error("[Storage] Event insert threw:", err));
+          } catch (err) {
+            console.error("[Storage] Event insert setup failed:", err);
+          }
 
           return new Response(JSON.stringify({ ok: true }), { status: 200, headers: jsonHeaders });
         } catch (err) {

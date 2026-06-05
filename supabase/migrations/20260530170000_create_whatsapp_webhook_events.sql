@@ -52,4 +52,3 @@ CREATE TRIGGER set_updated_at_trigger
 GRANT ALL ON public.whatsapp_webhook_events TO postgres;
 GRANT ALL ON public.whatsapp_webhook_events TO authenticated;
 GRANT ALL ON public.whatsapp_webhook_events TO service_role;
-GRANT ALL ON SEQUENCE whatsapp_webhook_events_id_seq TO postgres, authenticated, service_role;

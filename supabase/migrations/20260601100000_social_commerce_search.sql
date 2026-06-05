@@ -47,7 +47,7 @@ CREATE OR REPLACE FUNCTION public.search_botly_products(
   max_results int DEFAULT 8
 )
 RETURNS TABLE (
-  id bigint,
+  id uuid,
   payload jsonb,
   similarity real,
   created_at timestamptz

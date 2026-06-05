@@ -5,12 +5,20 @@
 // (broadcasts + individual merchant messages). There is no separate messaging
 // system; everything goes through this one Graph API call.
 
+function cleanEnv(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || /^<.*>$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 function getWhatsAppAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN;
+  return cleanEnv(process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN);
 }
 
 function getWhatsAppPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+  return cleanEnv(
+    process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID,
+  );
 }
 
 export type SendResult = { ok: boolean; status: number; error?: string };
@@ -19,6 +27,7 @@ export async function sendWhatsAppText(to: string, body: string): Promise<SendRe
   const accessToken = getWhatsAppAccessToken();
   const phoneNumberId = getWhatsAppPhoneNumberId();
   if (!accessToken || !phoneNumberId) {
+    console.error("[WhatsApp] Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID");
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
@@ -37,9 +46,11 @@ export async function sendWhatsAppText(to: string, body: string): Promise<SendRe
   });
 
   if (response.ok) return { ok: true, status: response.status };
+  const error = await response.text().catch(() => "Unknown WhatsApp API error");
+  console.error("[WhatsApp] Graph API send failed:", response.status, error);
   return {
     ok: false,
     status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+    error,
   };
 }
