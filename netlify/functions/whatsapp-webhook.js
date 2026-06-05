@@ -1,7 +1,5 @@
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
-const FALLBACK_REPLY = "\u0623\u0647\u0644\u0627\u064b\u060c \u0634\u0646\u0648 \u062a\u062f\u0648\u0631\u061f";
-const SYSTEM_PROMPT = "\u0623\u0646\u062a \u0645\u0633\u0627\u0639\u062f \u0628\u064a\u0639 \u0639\u0631\u0627\u0642\u064a. \u0631\u062f \u0628\u0627\u0644\u0644\u0647\u062c\u0629 \u0627\u0644\u0639\u0631\u0627\u0642\u064a\u0629 \u0628\u0627\u062e\u062a\u0635\u0627\u0631 \u0634\u062f\u064a\u062f\u060c \u0628\u062f\u0648\u0646 \u0625\u064a\u0645\u0648\u062c\u064a\u060c \u0648\u0628\u062f\u0648\u0646 \u0630\u0643\u0631 \u0623\u0646\u0643 \u0628\u0648\u062a. \u0625\u0630\u0627 \u0627\u0644\u0633\u0624\u0627\u0644 \u063a\u064a\u0631 \u0648\u0627\u0636\u062d \u0627\u0633\u0623\u0644 \u0634\u0646\u0648 \u064a\u062f\u0648\u0631 \u0628\u0627\u0644\u0636\u0628\u0637.";
 
 function cleanEnv(value) {
   const trimmed = value?.trim();
@@ -36,7 +34,9 @@ function getOpenAIModel() {
 function timingSafeEqual(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
   return diff === 0;
 }
 
@@ -115,8 +115,9 @@ async function sendWhatsAppText(to, body) {
 }
 
 async function generateReply(customerText) {
+  const fallbackReply = "\u0623\u0647\u0644\u0627\u064b\u060c \u0634\u0646\u0648 \u062a\u062f\u0648\u0631\u061f";
   const apiKey = getOpenAIApiKey();
-  if (!apiKey) return FALLBACK_REPLY;
+  if (!apiKey) return fallbackReply;
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -130,20 +131,24 @@ async function generateReply(customerText) {
         max_tokens: 160,
         temperature: 0.3,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "system",
+            content:
+              "\u0623\u0646\u062a \u0645\u0633\u0627\u0639\u062f \u0628\u064a\u0639 \u0639\u0631\u0627\u0642\u064a. \u0631\u062f \u0628\u0627\u0644\u0644\u0647\u062c\u0629 \u0627\u0644\u0639\u0631\u0627\u0642\u064a\u0629 \u0628\u0627\u062e\u062a\u0635\u0627\u0631 \u0634\u062f\u064a\u062f\u060c \u0628\u062f\u0648\u0646 \u0625\u064a\u0645\u0648\u062c\u064a\u060c \u0648\u0628\u062f\u0648\u0646 \u0630\u0643\u0631 \u0623\u0646\u0643 \u0628\u0648\u062a. \u0625\u0630\u0627 \u0627\u0644\u0633\u0624\u0627\u0644 \u063a\u064a\u0631 \u0648\u0627\u0636\u062d \u0627\u0633\u0623\u0644 \u0634\u0646\u0648 \u064a\u062f\u0648\u0631 \u0628\u0627\u0644\u0636\u0628\u0637.",
+          },
           { role: "user", content: customerText },
         ],
       }),
     });
     if (!response.ok) {
       console.error("[WhatsApp Function] OpenAI failed:", response.status, await response.text());
-      return FALLBACK_REPLY;
+      return fallbackReply;
     }
     const data = await response.json();
-    return data?.choices?.[0]?.message?.content?.trim() || FALLBACK_REPLY;
+    return data?.choices?.[0]?.message?.content?.trim() || fallbackReply;
   } catch (error) {
     console.error("[WhatsApp Function] OpenAI threw:", error);
-    return FALLBACK_REPLY;
+    return fallbackReply;
   }
 }
 
