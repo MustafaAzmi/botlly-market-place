@@ -5,11 +5,9 @@ import type { Json } from "@/integrations/supabase/types";
 
 import OpenAI from "openai";
 
-// Import new parsing modules
 import {
   detectIraqiDialect,
   normalizeArabicText,
-  expandPriceShortcuts,
   extractArabicKeywords,
 } from "@/lib/whatsapp/iraqi-arabic";
 import { detectSpam, isRepeatedMessage } from "@/lib/whatsapp/spam-detector";
@@ -43,7 +41,7 @@ function getOpenAIApiKey() {
 }
 
 function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  return process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -56,15 +54,21 @@ function timingSafeEqual(a: string, b: string) {
 }
 
 function bytesToHex(bytes: ArrayBuffer) {
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function verifyMetaSignature(request: Request, rawBody: string) {
   const appSecret = getAppSecret();
-  if (!appSecret) return true;
+  if (!appSecret) {
+    console.log("[Webhook] No app secret — skipping signature check");
+    return true;
+  }
 
   const signature = request.headers.get("x-hub-signature-256");
-  if (!signature?.startsWith("sha256=")) return false;
+  if (!signature?.startsWith("sha256=")) {
+    console.warn("[Webhook] Missing x-hub-signature-256 header");
+    return false;
+  }
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -74,7 +78,12 @@ async function verifyMetaSignature(request: Request, rawBody: string) {
     ["sign"],
   );
   const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
-  return timingSafeEqual(signature, `sha256=${bytesToHex(digest)}`);
+  const expected = `sha256=${bytesToHex(digest)}`;
+  const valid = timingSafeEqual(signature, expected);
+  if (!valid) {
+    console.error("[Webhook] Signature mismatch — check WHATSAPP_APP_SECRET env var");
+  }
+  return valid;
 }
 
 function readWebhookSummary(payload: unknown) {
@@ -136,11 +145,6 @@ function readIncomingMessage(payload: unknown) {
   };
 }
 
-// NOTE: Product search now runs in PostgreSQL (pg_trgm) via @/lib/whatsapp/search.
-// The previous in-memory catalogue loader/ranker was removed — GPT extracts
-// intent, the database performs the actual match, and banned-merchant filtering
-// happens inside the search_botly_products RPC.
-
 const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك عراقي طبيعي بغدادي فقط.
 لازم:
 - تكون مختصر جداً (سطر واحد أو اثنين فقط)
@@ -160,7 +164,6 @@ const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك ع�
 - "هذني الأنواع الموجودة..."
 - "الحمد لله عندنا، بكام تخذها؟"`;
 
-// Enhanced OpenAI call with optimized tokens and temperature for consistency
 async function callOpenAIModel(
   apiKey: string,
   model: string,
@@ -172,35 +175,26 @@ async function callOpenAIModel(
     const client = new OpenAI({ apiKey });
     const response = await client.chat.completions.create({
       model,
-      max_tokens: 512, // Reduced from 1024 for faster/cheaper inference
-      temperature: 0.3, // Lower for more consistent product info
+      max_tokens: 512,
+      temperature: 0.3,
       messages: [
-        {
-          role: "system",
-          content: systemPrompt || IRAQI_SYSTEM_PROMPT,
-        },
+        { role: "system", content: systemPrompt || IRAQI_SYSTEM_PROMPT },
         {
           role: "user",
           content: `رسالة الزبون: ${customerText}\n\nكتالوج المنتجات الحقيقي:\n${catalog}`,
         },
       ],
     });
-
     const text = response.choices[0]?.message?.content?.trim();
     return text || null;
   } catch (error) {
-    console.error("[OpenAI] Reply generation failed", model, error);
+    console.error("[OpenAI] Reply generation failed:", error);
     return null;
   }
 }
 
-// Build a catalogue context string from real database search matches. Only
-// matched products are shown to the model, so it can phrase a natural reply
-// without ever inventing products or prices.
 function buildCatalogFromMatches(matches: ProductMatch[]): string {
-  if (matches.length === 0) {
-    return "لا توجد منتجات مطابقة في قاعدة البيانات.";
-  }
+  if (matches.length === 0) return "لا توجد منتجات مطابقة في قاعدة البيانات.";
   return matches
     .map((m, i) => {
       const options = m.color ? `، لون ${m.color}` : "";
@@ -210,8 +204,6 @@ function buildCatalogFromMatches(matches: ProductMatch[]): string {
     .join("\n");
 }
 
-// Enhanced reply generation: GPT extracts intent, PostgreSQL does the search,
-// GPT phrases the reply from matches only, guardrails prevent hallucination.
 async function generateClaudeReplyEnhanced(
   customerText: string,
   fromNumber?: string,
@@ -223,37 +215,39 @@ async function generateClaudeReplyEnhanced(
   metadata: ParsingMetadata;
   matches: ProductMatch[];
 } | null> {
-  // Step 1: Check for spam and repeated messages
   const spamAnalysis = detectSpam(customerText);
   if (spamAnalysis.isSpam && spamAnalysis.score > 0.7) {
-    console.warn("[Spam Detection] Message flagged as spam:", spamAnalysis.reasons);
+    console.warn("[Reply] Spam detected, score:", spamAnalysis.score);
     return null;
   }
 
-  // Check for repeated messages (within last 3600 seconds)
   if (fromNumber) {
-    const isRepeated = await isRepeatedMessage(fromNumber, customerText, 3600);
-    if (isRepeated) {
-      console.warn("[Repeated Message] Skipping duplicate message from:", fromNumber);
-      return null;
+    try {
+      const isRepeated = await isRepeatedMessage(fromNumber, customerText, 3600);
+      if (isRepeated) {
+        console.warn("[Reply] Repeated message from:", fromNumber);
+        return null;
+      }
+    } catch (err) {
+      console.warn("[Reply] isRepeatedMessage check failed (non-fatal):", err);
     }
   }
 
-  // Step 2: Language detection and normalization
   const arabicAnalysis = detectIraqiDialect(customerText);
   const normalizedText = normalizeArabicText(customerText);
 
-  // Step 3: Intent extraction (GPT) + actual product search (PostgreSQL/pg_trgm).
-  // GPT extracts meaning only; the database performs the match.
   const apiKey = getOpenAIApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.error("[Reply] OPENAI_API_KEY not set");
+    return null;
+  }
 
   const intent = await extractSearchIntent(customerText);
   const matches = await searchProducts(intent, 8);
   const catalog = buildCatalogFromMatches(matches);
-  const model = getOpenAIModel();
+  console.log("[Reply] Matches found:", matches.length);
 
-  // Build enhanced system prompt with dialect awareness
+  const model = getOpenAIModel();
   const systemPrompt = buildIraqiReplyPrompt(normalizedText, catalog, {
     language: arabicAnalysis.dialect,
     spamScore: spamAnalysis.score,
@@ -263,22 +257,25 @@ async function generateClaudeReplyEnhanced(
   let aiReply = await callOpenAIModel(apiKey, model, normalizedText, catalog, systemPrompt);
   let fallbackUsed = false;
 
-  // Step 4: If AI fails, try fallback extraction
   if (!aiReply) {
-    const fallback = await fallbackExtraction(customerText);
-    if (fallback.confidence > 0.3 && Object.keys(fallback.extracted).length > 0) {
-      fallbackUsed = true;
-      aiReply = generateFallbackReply(fallback.extracted);
-      console.log("[Fallback] Generated reply from extracted data:", aiReply);
+    console.warn("[Reply] AI returned null — trying fallback");
+    try {
+      const fallback = await fallbackExtraction(customerText);
+      if (fallback.confidence > 0.3 && Object.keys(fallback.extracted).length > 0) {
+        fallbackUsed = true;
+        aiReply = generateFallbackReply(fallback.extracted);
+        console.log("[Reply] Fallback reply:", aiReply);
+      }
+    } catch (err) {
+      console.error("[Reply] Fallback extraction failed:", err);
     }
   }
 
   if (!aiReply) {
-    console.warn("[Reply Generation] No reply generated (AI failed, fallback insufficient)");
+    console.warn("[Reply] No reply generated");
     return null;
   }
 
-  // Step 5: Calculate confidence score
   const mockProduct: ParsedProduct = {
     title: customerText.substring(0, 100),
     images: [],
@@ -298,7 +295,6 @@ async function generateClaudeReplyEnhanced(
     },
   );
 
-  // Step 6: Apply guardrails
   const guardrailConfig: GuardrailConfig = {
     prevent_price_hallucination: true,
     prevent_availability_hallucination: true,
@@ -309,7 +305,6 @@ async function generateClaudeReplyEnhanced(
   const guardrailed = applyGuardrails(aiReply, confidenceScore, guardrailConfig);
   const sanitized = sanitizeReplyForWhatsApp(guardrailed.reply);
 
-  // Step 7: Build metadata
   const metadata: ParsingMetadata = {
     language: arabicAnalysis.dialect,
     spamScore: spamAnalysis.score,
@@ -323,17 +318,9 @@ async function generateClaudeReplyEnhanced(
     raw_ai_response: aiReply,
   };
 
-  return {
-    text: sanitized,
-    model,
-    confidence: confidenceScore,
-    fallbackUsed,
-    metadata,
-    matches,
-  };
+  return { text: sanitized, model, confidence: confidenceScore, fallbackUsed, metadata, matches };
 }
 
-// Store parsing metadata for analytics and debugging
 async function storeParsingMetadata(
   webhookEventId: string,
   metadata: ParsingMetadata,
@@ -353,16 +340,11 @@ async function storeParsingMetadata(
       spam_score: metadata.spamScore,
       created_at: new Date().toISOString(),
     } as never);
-
-    if (error) {
-      console.error("[Metadata Storage] Failed to store parsing metadata:", error);
-    }
+    if (error) console.error("[Storage] Parsing metadata failed:", error.message);
   } catch (err) {
-    console.error("[Metadata Storage] Unexpected error:", err);
+    console.error("[Storage] Unexpected error storing metadata:", err);
   }
 }
-
-// sendWhatsAppText is imported from the shared sender (src/lib/whatsapp/send.server).
 
 export const Route = createFileRoute("/api/whatsapp/webhook")({
   server: {
@@ -376,126 +358,124 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
         if (mode === "subscribe" && challenge && token === getVerifyToken()) {
           return new Response(challenge, { status: 200, headers: textHeaders });
         }
-
-        return new Response("Webhook verification failed", {
-          status: 403,
-          headers: textHeaders,
-        });
+        return new Response("Webhook verification failed", { status: 403, headers: textHeaders });
       },
+
       POST: async ({ request }) => {
-        const rawBody = await request.text();
-        const hasValidSignature = await verifyMetaSignature(request, rawBody);
-        if (!hasValidSignature) {
-          return new Response(JSON.stringify({ ok: false, error: "Invalid signature" }), {
-            status: 401,
-            headers: jsonHeaders,
-          });
-        }
-
-        let payload: unknown;
         try {
-          payload = JSON.parse(rawBody);
-        } catch {
-          return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
-            status: 400,
-            headers: jsonHeaders,
-          });
-        }
+          const rawBody = await request.text();
+          console.log("[Webhook] POST received, bodyLen:", rawBody.length);
 
-        const incoming = readIncomingMessage(payload);
-        let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
-        let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
+          const valid = await verifyMetaSignature(request, rawBody);
+          console.log("[Webhook] Signature valid:", valid);
+          if (!valid) {
+            return new Response(JSON.stringify({ ok: false, error: "Invalid signature" }), {
+              status: 401,
+              headers: jsonHeaders,
+            });
+          }
 
-        // Generate reply with enhanced validation, scoring, and fallback
-        if (incoming.from && incoming.text) {
-          enhancedResult = await generateClaudeReplyEnhanced(incoming.text, incoming.from);
-          if (enhancedResult) {
-            sendResult = await sendWhatsAppText(incoming.from, enhancedResult.text);
-            if (!sendResult.ok) {
-              console.error("[WhatsApp webhook] Failed to send reply", sendResult);
+          let payload: unknown;
+          try {
+            payload = JSON.parse(rawBody);
+          } catch {
+            return new Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+              status: 400,
+              headers: jsonHeaders,
+            });
+          }
+
+          const incoming = readIncomingMessage(payload);
+          console.log("[Webhook] from:", incoming.from, "text:", incoming.text?.slice(0, 60));
+
+          let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
+          let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
+
+          if (incoming.from && incoming.text) {
+            try {
+              enhancedResult = await generateClaudeReplyEnhanced(incoming.text, incoming.from);
+              console.log("[Webhook] Reply:", enhancedResult?.text?.slice(0, 80) ?? "null — no AI reply");
+            } catch (err) {
+              console.error("[Webhook] generateClaudeReplyEnhanced threw:", err);
             }
 
-            // Lead generation: notify the matched merchant about the interested
-            // customer (best-effort, non-blocking).
-            if (enhancedResult.matches.length > 0) {
+            const replyText = enhancedResult?.text ?? "أهلاً، شو تدور؟";
+            try {
+              sendResult = await sendWhatsAppText(incoming.from, replyText);
+              console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
+            } catch (err) {
+              console.error("[Webhook] sendWhatsAppText threw:", err);
+            }
+
+            if (enhancedResult?.matches && enhancedResult.matches.length > 0) {
               notifyMerchantsOfLead(
                 incoming.from,
                 incoming.text,
                 enhancedResult.matches,
                 sendWhatsAppText,
-              ).catch((err) => console.error("[WhatsApp webhook] Lead notification failed", err));
+              ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
             }
+          } else {
+            console.log("[Webhook] No from/text — status update, skipping reply");
           }
+
+          // Storage — fully non-blocking, never affects the 200 response
+          const summary = readWebhookSummary(payload);
+          const payloadForStorage = {
+            ...(payload && typeof payload === "object"
+              ? (payload as Record<string, unknown>)
+              : { raw: payload }),
+            botly_ai: {
+              provider: "openai",
+              model: enhancedResult?.model ?? getOpenAIModel(),
+              incoming_type: incoming.type,
+              replied: Boolean(enhancedResult),
+              sent: Boolean(sendResult?.ok),
+              confidence_score: enhancedResult?.confidence.overall,
+              fallback_used: enhancedResult?.fallbackUsed,
+              language: enhancedResult?.metadata.language,
+            },
+          };
+
+          supabaseAdmin
+            .from("whatsapp_webhook_events")
+            .insert({
+              source: summary.source,
+              event_type: summary.eventType,
+              phone_number_id: summary.phoneNumberId,
+              wa_message_id: summary.waMessageId,
+              from_number: summary.fromNumber,
+              payload: payloadForStorage as Json,
+              product_confidence: enhancedResult?.confidence.overall,
+              fallback_used: enhancedResult?.fallbackUsed,
+              language_detected: enhancedResult?.metadata.language,
+              spam_score: enhancedResult?.metadata.spamScore,
+            } as never)
+            .select("id")
+            .then(({ data, error }) => {
+              if (error) {
+                console.error("[Storage] Event insert failed:", error.message);
+                return;
+              }
+              const webhookEventId = data?.[0]?.id;
+              if (webhookEventId && enhancedResult?.metadata) {
+                storeParsingMetadata(
+                  webhookEventId,
+                  enhancedResult.metadata,
+                  enhancedResult.confidence,
+                ).catch((err) => console.error("[Storage] Metadata insert failed:", err));
+              }
+            })
+            .catch((err) => console.error("[Storage] Event insert threw:", err));
+
+          return new Response(JSON.stringify({ ok: true }), { status: 200, headers: jsonHeaders });
+        } catch (err) {
+          console.error("[Webhook] Unhandled error in POST handler:", err);
+          return new Response(JSON.stringify({ ok: false, error: "Internal error" }), {
+            status: 500,
+            headers: jsonHeaders,
+          });
         }
-
-        // Store enhanced metadata (async, doesn't block response)
-        let webhookEventId: string | undefined;
-
-        const payloadForStorage = {
-          ...(payload && typeof payload === "object"
-            ? (payload as Record<string, unknown>)
-            : { raw: payload }),
-          botly_ai: {
-            provider: "openai",
-            model: enhancedResult?.model ?? getOpenAIModel(),
-            incoming_type: incoming.type,
-            replied: Boolean(enhancedResult),
-            sent: Boolean(sendResult?.ok),
-            confidence_score: enhancedResult?.confidence.overall,
-            fallback_used: enhancedResult?.fallbackUsed,
-            language: enhancedResult?.metadata.language,
-          },
-        };
-
-        const summary = readWebhookSummary(payload);
-        const { data: insertedData, error } = await supabaseAdmin
-          .from("whatsapp_webhook_events")
-          .insert({
-            source: summary.source,
-            event_type: summary.eventType,
-            phone_number_id: summary.phoneNumberId,
-            wa_message_id: summary.waMessageId,
-            from_number: summary.fromNumber,
-            payload: payloadForStorage as Json,
-            product_confidence: enhancedResult?.confidence.overall,
-            fallback_used: enhancedResult?.fallbackUsed,
-            language_detected: enhancedResult?.metadata.language,
-            spam_score: enhancedResult?.metadata.spamScore,
-          } as never)
-          .select("id");
-
-        if (error) {
-          const fallback = await supabaseAdmin.from("whatsapp_webhook_events").insert({
-            provider: "meta",
-            payload: payloadForStorage as Json,
-          } as never);
-
-          if (fallback.error) {
-            console.error("[WhatsApp webhook] Failed to persist event", error, fallback.error);
-            return new Response(JSON.stringify({ ok: false, error: "Storage failed" }), {
-              status: 500,
-              headers: jsonHeaders,
-            });
-          }
-        } else if (insertedData && insertedData.length > 0) {
-          webhookEventId = insertedData[0].id;
-
-          // Store parsing metadata (async, non-blocking)
-          if (enhancedResult?.metadata) {
-            storeParsingMetadata(
-              webhookEventId,
-              enhancedResult.metadata,
-              enhancedResult.confidence,
-            ).catch((err) => {
-              console.error("[WhatsApp webhook] Failed to store parsing metadata:", err);
-            });
-          }
-        }
-
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: jsonHeaders,
-        });
       },
     },
   },
