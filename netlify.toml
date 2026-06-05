@@ -1,13 +1,19 @@
 [build]
   command = "NITRO_PRESET=netlify npm run build"
   publish = "dist/client"
-  functions = "netlify/functions"
+  functions = "dist/server"
 
 [build.environment]
   NODE_VERSION = "22"
 
 [[redirects]]
   from = "/api/whatsapp/webhook"
-  to = "/.netlify/functions/whatsapp-webhook"
+  to = "/.netlify/functions/main"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/main"
   status = 200
   force = true
