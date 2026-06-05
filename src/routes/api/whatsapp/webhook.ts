@@ -419,7 +419,6 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             console.log("[Webhook] No from/text — status update, skipping reply");
           }
 
-          // Storage — fully non-blocking, never affects the 200 response
           const summary = readWebhookSummary(payload);
           const payloadForStorage = {
             ...(payload && typeof payload === "object"
