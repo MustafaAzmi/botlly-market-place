@@ -19,6 +19,12 @@
   force = true
 
 [[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 200
+  force = false
+
+[[redirects]]
   from = "/api/whatsapp/webhook"
   to = "/.netlify/functions/main"
   status = 200
