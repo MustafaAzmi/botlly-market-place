@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
+
 import OpenAI from "openai";
+
 import {
   detectIraqiDialect,
   normalizeArabicText,
@@ -40,6 +42,14 @@ function getOpenAIApiKey() {
 
 function getOpenAIModel() {
   return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+}
+
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+
+function getAnthropicModel() {
+  return process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -162,6 +172,51 @@ const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك ع�
 - "هذني الأنواع الموجودة..."
 - "الحمد لله عندنا، بكام تخذها؟"`;
 
+async function callAnthropicModel(
+  apiKey: string,
+  model: string,
+  customerText: string,
+  catalog: string,
+  systemPrompt?: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 512,
+        temperature: 0.3,
+        system: systemPrompt || IRAQI_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `رسالة الزبون: ${customerText}\n\nكتالوج المنتجات الحقيقي:\n${catalog}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("[Anthropic] Reply generation failed:", response.status, await response.text());
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      content?: Array<{ type?: string; text?: string }>;
+    };
+
+    return data.content?.find((part) => part.type === "text")?.text?.trim() || null;
+  } catch (error) {
+    console.error("[Anthropic] Reply generation failed:", error);
+    return null;
+  }
+}
+
 async function callOpenAIModel(
   apiKey: string,
   model: string,
@@ -234,9 +289,11 @@ async function generateClaudeReplyEnhanced(
   const arabicAnalysis = detectIraqiDialect(customerText);
   const normalizedText = normalizeArabicText(customerText);
 
-  const apiKey = getOpenAIApiKey();
-  if (!apiKey) {
-    console.error("[Reply] OPENAI_API_KEY not set");
+  const anthropicKey = getAnthropicApiKey();
+  const openAIKey = getOpenAIApiKey();
+
+  if (!anthropicKey && !openAIKey) {
+    console.error("[Reply] No ANTHROPIC_API_KEY or OPENAI_API_KEY set");
     return null;
   }
 
@@ -245,14 +302,18 @@ async function generateClaudeReplyEnhanced(
   const catalog = buildCatalogFromMatches(matches);
   console.log("[Reply] Matches found:", matches.length);
 
-  const model = getOpenAIModel();
+  const provider = anthropicKey ? "anthropic" : "openai";
+  const model = anthropicKey ? getAnthropicModel() : getOpenAIModel();
   const systemPrompt = buildIraqiReplyPrompt(normalizedText, catalog, {
     language: arabicAnalysis.dialect,
     spamScore: spamAnalysis.score,
     messageTimestamp: new Date(),
   });
 
-  let aiReply = await callOpenAIModel(apiKey, model, normalizedText, catalog, systemPrompt);
+  let aiReply = anthropicKey
+    ? await callAnthropicModel(anthropicKey, model, normalizedText, catalog, systemPrompt)
+    : await callOpenAIModel(openAIKey!, model, normalizedText, catalog, systemPrompt);
+
   let fallbackUsed = false;
 
   if (!aiReply) {
@@ -307,7 +368,7 @@ async function generateClaudeReplyEnhanced(
     language: arabicAnalysis.dialect,
     spamScore: spamAnalysis.score,
     messageTimestamp: new Date(),
-    ai_provider: "openai",
+    ai_provider: provider,
     ai_model: model,
     parsing_version: "v2",
     confidence_score: confidenceScore.overall,
@@ -397,41 +458,41 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               console.error("[Webhook] generateClaudeReplyEnhanced threw:", err);
             }
 
-            if (enhancedResult) {
-              try {
-                sendResult = await sendWhatsAppText(incoming.from, enhancedResult.text);
-                console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
-              } catch (err) {
-                console.error("[Webhook] sendWhatsAppText threw:", err);
-              }
+            const replyText = enhancedResult?.text ?? "أهلاً، شنو تدور؟";
+            try {
+              sendResult = await sendWhatsAppText(incoming.from, replyText);
+              console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
+            } catch (err) {
+              console.error("[Webhook] sendWhatsAppText threw:", err);
+            }
 
-              if (enhancedResult.matches.length > 0) {
-                notifyMerchantsOfLead(
-                  incoming.from,
-                  incoming.text,
-                  enhancedResult.matches,
-                  sendWhatsAppText,
-                ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
-              }
+            if (enhancedResult?.matches.length) {
+              notifyMerchantsOfLead(
+                incoming.from,
+                incoming.text,
+                enhancedResult.matches,
+                sendWhatsAppText,
+              ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
             }
           } else {
             console.log("[Webhook] No from/text — status update or empty message, skipping reply");
           }
 
-          // Storage is fully non-blocking — never prevents the 200 response
           const summary = readWebhookSummary(payload);
           const payloadForStorage = {
             ...(payload && typeof payload === "object"
               ? (payload as Record<string, unknown>)
               : { raw: payload }),
             botly_ai: {
-              provider: "openai",
-              model: enhancedResult?.model ?? getOpenAIModel(),
+              provider: enhancedResult?.metadata.ai_provider ?? "fallback",
+              model:
+                enhancedResult?.model ??
+                (getAnthropicApiKey() ? getAnthropicModel() : getOpenAIModel()),
               incoming_type: incoming.type,
-              replied: Boolean(enhancedResult),
+              replied: Boolean(enhancedResult) || Boolean(sendResult?.ok),
               sent: Boolean(sendResult?.ok),
               confidence_score: enhancedResult?.confidence.overall,
-              fallback_used: enhancedResult?.fallbackUsed,
+              fallback_used: enhancedResult?.fallbackUsed ?? !enhancedResult,
               language: enhancedResult?.metadata.language,
             },
           };
@@ -446,7 +507,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               from_number: summary.fromNumber,
               payload: payloadForStorage as Json,
               product_confidence: enhancedResult?.confidence.overall,
-              fallback_used: enhancedResult?.fallbackUsed,
+              fallback_used: enhancedResult?.fallbackUsed ?? !enhancedResult,
               language_detected: enhancedResult?.metadata.language,
               spam_score: enhancedResult?.metadata.spamScore,
             } as never)
