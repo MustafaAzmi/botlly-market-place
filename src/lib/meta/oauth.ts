@@ -15,18 +15,20 @@ import type { GraphTokenResponse, GraphPage } from "./types";
 
 const GRAPH_VERSION = "v21.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
+const BOTLY_META_APP_ID = "1762515044432140";
+const BOTLY_META_REDIRECT_URI = "https://bot-lly.tech/api/auth/meta/callback";
 
 // Permissions required to read a merchant's pages and Instagram media.
 const REQUIRED_SCOPES = [
   "public_profile",
   "pages_show_list",
   "pages_read_engagement",
+  "pages_read_user_content",
   "instagram_basic",
-  "business_management",
 ];
 
 export function getMetaAppId(): string | undefined {
-  return process.env.META_OAUTH_APP_ID ?? process.env.META_APP_ID;
+  return process.env.META_OAUTH_APP_ID ?? process.env.META_APP_ID ?? BOTLY_META_APP_ID;
 }
 
 export function getMetaAppSecret(): string | undefined {
@@ -34,7 +36,7 @@ export function getMetaAppSecret(): string | undefined {
 }
 
 export function getMetaRedirectUri(): string | undefined {
-  return process.env.META_OAUTH_REDIRECT_URI;
+  return process.env.META_OAUTH_REDIRECT_URI ?? BOTLY_META_REDIRECT_URI;
 }
 
 export function isMetaConfigured(): boolean {

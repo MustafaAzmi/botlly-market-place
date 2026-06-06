@@ -7,6 +7,8 @@ export interface MetaConnection {
   merchantId: string;
   // Long-lived user access token (official Meta token, never a scraped session).
   accessToken: string;
+  // Page access token used for Page posts and linked Instagram business media.
+  pageAccessToken?: string | null;
   tokenExpiresAt: string | null;
   facebookUserId: string;
   facebookPageId: string | null;
@@ -61,7 +63,7 @@ export interface GraphPage {
   id: string;
   name: string;
   access_token?: string;
-  instagram_business_account?: { id: string };
+  instagram_business_account?: { id: string; username?: string };
 }
 
 export interface GraphMediaItem {

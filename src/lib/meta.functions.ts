@@ -38,7 +38,7 @@ export const getMetaConnectUrl = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }) => {
     if (!isMetaConfigured()) {
-      throw new Error("ربط Meta غير مفعّل حالياً. تواصل مع الدعم.");
+      throw new Error("ربط Meta غير مفعكل حالياً. تواصل مع الدعم.");
     }
 
     const merchantId = await authorizeMerchantId(data.token);
@@ -118,17 +118,18 @@ export const syncMerchantPosts = createServerFn({ method: "POST" })
 
       try {
         let summary = null;
+        const graphToken = conn.pageAccessToken || conn.accessToken;
         if (conn.instagramBusinessAccountId) {
           await throttle();
           const media = await fetchInstagramMedia(
             conn.instagramBusinessAccountId,
-            conn.accessToken,
+            graphToken,
             { sinceIso: conn.lastSyncedAt, limit: 25 },
           );
           summary = await importMediaBatch(conn, media, "instagram");
         } else if (conn.facebookPageId) {
           await throttle();
-          const posts = await fetchFacebookPosts(conn.facebookPageId, conn.accessToken, {
+          const posts = await fetchFacebookPosts(conn.facebookPageId, graphToken, {
             sinceIso: conn.lastSyncedAt,
             limit: 25,
           });

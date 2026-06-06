@@ -65,16 +65,18 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
           // Prefer a page that has an Instagram business account attached.
           const page = pages.find((p) => p.instagram_business_account?.id) ?? pages[0] ?? null;
           const igAccountId = page?.instagram_business_account?.id ?? null;
+          const pageAccessToken = page?.access_token ?? null;
 
           const connection: MetaConnection = {
             merchantId,
             accessToken,
+            pageAccessToken,
             tokenExpiresAt: expiresAt,
             facebookUserId: fbUser.id,
             facebookPageId: page?.id ?? null,
             facebookPageName: page?.name ?? null,
             instagramBusinessAccountId: igAccountId,
-            instagramUsername: null,
+            instagramUsername: page?.instagram_business_account?.username ?? null,
             scopes: getRequiredScopes(),
             connectedAt: new Date().toISOString(),
             lastSyncedAt: null,
@@ -90,7 +92,9 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
           // 4. Initial import (best-effort — never block the redirect on it).
           if (igAccountId) {
             try {
-              const media = await fetchInstagramMedia(igAccountId, accessToken, { limit: 25 });
+              const media = await fetchInstagramMedia(igAccountId, pageAccessToken ?? accessToken, {
+                limit: 25,
+              });
               const summary = await importMediaBatch(connection, media, "instagram");
               await appendEvent("botly_meta_connection", {
                 kind: "connection",

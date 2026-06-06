@@ -10,7 +10,7 @@ import OpenAI from "openai";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { normalizeArabicText } from "./iraqi-arabic";
-import { getString, getNumber } from "@/lib/eventStore.server";
+import { eventTime, getNumber, getString, listEvents } from "@/lib/eventStore.server";
 
 function getOpenAIApiKey() {
   return process.env.OPENAI_API_KEY;
@@ -124,7 +124,7 @@ export async function searchProducts(
 
   if (error) {
     console.error("[Search] RPC search_botly_products failed", error);
-    return [];
+    return searchProductsFromEventStore(intent, maxResults);
   }
 
   const rows = (data ?? []) as Array<{
@@ -154,5 +154,126 @@ export async function searchProducts(
     matches = matches.filter((m) => m.price === 0 || m.price <= intent.maxPrice!);
   }
 
+  if (matches.length > 0) return matches;
+
+  return searchProductsFromEventStore(intent, maxResults);
+}
+
+function normalizeSearchValue(value: string): string {
+  return normalizeArabicText(value).toLowerCase().trim();
+}
+
+function tokenize(value: string): string[] {
+  return normalizeSearchValue(value)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function isGenericCatalogQuery(value: string): boolean {
+  const normalized = normalizeSearchValue(value);
+  return [
+    "شنو عندك",
+    "شنو المنتجات",
+    "عندك منتجات",
+    "منتجات",
+    "المتوفر",
+    "شنو متوفر",
+    "catalog",
+    "products",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function scoreProduct(payload: Record<string, unknown>, terms: string[]): number {
+  const haystack = normalizeSearchValue(
+    [
+      getString(payload.searchText),
+      getString(payload.title),
+      getString(payload.description),
+      getString(payload.category),
+      getString(payload.brand),
+      getString(payload.color),
+      getString(payload.condition),
+      Array.isArray(payload.keywords) ? payload.keywords.join(" ") : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (!haystack) return 0;
+
+  let score = 0;
+  for (const term of terms) {
+    if (haystack.includes(term)) score += 2;
+    for (const word of haystack.split(/\s+/)) {
+      if (word.startsWith(term) || term.startsWith(word)) score += 0.5;
+    }
+  }
+  return score;
+}
+
+async function searchProductsFromEventStore(
+  intent: SearchIntent,
+  maxResults: number,
+): Promise<ProductMatch[]> {
+  const query = [intent.searchTerms, intent.brand, intent.category, intent.color]
+    .filter(Boolean)
+    .join(" ");
+  const terms = tokenize(query);
+  const genericCatalogQuery = isGenericCatalogQuery(query);
+  if (terms.length === 0 && !genericCatalogQuery) return [];
+
+  const rows = await listEvents("botly_product");
+  const latestRowsByProduct = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const payload = row.payload ?? {};
+    const productId = getString(payload.productId) || row.id;
+    if (!latestRowsByProduct.has(productId)) latestRowsByProduct.set(productId, row);
+  }
+
+  const matches = [...latestRowsByProduct.values()]
+    .map((row) => {
+      const payload = row.payload ?? {};
+      const status = getString(payload.status) || "active";
+      const availability = getString(payload.availability);
+      const quantity = getNumber(payload.quantity);
+
+      if (
+        status === "deleted" ||
+        status === "pending_review" ||
+        status === "rejected" ||
+        status === "unavailable"
+      ) {
+        return null;
+      }
+      if (availability === "out_of_stock") return null;
+      if (typeof quantity === "number" && quantity <= 0) return null;
+
+      const similarity = genericCatalogQuery ? 1 : scoreProduct(payload, terms);
+      if (similarity <= 0) return null;
+
+      const price = getNumber(payload.discountPrice) ?? getNumber(payload.currentPrice) ?? 0;
+      if (intent.maxPrice && price > 0 && price > intent.maxPrice) return null;
+
+      return {
+        id: getString(payload.productId) || row.id,
+        merchantId: getString(payload.merchantId),
+        title: getString(payload.title) || getString(payload.description) || "منتج",
+        description: getString(payload.description),
+        price,
+        currency: getString(payload.currency) || "IQD",
+        imageUrl: getString(payload.imageUrl),
+        postUrl: getString(payload.postUrl),
+        color: getString(payload.color) || null,
+        similarity,
+        createdAt: eventTime(row),
+      };
+    })
+    .filter((match): match is ProductMatch & { createdAt: string } => Boolean(match))
+    .sort((a, b) => b.similarity - a.similarity || b.createdAt.localeCompare(a.createdAt))
+    .slice(0, maxResults)
+    .map(({ createdAt: _createdAt, ...match }) => match);
+
+  console.log("[Search] Event-store fallback matches:", matches.length);
   return matches;
 }

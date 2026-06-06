@@ -40,16 +40,17 @@ async function syncConnection(connection: MetaConnection): Promise<ImportSummary
   let summary: ImportSummary | null = null;
 
   try {
+    const graphToken = conn.pageAccessToken || conn.accessToken;
     if (conn.instagramBusinessAccountId) {
       await throttle();
-      const media = await fetchInstagramMedia(conn.instagramBusinessAccountId, conn.accessToken, {
+      const media = await fetchInstagramMedia(conn.instagramBusinessAccountId, graphToken, {
         sinceIso: conn.lastSyncedAt,
         limit: 25,
       });
       summary = await importMediaBatch(conn, media, "instagram");
     } else if (conn.facebookPageId) {
       await throttle();
-      const posts = await fetchFacebookPosts(conn.facebookPageId, conn.accessToken, {
+      const posts = await fetchFacebookPosts(conn.facebookPageId, graphToken, {
         sinceIso: conn.lastSyncedAt,
         limit: 25,
       });

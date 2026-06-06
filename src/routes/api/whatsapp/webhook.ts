@@ -22,7 +22,6 @@ import {
 } from "@/lib/whatsapp/reply-generator";
 import type { ConfidenceScore, ParsingMetadata, ParsedProduct } from "@/lib/whatsapp/types";
 import { extractSearchIntent, searchProducts, type ProductMatch } from "@/lib/whatsapp/search";
-import { notifyMerchantsOfLead } from "@/lib/whatsapp/notifications";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
@@ -153,6 +152,18 @@ function readIncomingMessage(payload: unknown) {
   };
 }
 
+function isCustomerStartedMessage(type: string | null) {
+  return type === "text" || type === "button" || type === "interactive";
+}
+
+function buildLocalClarificationReply(customerText: string) {
+  const text = normalizeArabicText(customerText);
+  if (/^(hi|hello|hey|مرحبا|هلا|السلام|سلام|الو|alo)$/i.test(text)) {
+    return "هلا بيك، اكتبلي شنو المنتج الي تريده وأدورلك عليه.";
+  }
+  return "ممكن توضح المنتج المطلوب؟ اكتب الاسم أو اللون أو السعر التقريبي.";
+}
+
 const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك عراقي طبيعي بغدادي فقط.
 لازم:
 - تكون مختصر جداً (سطر واحد أو اثنين فقط)
@@ -163,12 +174,12 @@ const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك ع�
 - تعتمد على الكتالوج الحقيقي فقط
 
 إذا ما حصلت البضاعة، قول: "نعتذر منك طلبك مو متوفر حاليا" 
-إذا ما فهمت شنو يدور، قول: "عفوا ما فهمتك ممكن تفاصيل اكثر"
+إذا ما فهمت شنو يدور، قول: "ممكن توضح المنتج المطلوب؟ اكتب الاسم أو اللون أو السعر التقريبي."
 
 أمثلة ردود صحيحة:
 - "موجودة، السعر 50 ألف"
 - "نفذت حاليا"
-- "شنو بالضبط تدور؟"
+- "تحب أي لون أو سعر تقريبي؟"
 - "هذني الأنواع الموجودة..."
 `;
 
@@ -458,7 +469,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
 
-          if (incoming.from && incoming.text) {
+          if (incoming.from && incoming.text && isCustomerStartedMessage(incoming.type)) {
             try {
               enhancedResult = await generateClaudeReplyEnhanced(incoming.text, incoming.from);
               console.log("[Webhook] Reply:", enhancedResult?.text?.slice(0, 80) ?? "null");
@@ -466,24 +477,17 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               console.error("[Webhook] generateClaudeReplyEnhanced threw:", err);
             }
 
-            const replyText = enhancedResult?.text ?? "أهلاً، شنو تدور؟";
+            const replyText = enhancedResult?.text ?? buildLocalClarificationReply(incoming.text);
             try {
               sendResult = await sendWhatsAppText(incoming.from, replyText, summary.phoneNumberId);
               console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
             } catch (err) {
               console.error("[Webhook] sendWhatsAppText threw:", err);
             }
-
-            if (enhancedResult?.matches.length) {
-              notifyMerchantsOfLead(
-                incoming.from,
-                incoming.text,
-                enhancedResult.matches,
-                sendWhatsAppText,
-              ).catch((err) => console.error("[Webhook] Lead notification failed:", err));
-            }
           } else {
-            console.log("[Webhook] No from/text — status update or empty message, skipping reply");
+            console.log(
+              "[Webhook] No customer-started message — status update or unsupported message, skipping reply",
+            );
           }
 
           const payloadForStorage = {
