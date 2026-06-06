@@ -4,7 +4,6 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 
 import OpenAI from "openai";
-
 import {
   detectIraqiDialect,
   normalizeArabicText,
