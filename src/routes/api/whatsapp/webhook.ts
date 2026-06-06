@@ -444,8 +444,16 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             });
           }
 
+          const summary = readWebhookSummary(payload);
           const incoming = readIncomingMessage(payload);
-          console.log("[Webhook] from:", incoming.from, "text:", incoming.text?.slice(0, 60));
+          console.log(
+            "[Webhook] from:",
+            incoming.from,
+            "phone_number_id:",
+            summary.phoneNumberId,
+            "text:",
+            incoming.text?.slice(0, 60),
+          );
 
           let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
@@ -460,7 +468,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
 
             const replyText = enhancedResult?.text ?? "أهلاً، شنو تدور؟";
             try {
-              sendResult = await sendWhatsAppText(incoming.from, replyText);
+              sendResult = await sendWhatsAppText(incoming.from, replyText, summary.phoneNumberId);
               console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
             } catch (err) {
               console.error("[Webhook] sendWhatsAppText threw:", err);
@@ -478,7 +486,6 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             console.log("[Webhook] No from/text — status update or empty message, skipping reply");
           }
 
-          const summary = readWebhookSummary(payload);
           const payloadForStorage = {
             ...(payload && typeof payload === "object"
               ? (payload as Record<string, unknown>)
