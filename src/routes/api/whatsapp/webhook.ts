@@ -170,6 +170,7 @@ const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك ع�
 - "نفذت حاليا"
 - "شنو بالضبط تدور؟"
 - "هذني الأنواع الموجودة..."
+`;
 
 async function callAnthropicModel(
   apiKey: string,
