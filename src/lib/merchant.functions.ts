@@ -23,6 +23,9 @@ export type MerchantProfile = {
   whatsapp: string;
   email?: string;
   bio?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   deliveryPhone?: string;
   logoUrl?: string;
   coverUrl?: string;
@@ -73,6 +76,9 @@ const profileInput = tokenInput.extend({
   storeName: z.string().trim().min(1).max(140),
   whatsapp: z.string().trim().min(3).max(40),
   bio: z.string().trim().max(500).optional().or(z.literal("")),
+  address: z.string().trim().max(500).optional().or(z.literal("")),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   deliveryPhone: z.string().trim().max(40).optional().or(z.literal("")),
   logoUrl: z.string().max(2_500_000).optional().or(z.literal("")),
   coverUrl: z.string().max(2_500_000).optional().or(z.literal("")),
@@ -80,7 +86,7 @@ const profileInput = tokenInput.extend({
 
 const productInput = tokenInput.extend({
   description: z.string().trim().min(1).max(280),
-  imageUrl: z.string().min(20).max(2_500_000),
+  imageUrl: z.string().url().max(2_000),
   currentPrice: z.number().min(0).max(999_999_999),
   discountPrice: z.number().min(0).max(999_999_999).optional(),
   currency: z.string().trim().min(1).max(8),
@@ -135,6 +141,9 @@ function toProfile(row: EventRow): MerchantProfile {
     whatsapp: getString(payload.whatsapp),
     email: getString(payload.email) || undefined,
     bio: getString(payload.bio) || undefined,
+    address: getString(payload.address) || undefined,
+    latitude: getNumber(payload.latitude),
+    longitude: getNumber(payload.longitude),
     deliveryPhone: getString(payload.deliveryPhone) || undefined,
     logoUrl: getString(payload.logoUrl) || undefined,
     coverUrl: getString(payload.coverUrl) || undefined,
@@ -386,6 +395,9 @@ export const signupMerchant = createServerFn({ method: "POST" })
       passwordSalt: salt,
       passwordHash,
       bio: "",
+      address: "",
+      latitude: undefined,
+      longitude: undefined,
       deliveryPhone: "",
       logoUrl: "",
       coverUrl: "",
@@ -444,6 +456,9 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
       whatsapp: data.whatsapp,
       whatsappNormalized: nextPhone,
       bio: data.bio || "",
+      address: data.address || "",
+      latitude: data.latitude,
+      longitude: data.longitude,
       deliveryPhone: data.deliveryPhone || "",
       logoUrl: data.logoUrl || getString(currentPayload.logoUrl),
       coverUrl: data.coverUrl || getString(currentPayload.coverUrl),

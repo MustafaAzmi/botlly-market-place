@@ -19,6 +19,8 @@ import type { GraphMediaItem, MetaConnection, SocialPlatform } from "./types";
 // Below this confidence, a product needs human confirmation before it surfaces
 // to customers.
 const PENDING_REVIEW_THRESHOLD = 0.55;
+const SOCIAL_WINDOW_LIMIT = 10;
+const SOCIAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ImportSummary {
   fetched: number;
@@ -26,6 +28,7 @@ export interface ImportSummary {
   skippedDuplicates: number;
   pendingReview: number;
   failed: number;
+  expired: number;
   latestTimestamp: string | null;
 }
 
@@ -54,14 +57,30 @@ export async function importMediaBatch(
     skippedDuplicates: 0,
     pendingReview: 0,
     failed: 0,
+    expired: 0,
     latestTimestamp: connection.lastSyncedAt,
   };
 
   const alreadyImported = await loadImportedPostIds(connection.merchantId);
+  const recentItems = items
+    .filter((item) => item.id)
+    .sort((a, b) => {
+      const aTime = new Date(a.timestamp ?? 0).getTime();
+      const bTime = new Date(b.timestamp ?? 0).getTime();
+      return bTime - aTime;
+    })
+    .slice(0, SOCIAL_WINDOW_LIMIT);
+  const activePostIds = new Set(recentItems.map((item) => item.id));
+  const cutoffTime = Date.now() - SOCIAL_RETENTION_MS;
 
-  for (const item of items) {
+  for (const item of recentItems) {
     try {
       const raw = toRawSocialPost(item, connection.merchantId, platform);
+      const postTime = new Date(raw.timestamp).getTime();
+      if (Number.isFinite(postTime) && postTime < cutoffTime) {
+        summary.expired += 1;
+        continue;
+      }
 
       // Idempotent: skip posts we've already turned into products.
       if (alreadyImported.has(raw.postId)) {
@@ -89,6 +108,7 @@ export async function importMediaBatch(
         platform,
         postId: raw.postId,
         postUrl: raw.permalink,
+        postTimestamp: raw.timestamp,
         imageUrl: raw.mediaUrls[0] ?? "",
         mediaUrls: raw.mediaUrls,
         // Structured fields
@@ -134,5 +154,54 @@ export async function importMediaBatch(
     }
   }
 
+  summary.expired += await expireOldSocialProducts(
+    connection.merchantId,
+    platform,
+    activePostIds,
+    cutoffTime,
+  );
+
   return summary;
+}
+
+async function expireOldSocialProducts(
+  merchantId: string,
+  platform: SocialPlatform,
+  activePostIds: Set<string>,
+  cutoffTime: number,
+) {
+  let expired = 0;
+  const rows = await listEvents("botly_product");
+  const latestRowsByProduct = new Map<string, (typeof rows)[number]>();
+
+  for (const row of rows) {
+    const payload = row.payload ?? {};
+    const productId = getString(payload.productId) || row.id;
+    if (!latestRowsByProduct.has(productId)) latestRowsByProduct.set(productId, row);
+  }
+
+  for (const row of latestRowsByProduct.values()) {
+    const payload = row.payload ?? {};
+    if (getString(payload.merchantId) !== merchantId) continue;
+    if (getString(payload.platform) !== platform && getString(payload.source) !== platform) continue;
+    if (getString(payload.status) === "deleted") continue;
+
+    const postId = getString(payload.postId);
+    const timestamp = getString(payload.postTimestamp) || getString(payload.createdAt);
+    const postTime = timestamp ? new Date(timestamp).getTime() : 0;
+    const outsideRecentWindow = postId ? !activePostIds.has(postId) : true;
+    const olderThanRetention = Number.isFinite(postTime) && postTime > 0 && postTime < cutoffTime;
+
+    if (!outsideRecentWindow && !olderThanRetention) continue;
+
+    await appendEvent("botly_product", {
+      ...payload,
+      status: "deleted",
+      deletedReason: "social_window_expired",
+      updatedAt: new Date().toISOString(),
+    });
+    expired += 1;
+  }
+
+  return expired;
 }

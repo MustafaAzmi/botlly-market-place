@@ -93,7 +93,7 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
           if (igAccountId) {
             try {
               const media = await fetchInstagramMedia(igAccountId, pageAccessToken ?? accessToken, {
-                limit: 25,
+                limit: 10,
               });
               const summary = await importMediaBatch(connection, media, "instagram");
               await appendEvent("botly_meta_connection", {

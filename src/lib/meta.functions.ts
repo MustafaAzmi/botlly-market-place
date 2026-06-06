@@ -124,14 +124,13 @@ export const syncMerchantPosts = createServerFn({ method: "POST" })
           const media = await fetchInstagramMedia(
             conn.instagramBusinessAccountId,
             graphToken,
-            { sinceIso: conn.lastSyncedAt, limit: 25 },
+            { limit: 10 },
           );
           summary = await importMediaBatch(conn, media, "instagram");
         } else if (conn.facebookPageId) {
           await throttle();
           const posts = await fetchFacebookPosts(conn.facebookPageId, graphToken, {
-            sinceIso: conn.lastSyncedAt,
-            limit: 25,
+            limit: 10,
           });
           summary = await importMediaBatch(conn, posts, "facebook");
         }

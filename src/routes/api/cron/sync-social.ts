@@ -44,15 +44,13 @@ async function syncConnection(connection: MetaConnection): Promise<ImportSummary
     if (conn.instagramBusinessAccountId) {
       await throttle();
       const media = await fetchInstagramMedia(conn.instagramBusinessAccountId, graphToken, {
-        sinceIso: conn.lastSyncedAt,
-        limit: 25,
+        limit: 10,
       });
       summary = await importMediaBatch(conn, media, "instagram");
     } else if (conn.facebookPageId) {
       await throttle();
       const posts = await fetchFacebookPosts(conn.facebookPageId, graphToken, {
-        sinceIso: conn.lastSyncedAt,
-        limit: 25,
+        limit: 10,
       });
       summary = await importMediaBatch(conn, posts, "facebook");
     }
@@ -104,10 +102,11 @@ export const Route = createFileRoute("/api/cron/sync-social")({
               acc.pendingReview += r.summary.pendingReview;
               acc.skippedDuplicates += r.summary.skippedDuplicates;
               acc.failed += r.summary.failed;
+              acc.expired += r.summary.expired;
             }
             return acc;
           },
-          { imported: 0, pendingReview: 0, skippedDuplicates: 0, failed: 0 },
+          { imported: 0, pendingReview: 0, skippedDuplicates: 0, failed: 0, expired: 0 },
         );
 
         return new Response(JSON.stringify({ ok: true, connections: connections.length, totals }), {

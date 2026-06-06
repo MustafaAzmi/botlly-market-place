@@ -24,6 +24,9 @@ function StoreProfilePage() {
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [bio, setBio] = useState("");
+  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
@@ -42,6 +45,13 @@ function StoreProfilePage() {
     setStoreName(merchantSession.storeName ?? "");
     setWhatsapp(merchantSession.whatsapp ?? "");
     setBio(merchantSession.bio ?? "");
+    setAddress(merchantSession.address ?? "");
+    setLatitude(
+      typeof merchantSession.latitude === "number" ? String(merchantSession.latitude) : "",
+    );
+    setLongitude(
+      typeof merchantSession.longitude === "number" ? String(merchantSession.longitude) : "",
+    );
     setDeliveryPhone(merchantSession.deliveryPhone ?? "");
 
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
@@ -49,6 +59,9 @@ function StoreProfilePage() {
         setStoreName(profile.storeName);
         setWhatsapp(profile.whatsapp);
         setBio(profile.bio ?? "");
+        setAddress(profile.address ?? "");
+        setLatitude(typeof profile.latitude === "number" ? String(profile.latitude) : "");
+        setLongitude(typeof profile.longitude === "number" ? String(profile.longitude) : "");
         setDeliveryPhone(profile.deliveryPhone ?? "");
         setLogoPreview(profile.logoUrl ?? null);
         setCoverPreview(profile.coverUrl ?? null);
@@ -58,6 +71,9 @@ function StoreProfilePage() {
           whatsapp: profile.whatsapp,
           email: profile.email,
           bio: profile.bio,
+          address: profile.address,
+          latitude: profile.latitude,
+          longitude: profile.longitude,
           deliveryPhone: profile.deliveryPhone,
         });
       })
@@ -97,6 +113,15 @@ function StoreProfilePage() {
       toast.error("اسم المحل ورقم واتساب مطلوبة");
       return;
     }
+    const latValue = latitude.trim() ? Number(latitude) : undefined;
+    const lngValue = longitude.trim() ? Number(longitude) : undefined;
+    if (
+      (latValue !== undefined && !Number.isFinite(latValue)) ||
+      (lngValue !== undefined && !Number.isFinite(lngValue))
+    ) {
+      toast.error("إحداثيات المتجر غير صحيحة");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -106,6 +131,9 @@ function StoreProfilePage() {
           storeName: storeName.trim(),
           whatsapp: whatsapp.trim(),
           bio: bio.trim(),
+          address: address.trim(),
+          latitude: latValue,
+          longitude: lngValue,
           deliveryPhone: deliveryPhone.trim(),
           logoUrl: logoPreview ?? "",
           coverUrl: coverPreview ?? "",
@@ -116,6 +144,9 @@ function StoreProfilePage() {
         storeName: profile.storeName,
         whatsapp: profile.whatsapp,
         bio: profile.bio,
+        address: profile.address,
+        latitude: profile.latitude,
+        longitude: profile.longitude,
         deliveryPhone: profile.deliveryPhone,
       });
       toast.success("تم حفظ صفحة المتجر");
@@ -240,6 +271,38 @@ function StoreProfilePage() {
                   maxLength={280}
                 />
               </Field>
+              <Field id="address" label="عنوان المتجر أو رابط الموقع (اختياري)">
+                <Textarea
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="مثال: بغداد - المنصور، أو رابط موقع المتجر"
+                  rows={3}
+                  maxLength={500}
+                />
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field id="latitude" label="خط العرض للمتجر (اختياري)">
+                  <Input
+                    id="latitude"
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    placeholder="33.3152"
+                    dir="ltr"
+                    className="h-11 text-start"
+                  />
+                </Field>
+                <Field id="longitude" label="خط الطول للمتجر (اختياري)">
+                  <Input
+                    id="longitude"
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    placeholder="44.3661"
+                    dir="ltr"
+                    className="h-11 text-start"
+                  />
+                </Field>
+              </div>
             </div>
 
             <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">

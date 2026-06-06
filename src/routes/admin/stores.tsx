@@ -247,7 +247,7 @@ function AdminStoresPage() {
                             )}
 
                             <DropdownMenuSeparator />
-                            <DropdownMenuLabel>الاشتراك</DropdownMenuLabel>
+                            <DropdownMenuLabel>الاشتراك والتمييز</DropdownMenuLabel>
                             <DropdownMenuItem
                               onClick={() =>
                                 run(
@@ -259,11 +259,11 @@ function AdminStoresPage() {
                                         status: "active",
                                       },
                                     }),
-                                  "تم تعليم الاشتراك كفعّال",
+                                  "تم تمييز المتجر في البحث",
                                 )
                               }
                             >
-                              اشتراك فعّال
+                              تمييز مدفوع في البحث
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() =>

@@ -16,6 +16,8 @@ export type BotlyEventType =
   | "botly_meta_connection"
   | "botly_social_post"
   | "botly_lead"
+  | "botly_customer_session"
+  | "botly_order"
   | "botly_admin"
   | "botly_admin_session"
   | "botly_admin_message";

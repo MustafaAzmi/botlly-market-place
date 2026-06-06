@@ -5,6 +5,9 @@ export interface MerchantSession {
   whatsapp?: string;
   email?: string;
   bio?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   deliveryPhone?: string;
   signedInAt?: string;
   updatedAt?: string;

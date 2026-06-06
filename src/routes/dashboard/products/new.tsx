@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ImagePlus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ImagePlus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -30,7 +30,7 @@ function NewProductPage() {
   const createMerchantProductFn = useServerFn(createMerchantProduct);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
@@ -38,28 +38,10 @@ function NewProductPage() {
   const [currentPrice, setCurrentPrice] = useState("");
   const [discountPrice, setDiscountPrice] = useState("");
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
-
-  const onPickImage = (file: File | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("اختار صورة للمنتج فقط");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن يكون أقل من 2MB");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setImagePreview(reader.result);
-    };
-    reader.readAsDataURL(file);
-  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,8 +51,14 @@ function NewProductPage() {
       return;
     }
 
-    if (!imagePreview) {
-      toast.error("صورة المنتج مطلوبة");
+    if (!imageUrl.trim()) {
+      toast.error("رابط صورة المنتج مطلوب");
+      return;
+    }
+    try {
+      new URL(imageUrl.trim());
+    } catch {
+      toast.error("رابط الصورة غير صحيح");
       return;
     }
     const price = Number(currentPrice);
@@ -86,7 +74,7 @@ function NewProductPage() {
         data: {
           token: merchantSession.token,
           description: description.trim(),
-          imageUrl: imagePreview,
+          imageUrl: imageUrl.trim(),
           currentPrice: price,
           discountPrice: salePrice,
           currency,
@@ -107,7 +95,7 @@ function NewProductPage() {
   return (
     <DashboardLayout
       title="إضافة منتج"
-      subtitle="أضف صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية."
+      subtitle="أضف رابط صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية."
     >
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
@@ -121,47 +109,29 @@ function NewProductPage() {
       <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
-            <Field id="image" label="صورة المنتج">
-              <input
-                ref={inputRef}
-                id="image"
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => onPickImage(e.target.files?.[0])}
+            <Field id="imageUrl" label="رابط صورة المنتج">
+              <Input
+                id="imageUrl"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://example.com/product.jpg"
+                dir="ltr"
+                className="h-11 text-start"
+                required
               />
-              {imagePreview ? (
-                <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-                  <img src={imagePreview} alt="Product" className="h-full w-full object-cover" />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="absolute end-3 top-3"
-                    onClick={() => {
-                      if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
-                      setImagePreview(null);
-                      if (inputRef.current) inputRef.current.value = "";
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/40 text-center transition-colors hover:bg-secondary"
-                >
-                  <span>
-                    <ImagePlus className="mx-auto h-8 w-8 text-primary" />
-                    <span className="mt-3 block text-sm font-medium">اختر صورة المنتج</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      PNG أو JPG، أقل من 2MB
+              <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
+                {imageUrl.trim() ? (
+                  <img src={imageUrl.trim()} alt="Product" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-center text-muted-foreground">
+                    <span>
+                      <ImagePlus className="mx-auto h-8 w-8 text-primary" />
+                      <span className="mt-3 block text-sm font-medium">معاينة الصورة</span>
+                      <span className="mt-1 block text-xs">نخزن الرابط فقط، مو ملف الصورة</span>
                     </span>
-                  </span>
-                </button>
-              )}
+                  </div>
+                )}
+              </div>
             </Field>
           </div>
 
