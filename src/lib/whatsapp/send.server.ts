@@ -15,9 +15,13 @@ function getWhatsAppPhoneNumberId() {
 
 export type SendResult = { ok: boolean; status: number; error?: string };
 
-export async function sendWhatsAppText(to: string, body: string): Promise<SendResult> {
+export async function sendWhatsAppText(
+  to: string,
+  body: string,
+  phoneNumberIdOverride?: string | null,
+): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = getWhatsAppPhoneNumberId();
+  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
   if (!accessToken || !phoneNumberId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
