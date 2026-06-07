@@ -42,6 +42,10 @@ export function eventTime(row: EventRow): string {
   return row.created_at ?? row.received_at ?? new Date().toISOString();
 }
 
+function merchantIdentity(row: EventRow): string {
+  return getString(row.payload?.merchantId) || row.id;
+}
+
 function isMissingTableError(error: { message?: string; code?: string } | null) {
   if (!error) return false;
   const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
@@ -108,6 +112,27 @@ export async function latestEventWhere(
   return rows.find((row) => getString(row.payload?.[field]) === value) ?? null;
 }
 
+async function findMerchantById(id: string): Promise<EventRow | null> {
+  if (!id || !id.trim()) return null;
+  const rows = await listEvents("botly_merchant");
+  return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
+}
+
+async function findMerchantByPhone(phone: string): Promise<EventRow | null> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+  const rows = await listEvents("botly_merchant");
+  return (
+    rows.find((row) => {
+      const payload = row.payload ?? {};
+      return (
+        normalizePhone(getString(payload.whatsappNormalized)) === normalized ||
+        normalizePhone(getString(payload.whatsapp)) === normalized
+      );
+    }) ?? null
+  );
+}
+
 export async function sha256(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
@@ -150,6 +175,20 @@ export async function authorizeMerchantId(token: string): Promise<string> {
   if (!session) throw new Error("انتهت الجلسة. سجل دخول مرة ثانية.");
 
   const merchantId = getString(session.payload?.merchantId);
+  const merchantRowId = getString(session.payload?.merchantRowId);
+  const merchantPhone = getString(session.payload?.merchantPhone);
+  if (!merchantId && (merchantRowId || merchantPhone)) {
+    const merchant =
+      (merchantRowId ? await findMerchantById(merchantRowId) : null) ||
+      (merchantPhone ? await findMerchantByPhone(merchantPhone) : null);
+    if (merchant) return merchantIdentity(merchant);
+  }
   if (!merchantId) throw new Error("لم يتم العثور على المتجر.");
+  const merchant =
+    (merchantId ? await findMerchantById(merchantId) : null) ||
+    (merchantRowId ? await findMerchantById(merchantRowId) : null) ||
+    (merchantPhone ? await findMerchantByPhone(merchantPhone) : null);
+
+  if (merchant) return merchantIdentity(merchant);
   return merchantId;
 }

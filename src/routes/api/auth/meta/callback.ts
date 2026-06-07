@@ -9,7 +9,7 @@ import {
   getRequiredScopes,
   isMetaConfigured,
 } from "@/lib/meta/oauth";
-import { fetchInstagramMedia } from "@/lib/meta/graph-api";
+import { fetchFacebookPosts, fetchInstagramMedia } from "@/lib/meta/graph-api";
 import { importMediaBatch } from "@/lib/meta/import";
 import type { MetaConnection } from "@/lib/meta/types";
 
@@ -104,6 +104,21 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
               });
             } catch (importError) {
               console.error("[Meta callback] Initial import failed", importError);
+            }
+          } else if (page?.id) {
+            try {
+              const posts = await fetchFacebookPosts(page.id, pageAccessToken ?? accessToken, {
+                limit: 10,
+              });
+              const summary = await importMediaBatch(connection, posts, "facebook");
+              await appendEvent("botly_meta_connection", {
+                kind: "connection",
+                ...connection,
+                lastSyncedAt: new Date().toISOString(),
+                lastImportSummary: summary,
+              });
+            } catch (importError) {
+              console.error("[Meta callback] Initial Facebook import failed", importError);
             }
           }
 
