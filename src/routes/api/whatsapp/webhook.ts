@@ -35,6 +35,7 @@ import {
   getString,
   listEvents,
   normalizePhone,
+  sha256,
 } from "@/lib/eventStore.server";
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
@@ -261,9 +262,88 @@ type CustomerSession = {
   pendingIntent?: SearchIntent | null;
   customerLocation?: CustomerLocation | null;
   displayedCount?: number;
+  lastPromptType?: string;
+  lastPromptAt?: string;
   createdAt: string;
   expiresAt: string;
 };
+
+async function wasWebhookMessageProcessed(waMessageId: string | null) {
+  if (!waMessageId) return false;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id")
+      .eq("wa_message_id", waMessageId)
+      .limit(1);
+
+    if (error) {
+      console.warn("[Webhook] Duplicate check failed:", error.message);
+      return false;
+    }
+    return Boolean(data?.length);
+  } catch (error) {
+    console.warn("[Webhook] Duplicate check threw:", error);
+    return false;
+  }
+}
+
+function isRecentIso(value: string, minutes: number) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp < minutes * 60 * 1000;
+}
+
+async function wasPromptSentRecently(
+  customerNumber: string,
+  session: CustomerSession | null,
+  promptType: string,
+  minutes = 360,
+) {
+  if (
+    session?.lastPromptType === promptType &&
+    session.lastPromptAt &&
+    isRecentIso(session.lastPromptAt, minutes)
+  ) {
+    return true;
+  }
+
+  const rows = await listEvents("botly_customer_session", 200);
+  return rows.some((row) => {
+    const payload = row.payload ?? {};
+    return (
+      getString(payload.customerNumber) === customerNumber &&
+      getString(payload.lastPromptType) === promptType &&
+      isRecentIso(getString(payload.lastPromptAt), minutes)
+    );
+  });
+}
+
+async function wasOutboundReplySentRecently(customerNumber: string, body: string, minutes = 60) {
+  const recipient = normalizePhone(customerNumber);
+  const bodyHash = await sha256(`${recipient}:${body}`);
+  const rows = await listEvents("botly_outbound_guard", 1000);
+  return rows.some((row) => {
+    const payload = row.payload ?? {};
+    return (
+      getString(payload.recipient) === recipient &&
+      getString(payload.bodyHash) === bodyHash &&
+      isRecentIso(getString(payload.createdAt), minutes)
+    );
+  });
+}
+
+async function recordOutboundReply(customerNumber: string, body: string, reason: string) {
+  const recipient = normalizePhone(customerNumber);
+  await appendEvent("botly_outbound_guard", {
+    recipient,
+    bodyHash: await sha256(`${recipient}:${body}`),
+    reason,
+    preview: body.slice(0, 160),
+    createdAt: new Date().toISOString(),
+  }).catch((error) => console.error("[Outbound Guard] Failed to record send", error));
+}
 
 async function readCustomerSession(customerNumber: string): Promise<CustomerSession | null> {
   const rows = await listEvents("botly_customer_session");
@@ -297,6 +377,8 @@ async function readCustomerSession(customerNumber: string): Promise<CustomerSess
         ? (payload.customerLocation as CustomerLocation)
         : null,
     displayedCount: getNumber(payload.displayedCount) ?? 3,
+    lastPromptType: getString(payload.lastPromptType) || undefined,
+    lastPromptAt: getString(payload.lastPromptAt) || undefined,
     createdAt: getString(payload.createdAt),
     expiresAt: getString(payload.expiresAt),
   };
@@ -309,6 +391,7 @@ async function writeCustomerSession(
   pendingIntent?: SearchIntent | null,
   customerLocation?: CustomerLocation | null,
   displayedCount = 3,
+  prompt?: { type: string; at?: string } | null,
 ) {
   const now = Date.now();
   await appendEvent("botly_customer_session", {
@@ -318,6 +401,8 @@ async function writeCustomerSession(
     pendingIntent: pendingIntent ?? null,
     customerLocation: customerLocation ?? null,
     displayedCount,
+    lastPromptType: prompt?.type ?? null,
+    lastPromptAt: prompt?.at ?? null,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + 15 * 60 * 1000).toISOString(),
   }).catch((error) => console.error("[Session] Failed to store customer session", error));
@@ -381,7 +466,7 @@ async function handleMarketplaceFlow(
   customerNumber: string,
   customerText: string,
   customerLocation: CustomerLocation | null,
-) {
+): Promise<string | null> {
   const existingSession = await readCustomerSession(customerNumber);
 
   if (customerLocation && existingSession?.pendingIntent) {
@@ -477,7 +562,14 @@ async function handleMarketplaceFlow(
 
   const intent = await extractSearchIntent(customerText);
   if (!existingSession?.customerLocation) {
-    await writeCustomerSession(customerNumber, [], null, intent, null);
+    if (await wasPromptSentRecently(customerNumber, existingSession, "share_location", 360)) {
+      console.log("[Webhook] Suppressing repeated location prompt for:", customerNumber);
+      return null;
+    }
+    await writeCustomerSession(customerNumber, [], null, intent, null, 3, {
+      type: "share_location",
+      at: new Date().toISOString(),
+    });
     return "حتى أطلعلك أقرب النتائج، شارك موقعك وأدورلك ضمن 15 كم. إذا ما تريد تشارك الموقع اكتب: بدون موقع.";
   }
 
@@ -861,6 +953,17 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             incoming.text?.slice(0, 60),
           );
 
+          if (
+            summary.eventType.startsWith("message.") &&
+            (await wasWebhookMessageProcessed(summary.waMessageId))
+          ) {
+            console.log("[Webhook] Duplicate message ignored:", summary.waMessageId);
+            return new Response(JSON.stringify({ ok: true, duplicate: true }), {
+              status: 200,
+              headers: jsonHeaders,
+            });
+          }
+
           let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
           let marketplaceReply: string | null = null;
@@ -876,30 +979,54 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 incoming.text,
                 incoming.location,
               );
-              console.log("[Webhook] Marketplace reply:", marketplaceReply.slice(0, 120));
+              console.log("[Webhook] Marketplace reply:", marketplaceReply?.slice(0, 120) ?? "null");
             } catch (err) {
               console.error("[Webhook] handleMarketplaceFlow threw:", err);
             }
 
-            const replyText = marketplaceReply ?? buildLocalClarificationReply(incoming.text);
-            try {
-              if (marketplaceReply?.includes("اكتب المزيد")) {
-                sendResult = await sendWhatsAppButtons(
-                  incoming.from,
-                  replyText,
-                  [{ id: "more_results", title: "المزيد" }],
-                  summary.phoneNumberId,
-                );
-                if (!sendResult.ok) {
-                  console.warn("[Webhook] Button send failed, falling back to text:", sendResult);
-                  sendResult = await sendWhatsAppText(incoming.from, replyText, summary.phoneNumberId);
+            if (marketplaceReply) {
+              const replyText = marketplaceReply;
+              try {
+                const duplicateWindowMinutes = marketplaceReply.includes("ضمن 15 كم") ? 360 : 60;
+                if (await wasOutboundReplySentRecently(incoming.from, replyText, duplicateWindowMinutes)) {
+                  console.log("[Webhook] Duplicate outbound reply suppressed for:", incoming.from);
+                } else {
+                  await recordOutboundReply(
+                    incoming.from,
+                    replyText,
+                    marketplaceReply.includes("ضمن 15 كم")
+                      ? "share_location_prompt"
+                      : "marketplace_reply",
+                  );
+                  if (marketplaceReply.includes("اكتب المزيد")) {
+                    sendResult = await sendWhatsAppButtons(
+                      incoming.from,
+                      replyText,
+                      [{ id: "more_results", title: "المزيد" }],
+                      summary.phoneNumberId,
+                    );
+                    if (!sendResult.ok) {
+                      console.warn("[Webhook] Button send failed, falling back to text:", sendResult);
+                      sendResult = await sendWhatsAppText(
+                        incoming.from,
+                        replyText,
+                        summary.phoneNumberId,
+                      );
+                    }
+                  } else {
+                    sendResult = await sendWhatsAppText(
+                      incoming.from,
+                      replyText,
+                      summary.phoneNumberId,
+                    );
+                  }
                 }
-              } else {
-                sendResult = await sendWhatsAppText(incoming.from, replyText, summary.phoneNumberId);
+                console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
+              } catch (err) {
+                console.error("[Webhook] sendWhatsAppText threw:", err);
               }
-              console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
-            } catch (err) {
-              console.error("[Webhook] sendWhatsAppText threw:", err);
+            } else {
+              console.log("[Webhook] Marketplace flow returned no reply; skipping outbound send");
             }
           } else {
             console.log(
