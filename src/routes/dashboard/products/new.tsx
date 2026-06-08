@@ -31,6 +31,7 @@ function NewProductPage() {
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
@@ -63,8 +64,17 @@ function NewProductPage() {
     }
     const price = Number(currentPrice);
     const salePrice = discountPrice.trim() ? Number(discountPrice) : undefined;
-    if (!description.trim() || !Number.isFinite(price)) {
-      toast.error("الوصف والسعر الحالي مطلوبة");
+    const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
+    if (!title.trim() || !description.trim() || !Number.isFinite(price)) {
+      toast.error("اسم المنتج والوصف والسعر الحالي مطلوبة");
+      return;
+    }
+    if (salePrice !== undefined && !Number.isFinite(salePrice)) {
+      toast.error("سعر الخصم غير صحيح");
+      return;
+    }
+    if (availableQuantity !== undefined && !Number.isInteger(availableQuantity)) {
+      toast.error("الكمية يجب أن تكون رقم صحيح");
       return;
     }
 
@@ -73,6 +83,7 @@ function NewProductPage() {
       await createMerchantProductFn({
         data: {
           token: merchantSession.token,
+          title: title.trim(),
           description: description.trim(),
           imageUrl: imageUrl.trim(),
           currentPrice: price,
@@ -80,7 +91,7 @@ function NewProductPage() {
           currency,
           size: size.trim(),
           color: color.trim(),
-          quantity: quantity.trim() ? Number(quantity) : undefined,
+          quantity: availableQuantity,
         },
       });
       toast.success("تم حفظ المنتج");
@@ -136,6 +147,18 @@ function NewProductPage() {
           </div>
 
           <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
+            <Field id="title" label="اسم المنتج">
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="مثال: تيشيرت قطن أسود"
+                className="h-11"
+                maxLength={140}
+                required
+              />
+            </Field>
+
             <Field id="description" label="وصف مختصر">
               <Textarea
                 id="description"

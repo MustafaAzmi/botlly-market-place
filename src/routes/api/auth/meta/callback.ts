@@ -5,6 +5,7 @@ import {
   exchangeCodeForToken,
   extendAccessToken,
   fetchFacebookUser,
+  fetchGrantedScopes,
   fetchPagesAndInstagram,
   getRequiredScopes,
   isMetaConfigured,
@@ -30,6 +31,22 @@ async function resolveMerchantFromState(state: string): Promise<string | null> {
       getString(row.payload?.status) === "pending",
   );
   return match ? getString(match.payload?.merchantId) || null : null;
+}
+
+async function recordMetaConnectionFailure(
+  merchantId: string,
+  state: string,
+  reason: string,
+  details: Record<string, unknown> = {},
+) {
+  await appendEvent("botly_meta_connection", {
+    kind: "connection_error",
+    merchantId,
+    state,
+    reason,
+    details,
+    createdAt: new Date().toISOString(),
+  }).catch((error) => console.error("[Meta callback] Failed to record connection error", error));
 }
 
 export const Route = createFileRoute("/api/auth/meta/callback")({
@@ -58,14 +75,40 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
             ? new Date(Date.now() + longLived.expires_in * 1000).toISOString()
             : null;
 
+          const grantedScopes = await fetchGrantedScopes(accessToken);
+          const missingScopes = getRequiredScopes().filter(
+            (scope) => !grantedScopes.includes(scope),
+          );
+          if (missingScopes.length > 0) {
+            await recordMetaConnectionFailure(merchantId, state, "missing_required_scopes", {
+              missingScopes,
+              grantedScopes,
+            });
+            return redirect(`${DASHBOARD_ERR}&reason=missing_scopes`);
+          }
+
           // 2. Identify user + pages + linked Instagram business account.
           const fbUser = await fetchFacebookUser(accessToken);
           const pages = await fetchPagesAndInstagram(accessToken);
+          if (pages.length === 0) {
+            await recordMetaConnectionFailure(merchantId, state, "no_facebook_pages", {
+              grantedScopes,
+            });
+            return redirect(`${DASHBOARD_ERR}&reason=no_pages`);
+          }
 
           // Prefer a page that has an Instagram business account attached.
           const page = pages.find((p) => p.instagram_business_account?.id) ?? pages[0] ?? null;
           const igAccountId = page?.instagram_business_account?.id ?? null;
           const pageAccessToken = page?.access_token ?? null;
+          if (!page || !pageAccessToken) {
+            await recordMetaConnectionFailure(merchantId, state, "missing_page_access_token", {
+              pageId: page?.id ?? null,
+              pageName: page?.name ?? null,
+              grantedScopes,
+            });
+            return redirect(`${DASHBOARD_ERR}&reason=page_token`);
+          }
 
           const connection: MetaConnection = {
             merchantId,
@@ -77,7 +120,7 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
             facebookPageName: page?.name ?? null,
             instagramBusinessAccountId: igAccountId,
             instagramUsername: page?.instagram_business_account?.username ?? null,
-            scopes: getRequiredScopes(),
+            scopes: grantedScopes,
             connectedAt: new Date().toISOString(),
             lastSyncedAt: null,
             status: "active",
@@ -125,6 +168,9 @@ export const Route = createFileRoute("/api/auth/meta/callback")({
           return redirect(DASHBOARD_OK);
         } catch (err) {
           console.error("[Meta callback] OAuth flow failed", err);
+          await recordMetaConnectionFailure(merchantId, state, "oauth_flow_failed", {
+            message: err instanceof Error ? err.message : String(err),
+          });
           return redirect(DASHBOARD_ERR);
         }
       },

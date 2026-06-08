@@ -43,7 +43,13 @@ function ProductsPage() {
 
   const filtered = useMemo(
     () =>
-      products.filter((product) => product.description.toLowerCase().includes(query.toLowerCase())),
+      products.filter((product) =>
+        [product.title, product.description, product.color, product.size]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      ),
     [products, query],
   );
 
@@ -100,9 +106,10 @@ function ProductCard({ product }: { product: MerchantProduct }) {
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="line-clamp-2 font-semibold">{product.description}</h3>
+            <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              {[product.color, product.size].filter(Boolean).join(" - ") || "منتج"}
+              {[product.description, product.color, product.size].filter(Boolean).join(" - ") ||
+                "منتج"}
             </p>
           </div>
           {product.quantity !== undefined && (

@@ -67,6 +67,21 @@ export function getRequiredScopes(): string[] {
   return [...REQUIRED_SCOPES];
 }
 
+export async function fetchGrantedScopes(accessToken: string): Promise<string[]> {
+  const params = new URLSearchParams({ access_token: accessToken });
+  const response = await fetch(`${GRAPH_BASE}/me/permissions?${params.toString()}`);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch granted permissions (${response.status}): ${detail}`);
+  }
+  const json = (await response.json()) as {
+    data?: Array<{ permission?: string; status?: string }>;
+  };
+  return (json.data ?? [])
+    .filter((scope) => scope.status === "granted" && scope.permission)
+    .map((scope) => scope.permission!);
+}
+
 // Exchange the OAuth authorization code for a short-lived user access token.
 export async function exchangeCodeForToken(code: string): Promise<GraphTokenResponse> {
   const appId = getMetaAppId();

@@ -36,6 +36,7 @@ export type MerchantProfile = {
 
 export type MerchantProduct = {
   id: string;
+  title: string;
   description: string;
   imageUrl: string;
   currentPrice: number;
@@ -85,6 +86,7 @@ const profileInput = tokenInput.extend({
 });
 
 const productInput = tokenInput.extend({
+  title: z.string().trim().min(1).max(140),
   description: z.string().trim().min(1).max(280),
   imageUrl: z.string().url().max(2_000),
   currentPrice: z.number().min(0).max(999_999_999),
@@ -157,6 +159,7 @@ function toProduct(row: EventRow): MerchantProduct {
   const payload = row.payload ?? {};
   return {
     id: getString(payload.productId) || row.id,
+    title: getString(payload.title) || getString(payload.description) || "منتج",
     description: getString(payload.description),
     imageUrl: getString(payload.imageUrl),
     currentPrice: getNumber(payload.currentPrice) ?? 0,
@@ -374,6 +377,19 @@ function completionScore(profile: MerchantProfile, productCount: number) {
   return Math.min(score, 100);
 }
 
+function buildManualProductKeywords(data: {
+  title: string;
+  description: string;
+  size?: string;
+  color?: string;
+}) {
+  return [data.title, data.description, data.size, data.color]
+    .flatMap((value) => getString(value).split(/\s+/))
+    .map((value) => value.trim())
+    .filter((value, index, values) => value.length >= 2 && values.indexOf(value) === index)
+    .slice(0, 16);
+}
+
 export const signupMerchant = createServerFn({ method: "POST" })
   .inputValidator((d) => signupInput.parse(d))
   .handler(async ({ data }) => {
@@ -475,10 +491,17 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchant = await getAuthorizedMerchant(data.token);
     const now = new Date().toISOString();
+    const keywords = buildManualProductKeywords(data);
+    const searchText = [data.title, data.description, data.color, data.size, ...keywords]
+      .filter(Boolean)
+      .join(" ");
 
     const row = await insertEvent(PRODUCT_PROVIDER, {
       productId: crypto.randomUUID(),
       merchantId: merchantIdentity(merchant),
+      source: "manual",
+      platform: "manual",
+      title: data.title,
       description: data.description,
       imageUrl: data.imageUrl,
       currentPrice: data.currentPrice,
@@ -487,6 +510,13 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       size: data.size || "",
       color: data.color || "",
       quantity: data.quantity,
+      keywords,
+      searchText,
+      status: "active",
+      availability: data.quantity === 0 ? "out_of_stock" : "in_stock",
+      requiresReview: false,
+      confidenceScore: 1,
+      confidenceReason: "manual_merchant_entry",
       createdAt: now,
       updatedAt: now,
     });
