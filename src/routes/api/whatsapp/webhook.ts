@@ -28,7 +28,11 @@ import {
   type ProductMatch,
   type SearchIntent,
 } from "@/lib/whatsapp/search";
-import { sendWhatsAppButtons, sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import {
+  sendWhatsAppButtons,
+  sendWhatsAppLocationRequest,
+  sendWhatsAppText,
+} from "@/lib/whatsapp/send.server";
 import {
   appendEvent,
   getNumber,
@@ -149,7 +153,7 @@ function readIncomingMessage(payload: unknown) {
             type?: string;
             text?: { body?: string };
             button?: { text?: string };
-            interactive?: { button_reply?: { title?: string } };
+            interactive?: { button_reply?: { id?: string; title?: string } };
             location?: { latitude?: number; longitude?: number };
           }>;
         };
@@ -164,6 +168,7 @@ function readIncomingMessage(payload: unknown) {
   return {
     from: message?.from ?? null,
     type: message?.type ?? null,
+    actionId: message?.interactive?.button_reply?.id ?? null,
     text: text.trim(),
     location:
       typeof message?.location?.latitude === "number" &&
@@ -257,16 +262,155 @@ function wantsWithoutLocation(text: string) {
 
 type CustomerSession = {
   customerNumber: string;
+  phase?: WorkflowPhase;
   matches: ProductMatch[];
   selectedMatch?: ProductMatch | null;
   pendingIntent?: SearchIntent | null;
   customerLocation?: CustomerLocation | null;
+  lastQuery?: string;
   displayedCount?: number;
   lastPromptType?: string;
   lastPromptAt?: string;
   createdAt: string;
   expiresAt: string;
 };
+
+type WorkflowPhase =
+  | "start"
+  | "awaiting_location"
+  | "awaiting_product_button"
+  | "awaiting_product_query"
+  | "awaiting_selection"
+  | "awaiting_after_selection"
+  | "awaiting_customer_details";
+
+type WorkflowResponse =
+  | { kind: "none" }
+  | { kind: "text"; body: string; guardReason?: string; duplicateWindowMinutes?: number }
+  | {
+      kind: "buttons";
+      body: string;
+      buttons: Array<{ id: string; title: string }>;
+      guardReason?: string;
+      duplicateWindowMinutes?: number;
+    }
+  | {
+      kind: "location_request";
+      body: string;
+      fallbackButtons?: Array<{ id: string; title: string }>;
+      guardReason?: string;
+      duplicateWindowMinutes?: number;
+    };
+
+const ACTION_FIND_PRODUCT = "find_product";
+const ACTION_ENTER_PRODUCT = "enter_product";
+const ACTION_MORE_RESULTS = "more_results";
+const ACTION_COMPLETE_PURCHASE = "complete_purchase";
+const ACTION_MESSAGE_MERCHANT = "message_merchant";
+const ACTION_NEW_SEARCH = "new_search";
+
+const cp1252ReverseMap: Record<number, number> = {
+  8218: 0x82,
+  402: 0x83,
+  8222: 0x84,
+  8230: 0x85,
+  8224: 0x86,
+  8225: 0x87,
+  710: 0x88,
+  8240: 0x89,
+  352: 0x8a,
+  8249: 0x8b,
+  338: 0x8c,
+  381: 0x8e,
+  8216: 0x91,
+  8217: 0x92,
+  8220: 0x93,
+  8221: 0x94,
+  8226: 0x95,
+  8211: 0x96,
+  8212: 0x97,
+  732: 0x98,
+  8482: 0x99,
+  353: 0x9a,
+  8250: 0x9b,
+  339: 0x9c,
+  382: 0x9e,
+  376: 0x9f,
+};
+
+function decodeMojibakeOnce(text: string) {
+  const bytes: number[] = [];
+  let output = "";
+  const flush = () => {
+    if (bytes.length === 0) return;
+    output += new TextDecoder().decode(new Uint8Array(bytes));
+    bytes.length = 0;
+  };
+
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (code <= 0xff) {
+      bytes.push(code);
+    } else if (cp1252ReverseMap[code]) {
+      bytes.push(cp1252ReverseMap[code]);
+    } else {
+      flush();
+      output += char;
+    }
+  }
+
+  try {
+    flush();
+    return output;
+  } catch {
+    return text;
+  }
+}
+
+function ar(text: string) {
+  let current = text;
+  for (let i = 0; i < 3; i += 1) {
+    const decoded = decodeMojibakeOnce(current);
+    if (decoded === current) return decoded;
+    current = decoded;
+  }
+  return current;
+}
+
+function buttonResponse(
+  body: string,
+  buttons: Array<{ id: string; title: string }>,
+  guardReason = "workflow_buttons",
+  duplicateWindowMinutes = 10,
+): WorkflowResponse {
+  return { kind: "buttons", body, buttons, guardReason, duplicateWindowMinutes };
+}
+
+function textResponse(body: string, guardReason = "workflow_text"): WorkflowResponse {
+  return { kind: "text", body, guardReason, duplicateWindowMinutes: 10 };
+}
+
+function startWorkflowResponse(): WorkflowResponse {
+  return buttonResponse(ar("هلا بيك في Botly. شنو تحب تسوي؟"), [
+    { id: ACTION_FIND_PRODUCT, title: ar("أريد منتج معين") },
+  ]);
+}
+
+function locationWorkflowResponse(): WorkflowResponse {
+  return {
+    kind: "location_request",
+    body: ar("حتى أطلعلك أقرب المتاجر والمنتجات، أرسل موقعك الحالي."),
+    fallbackButtons: [{ id: ACTION_FIND_PRODUCT, title: ar("أرسل موقعك") }],
+    guardReason: "request_location",
+    duplicateWindowMinutes: 60,
+  };
+}
+
+function enterProductButtonResponse(): WorkflowResponse {
+  return buttonResponse(ar("تمام، وصلتني موقعك. اضغط الزر واكتب اسم المنتج المطلوب."), [
+    { id: ACTION_ENTER_PRODUCT, title: ar("اكتب اسم المنتج") },
+  ]);
+}
 
 async function wasWebhookMessageProcessed(waMessageId: string | null) {
   if (!waMessageId) return false;
@@ -366,6 +510,7 @@ async function readCustomerSession(customerNumber: string): Promise<CustomerSess
 
   return {
     customerNumber,
+    phase: (getString(payload.phase) as WorkflowPhase) || "start",
     matches,
     selectedMatch,
     pendingIntent:
@@ -376,6 +521,7 @@ async function readCustomerSession(customerNumber: string): Promise<CustomerSess
       payload.customerLocation && typeof payload.customerLocation === "object"
         ? (payload.customerLocation as CustomerLocation)
         : null,
+    lastQuery: getString(payload.lastQuery) || undefined,
     displayedCount: getNumber(payload.displayedCount) ?? 3,
     lastPromptType: getString(payload.lastPromptType) || undefined,
     lastPromptAt: getString(payload.lastPromptAt) || undefined,
@@ -392,19 +538,23 @@ async function writeCustomerSession(
   customerLocation?: CustomerLocation | null,
   displayedCount = 3,
   prompt?: { type: string; at?: string } | null,
+  phase: WorkflowPhase = "start",
+  lastQuery?: string,
 ) {
   const now = Date.now();
   await appendEvent("botly_customer_session", {
     customerNumber,
+    phase,
     matches: matches.slice(0, 10),
     selectedMatch: selectedMatch ?? null,
     pendingIntent: pendingIntent ?? null,
     customerLocation: customerLocation ?? null,
+    lastQuery: lastQuery ?? null,
     displayedCount,
     lastPromptType: prompt?.type ?? null,
     lastPromptAt: prompt?.at ?? null,
     createdAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 15 * 60 * 1000).toISOString(),
+    expiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
   }).catch((error) => console.error("[Session] Failed to store customer session", error));
 }
 
@@ -580,6 +730,285 @@ async function handleMarketplaceFlow(
   });
   await writeCustomerSession(customerNumber, matches, null, intent, existingSession.customerLocation);
   return formatSearchResults(matches, matches.length > 3);
+}
+
+function isStartAction(actionId: string | null, text: string) {
+  const normalized = normalizeArabicText(text).toLowerCase();
+  return (
+    actionId === ACTION_FIND_PRODUCT ||
+    actionId === ACTION_NEW_SEARCH ||
+    /منتج|اريد|أريد|ابحث|دور|search|product/i.test(normalized)
+  );
+}
+
+function selectionFromAction(actionId: string | null, matches: ProductMatch[]) {
+  const match = actionId?.match(/^select_(\d+)$/);
+  if (!match) return null;
+  return matches[Number(match[1])] ?? null;
+}
+
+function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, startIndex = 0) {
+  if (matches.length === 0) return ar("Ù…Ø§ Ù„ÙƒÙŠØª Ù…Ù†ØªØ¬ Ù…Ø·Ø§Ø¨Ù‚ Ù‚Ø±ÙŠØ¨ Ù…Ù†Ùƒ Ø­Ø§Ù„ÙŠØ§Ù‹.");
+
+  const lines = matches.slice(0, 3).map((match, index) => {
+    const color = match.color ? ar(`ØŒ ${match.color}`) : "";
+    const distance =
+      typeof match.distanceKm === "number" ? ar(`ØŒ ÙŠØ¨Ø¹Ø¯ ${match.distanceKm.toFixed(1)} ÙƒÙ…`) : "";
+    const source = match.source === "manual" ? ar("Ø§Ù„Ù…ØªØ¬Ø±") : ar("Ù…Ù†Ø´ÙˆØ± Ø³ÙˆØ´ÙŠØ§Ù„");
+    return ar(`${startIndex + index + 1}. ${match.title}${color}\n${formatPrice(match)} - ${match.storeName}${distance} - ${source}`);
+  });
+
+  const more = hasMore ? ar("\nØ¥Ø°Ø§ ØªØ±ÙŠØ¯ Ù†ØªØ§Ø¦Ø¬ Ø£ÙƒØ«Ø± Ø§Ø¶ØºØ· Ø§Ù„Ù…Ø²ÙŠØ¯.") : "";
+  return ar(`${lines.join("\n\n")}${more}\n\nØ§Ø®ØªØ§Ø± Ø±Ù‚Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø­ØªÙ‰ Ø£ÙƒÙ…Ù„Ùƒ.`);
+}
+
+function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = false) {
+  const buttons = matches.slice(0, 3).map((_, index) => ({
+    id: `select_${startIndex + index}`,
+    title: ar(`Ø§Ø®ØªÙŠØ§Ø± ${startIndex + index + 1}`),
+  }));
+  if (hasMore && buttons.length < 3) buttons.push({ id: ACTION_MORE_RESULTS, title: ar("Ø§Ù„Ù…Ø²ÙŠØ¯") });
+  return buttons;
+}
+
+function afterSelectionResponse(match: ProductMatch): WorkflowResponse {
+  return buttonResponse(
+    ar(`Ø§Ø®ØªØ±Øª: ${match.title}\nØ§Ù„Ø³Ø¹Ø±: ${formatPrice(match)}\nØ§Ù„Ù…ØªØ¬Ø±: ${match.storeName}\nØ´Ù†Ùˆ ØªØ­Ø¨ ØªØ³ÙˆÙŠØŸ`),
+    [
+      { id: ACTION_COMPLETE_PURCHASE, title: ar("Ø§ÙƒÙ…Ø§Ù„ Ø§Ù„Ø´Ø±Ø§Ø¡") },
+      { id: ACTION_MESSAGE_MERCHANT, title: ar("Ø±Ø³Ø§Ù„Ø© Ù„Ù„ØªØ§Ø¬Ø±") },
+    ],
+    "after_selection",
+  );
+}
+
+async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, details: string) {
+  const body = [
+    ar("Botly: Ø·Ù„Ø¨ Ø´Ø±Ø§Ø¡ Ø¬Ø¯ÙŠØ¯"),
+    ar(`Ø§Ù„Ù…Ù†ØªØ¬: ${match.title}`),
+    ar(`Ø§Ù„Ø³Ø¹Ø±: ${formatPrice(match)}`),
+    ar(`Ø§Ù„Ù…ØªØ¬Ø±: ${match.storeName}`),
+    ar(`Ø±Ù‚Ù… Ø§Ù„Ø²Ø¨ÙˆÙ†: ${customerNumber}`),
+    ar(`Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø²Ø¨ÙˆÙ†: ${details}`),
+  ].join("\n");
+
+  const recipient = match.deliveryPhone || match.merchantWhatsapp;
+  if (!recipient) return { ok: false, status: 0, error: "Missing recipient" };
+  const result = await sendWhatsAppText(recipient, body);
+
+  await appendEvent("botly_order", {
+    orderId: crypto.randomUUID(),
+    merchantId: match.merchantId,
+    productId: match.id,
+    customerNumber,
+    deliveryPhone: match.deliveryPhone,
+    merchantWhatsapp: match.merchantWhatsapp,
+    status: result.ok
+      ? match.deliveryPhone
+        ? "sent_to_delivery"
+        : "sent_to_merchant"
+      : "notification_failed",
+    customerDetails: details,
+    createdAt: new Date().toISOString(),
+  }).catch((error) => console.error("[Order] Failed to record order", error));
+
+  return result;
+}
+
+async function handleButtonWorkflow(
+  customerNumber: string,
+  customerText: string,
+  customerLocation: CustomerLocation | null,
+  actionId: string | null,
+): Promise<WorkflowResponse> {
+  const existingSession = await readCustomerSession(customerNumber);
+  const phase = existingSession?.phase ?? "start";
+
+  if (!existingSession || actionId === ACTION_NEW_SEARCH) {
+    await writeCustomerSession(customerNumber, [], null, null, null, 3, null, "start");
+    return startWorkflowResponse();
+  }
+
+  if (actionId === ACTION_FIND_PRODUCT || (phase === "start" && isStartAction(actionId, customerText))) {
+    await writeCustomerSession(customerNumber, [], null, null, null, 3, {
+      type: "share_location",
+      at: new Date().toISOString(),
+    }, "awaiting_location");
+    return locationWorkflowResponse();
+  }
+
+  if (phase === "awaiting_location") {
+    if (!customerLocation) return locationWorkflowResponse();
+    await writeCustomerSession(customerNumber, [], null, null, customerLocation, 3, null, "awaiting_product_button");
+    return enterProductButtonResponse();
+  }
+
+  if (customerLocation) {
+    await writeCustomerSession(
+      customerNumber,
+      existingSession.matches,
+      existingSession.selectedMatch ?? null,
+      existingSession.pendingIntent ?? null,
+      customerLocation,
+      existingSession.displayedCount ?? 3,
+      null,
+      "awaiting_product_button",
+      existingSession.lastQuery,
+    );
+    return enterProductButtonResponse();
+  }
+
+  if (phase === "awaiting_product_button") {
+    if (actionId === ACTION_ENTER_PRODUCT) {
+      await writeCustomerSession(
+        customerNumber,
+        existingSession.matches,
+        null,
+        existingSession.pendingIntent ?? null,
+        existingSession.customerLocation ?? null,
+        3,
+        null,
+        "awaiting_product_query",
+      );
+      return textResponse(ar("Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø£Ùˆ ÙˆØµÙÙ‡ØŒ Ù…Ø«Ù„: ØªÙŠØ´Ø±Øª Ø£Ø¨ÙŠØ¶ Ø³Ø§Ø¯Ø©ØŒ Ù‚Ø§Ø¹Ø¯Ø© Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø§ÙŠÙÙˆÙ†ØŒ Ù„ØµÙ‚Ø© Ø´Ø§Ø´Ø© Ù‡ÙˆØ§ÙˆÙŠ."));
+    }
+    if (!customerText) return enterProductButtonResponse();
+  }
+
+  if (phase === "awaiting_product_query" || (phase === "awaiting_product_button" && customerText)) {
+    const query = customerText.trim();
+    if (query.length < 2) return textResponse(ar("Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø¨Ø´ÙƒÙ„ Ø£ÙˆØ¶Ø­ Ø­ØªÙ‰ Ø£Ú¯Ø¯Ø± Ø£Ø¨Ø­Ø« Ø¹Ù†Ù‡."));
+
+    const intent = await extractSearchIntent(query);
+    const matches = await searchProducts(intent, 10, {
+      customerLocation: existingSession.customerLocation,
+      radiusKm: 15,
+      limit: 10,
+    });
+    const visible = matches.slice(0, 3);
+    await writeCustomerSession(
+      customerNumber,
+      matches,
+      null,
+      intent,
+      existingSession.customerLocation ?? null,
+      visible.length,
+      null,
+      "awaiting_selection",
+      query,
+    );
+    if (visible.length === 0) {
+      return buttonResponse(ar("Ù…Ø§ Ù„ÙƒÙŠØª Ù…Ù†ØªØ¬ Ù…Ø·Ø§Ø¨Ù‚ Ù‚Ø±ÙŠØ¨ Ù…Ù†Ùƒ Ø­Ø§Ù„ÙŠØ§Ù‹."), [
+        { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
+      ]);
+    }
+    return buttonResponse(
+      formatWorkflowSearchResults(visible, matches.length > visible.length),
+      selectionButtons(visible, 0, matches.length > visible.length),
+      "search_results",
+    );
+  }
+
+  if (phase === "awaiting_selection") {
+    if (actionId === ACTION_MORE_RESULTS || wantsMoreResults(customerText)) {
+      const start = existingSession.displayedCount ?? 3;
+      const next = Math.min(start + 3, existingSession.matches.length);
+      const extraMatches = existingSession.matches.slice(start, next);
+      if (extraMatches.length === 0) {
+        return buttonResponse(ar("Ù…Ø§ÙƒÙˆ Ù†ØªØ§Ø¦Ø¬ Ø¥Ø¶Ø§ÙÙŠØ© Ø­Ø§Ù„ÙŠØ§Ù‹."), [
+          { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
+        ]);
+      }
+      await writeCustomerSession(
+        customerNumber,
+        existingSession.matches,
+        null,
+        existingSession.pendingIntent ?? null,
+        existingSession.customerLocation ?? null,
+        next,
+        null,
+        "awaiting_selection",
+        existingSession.lastQuery,
+      );
+      return buttonResponse(
+        formatWorkflowSearchResults(extraMatches, existingSession.matches.length > next, start),
+        selectionButtons(extraMatches, start, existingSession.matches.length > next),
+        "search_results_more",
+      );
+    }
+
+    const selected =
+      selectionFromAction(actionId, existingSession.matches) ??
+      parseSelection(customerText, existingSession.matches);
+    if (!selected) {
+      return buttonResponse(
+        ar("Ø§Ø®ØªØ§Ø± Ù…Ù†ØªØ¬ Ù…Ù† Ø§Ù„Ù†ØªØ§Ø¦Ø¬ Ø­ØªÙ‰ Ø£ÙƒÙ…Ù„Ùƒ."),
+        selectionButtons(
+          existingSession.matches.slice(0, Math.min(existingSession.displayedCount ?? 3, 3)),
+          0,
+          existingSession.matches.length > (existingSession.displayedCount ?? 3),
+        ),
+      );
+    }
+
+    await writeCustomerSession(
+      customerNumber,
+      existingSession.matches,
+      selected,
+      existingSession.pendingIntent ?? null,
+      existingSession.customerLocation ?? null,
+      existingSession.displayedCount ?? 3,
+      null,
+      "awaiting_after_selection",
+      existingSession.lastQuery,
+    );
+    return afterSelectionResponse(selected);
+  }
+
+  if (phase === "awaiting_after_selection") {
+    const selected = existingSession.selectedMatch ?? null;
+    if (!selected) return startWorkflowResponse();
+    if (actionId === ACTION_MESSAGE_MERCHANT) {
+      await notifyMerchantOfSelection(customerNumber, selected);
+      await writeCustomerSession(customerNumber, [], null, null, existingSession.customerLocation ?? null, 3, null, "start");
+      return buttonResponse(ar("ØªÙ…ØŒ Ø±Ø³Ù„Øª Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù‡ØªÙ…Ø§Ù…Ùƒ Ù„Ù„ØªØ§Ø¬Ø±. ØªØ­Ø¨ ØªØ¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬ Ø«Ø§Ù†ÙŠØŸ"), [
+        { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
+      ]);
+    }
+    if (actionId === ACTION_COMPLETE_PURCHASE) {
+      await writeCustomerSession(
+        customerNumber,
+        existingSession.matches,
+        selected,
+        existingSession.pendingIntent ?? null,
+        existingSession.customerLocation ?? null,
+        existingSession.displayedCount ?? 3,
+        null,
+        "awaiting_customer_details",
+        existingSession.lastQuery,
+      );
+      return textResponse(ar("Ø§ÙƒØªØ¨ Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø·Ù„Ø¨: Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ø¹Ù†ÙˆØ§Ù†ØŒ Ø£Ù‚Ø±Ø¨ Ù†Ù‚Ø·Ø© Ø¯Ø§Ù„Ø©ØŒ ÙˆØ±Ù‚Ù… Ø¨Ø¯ÙŠÙ„ Ø¥Ø°Ø§ Ù…ÙˆØ¬ÙˆØ¯."));
+    }
+    return afterSelectionResponse(selected);
+  }
+
+  if (phase === "awaiting_customer_details") {
+    const selected = existingSession.selectedMatch ?? null;
+    if (!selected) return startWorkflowResponse();
+    if (customerText.trim().length < 5) {
+      return textResponse(ar("Ø§Ø­ØªØ§Ø¬ ØªÙØ§ØµÙŠÙ„ Ø£ÙƒØ«Ø±: Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ø¹Ù†ÙˆØ§Ù†ØŒ ÙˆØ£Ù‚Ø±Ø¨ Ù†Ù‚Ø·Ø© Ø¯Ø§Ù„Ø©."));
+    }
+    const result = await sendPurchaseDetails(customerNumber, selected, customerText.trim());
+    await writeCustomerSession(customerNumber, [], null, null, existingSession.customerLocation ?? null, 3, null, "start");
+    return buttonResponse(
+      result.ok
+        ? ar("ØªÙ… Ø§Ø³ØªÙ„Ø§Ù… Ø·Ù„Ø¨Ùƒ ÙˆØ¥Ø±Ø³Ø§Ù„Ù‡ Ù„Ù„Ø¬Ù‡Ø© Ø§Ù„Ù…Ù†Ø§Ø³Ø¨Ø©. ØªØ­Ø¨ ØªØ¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬ Ø«Ø§Ù†ÙŠØŸ")
+        : ar("Ø³Ø¬Ù„Øª Ø·Ù„Ø¨ÙƒØŒ Ø¨Ø³ ØµØ§Ø± Ø®Ù„Ù„ Ø¨Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±. Ø¬Ø±Ø¨ ØªØ±Ø§Ø³Ù„ Ø§Ù„ØªØ§Ø¬Ø± Ø£Ùˆ Ø§Ø¨Ø­Ø« Ù…Ù† Ø¬Ø¯ÙŠØ¯."),
+      [{ id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") }],
+    );
+  }
+
+  return startWorkflowResponse();
 }
 
 function latestEventRowsByMerchant(rows: Awaited<ReturnType<typeof listEvents>>) {
@@ -966,7 +1395,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
 
           let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
-          let marketplaceReply: string | null = null;
+          let workflowResponse: WorkflowResponse = { kind: "none" };
 
           if (
             incoming.from &&
@@ -974,35 +1403,34 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             isCustomerStartedMessage(incoming.type)
           ) {
             try {
-              marketplaceReply = await handleMarketplaceFlow(
+              workflowResponse = await handleButtonWorkflow(
                 incoming.from,
                 incoming.text,
                 incoming.location,
+                incoming.actionId,
               );
-              console.log("[Webhook] Marketplace reply:", marketplaceReply?.slice(0, 120) ?? "null");
+              console.log("[Webhook] Workflow response:", workflowResponse.kind);
             } catch (err) {
-              console.error("[Webhook] handleMarketplaceFlow threw:", err);
+              console.error("[Webhook] handleButtonWorkflow threw:", err);
             }
 
-            if (marketplaceReply) {
-              const replyText = marketplaceReply;
+            if (workflowResponse.kind !== "none") {
+              const replyText = workflowResponse.body;
               try {
-                const duplicateWindowMinutes = marketplaceReply.includes("ضمن 15 كم") ? 360 : 60;
+                const duplicateWindowMinutes = workflowResponse.duplicateWindowMinutes ?? 10;
                 if (await wasOutboundReplySentRecently(incoming.from, replyText, duplicateWindowMinutes)) {
                   console.log("[Webhook] Duplicate outbound reply suppressed for:", incoming.from);
                 } else {
                   await recordOutboundReply(
                     incoming.from,
                     replyText,
-                    marketplaceReply.includes("ضمن 15 كم")
-                      ? "share_location_prompt"
-                      : "marketplace_reply",
+                    workflowResponse.guardReason ?? `workflow_${workflowResponse.kind}`,
                   );
-                  if (marketplaceReply.includes("اكتب المزيد")) {
+                  if (workflowResponse.kind === "buttons") {
                     sendResult = await sendWhatsAppButtons(
                       incoming.from,
                       replyText,
-                      [{ id: "more_results", title: "المزيد" }],
+                      workflowResponse.buttons,
                       summary.phoneNumberId,
                     );
                     if (!sendResult.ok) {
@@ -1012,6 +1440,31 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                         replyText,
                         summary.phoneNumberId,
                       );
+                    }
+                  } else if (workflowResponse.kind === "location_request") {
+                    sendResult = await sendWhatsAppLocationRequest(
+                      incoming.from,
+                      replyText,
+                      summary.phoneNumberId,
+                    );
+                    if (!sendResult.ok) {
+                      console.warn("[Webhook] Location request failed, falling back:", sendResult);
+                      if (workflowResponse.fallbackButtons?.length) {
+                        sendResult = await sendWhatsAppButtons(
+                          incoming.from,
+                          ar(`${replyText}
+إذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`),
+                          workflowResponse.fallbackButtons,
+                          summary.phoneNumberId,
+                        );
+                      } else {
+                        sendResult = await sendWhatsAppText(
+                          incoming.from,
+                          ar(`${replyText}
+إذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`),
+                          summary.phoneNumberId,
+                        );
+                      }
                     }
                   } else {
                     sendResult = await sendWhatsAppText(
