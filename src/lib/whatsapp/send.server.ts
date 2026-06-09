@@ -18,15 +18,15 @@ export type SendResult = { ok: boolean; status: number; error?: string };
 export async function sendWhatsAppText(
   to: string,
   body: string,
-  phoneNumberIdOverride?: string | null,
+  phoneNumberId?: string,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId) {
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -52,15 +52,15 @@ export async function sendWhatsAppButtons(
   to: string,
   body: string,
   buttons: Array<{ id: string; title: string }>,
-  phoneNumberIdOverride?: string | null,
+  phoneNumberId?: string,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId) {
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -74,12 +74,9 @@ export async function sendWhatsAppButtons(
         type: "button",
         body: { text: body },
         action: {
-          buttons: buttons.slice(0, 3).map((button) => ({
+          buttons: buttons.map((btn) => ({
             type: "reply",
-            reply: {
-              id: button.id.slice(0, 256),
-              title: button.title.slice(0, 20),
-            },
+            reply: { id: btn.id, title: btn.title },
           })),
         },
       },
@@ -97,15 +94,15 @@ export async function sendWhatsAppButtons(
 export async function sendWhatsAppLocationRequest(
   to: string,
   body: string,
-  phoneNumberIdOverride?: string | null,
+  phoneNumberId?: string,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId) {
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -118,7 +115,7 @@ export async function sendWhatsAppLocationRequest(
       interactive: {
         type: "location_request_message",
         body: { text: body },
-        action: { name: "send_location" },
+        action: { text: "أرسل موقعك" },
       },
     }),
   });

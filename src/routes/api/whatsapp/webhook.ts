@@ -3,8 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 
-import OpenAI from "openai";
-
 import {
   detectIraqiDialect,
   normalizeArabicText,
@@ -51,22 +49,6 @@ function getVerifyToken() {
 
 function getAppSecret() {
   return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
-}
-
-function getOpenAIApiKey() {
-  return process.env.OPENAI_API_KEY;
-}
-
-function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
-}
-
-function getAnthropicApiKey() {
-  return process.env.ANTHROPIC_API_KEY;
-}
-
-function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -181,83 +163,8 @@ function readIncomingMessage(payload: unknown) {
   };
 }
 
-function isCustomerStartedMessage(type: string | null) {
-  return type === "text" || type === "button" || type === "interactive" || type === "location";
-}
-
-function buildLocalClarificationReply(customerText: string) {
-  const text = normalizeArabicText(customerText);
-  if (/^(hi|hello|hey|مرحبا|هلا|السلام|سلام|الو|alo)$/i.test(text)) {
-    return "هلا بيك، اكتبلي شنو المنتج الي تريده وأدورلك عليه.";
-  }
-  return "ممكن توضح المنتج المطلوب؟ اكتب الاسم أو اللون أو السعر التقريبي.";
-}
-
 function formatPrice(match: ProductMatch) {
   return match.price ? `${match.price} ${match.currency}` : "بدون سعر معلن";
-}
-
-function formatSearchResults(matches: ProductMatch[], hasMore = false, startIndex = 0) {
-  if (matches.length === 0) return "حالياً ما لكيت منتج مطابق. جرّب تكتب النوع أو اللون أو السعر.";
-
-  const lines = matches.slice(0, 3).map((match, index) => {
-    const color = match.color ? `، ${match.color}` : "";
-    const distance =
-      typeof match.distanceKm === "number" ? `، ${match.distanceKm.toFixed(1)} كم` : "";
-    const sponsored = match.sponsored ? "، مميز" : "";
-    return `${startIndex + index + 1}. ${match.title}${color} - ${formatPrice(match)} - ${match.storeName}${distance}${sponsored}`;
-  });
-
-  const more = hasMore ? "\nاكتب المزيد حتى أعرض نتائج أكثر." : "";
-  return `${lines.join("\n")}${more}\nاكتب رقم الاختيار حتى أرتبه ويا التاجر.`;
-}
-
-function parseSelection(text: string, matches: ProductMatch[]) {
-  const normalized = normalizeArabicText(text).toLowerCase();
-  const digitMatch = normalized.match(/\b([1-9]|10)\b/);
-  if (digitMatch) {
-    const index = Number(digitMatch[1]) - 1;
-    return matches[index] ?? null;
-  }
-
-  const words: Array<[RegExp, number]> = [
-    [/(ال)?اول|الأول|اولا|واحد/, 0],
-    [/(ال)?ثاني|اثنين|٢|2/, 1],
-    [/(ال)?ثالث|ثلاثة|٣|3/, 2],
-    [/(ال)?رابع|اربعة|٤|4/, 3],
-    [/(ال)?خامس|خمسة|٥|5/, 4],
-  ];
-
-  for (const [pattern, index] of words) {
-    if (pattern.test(normalized)) return matches[index] ?? null;
-  }
-
-  return null;
-}
-
-function wantsMerchantAddress(text: string) {
-  const normalized = normalizeArabicText(text);
-  return /عنوان|وين|مكان|موقع|لوكيشن|location|address/i.test(normalized);
-}
-
-function wantsToBuy(text: string) {
-  const normalized = normalizeArabicText(text);
-  return /اشتري|اشترى|اخذ|اريدها|اريده|احجز|اطلب|كمل|اكمل|شراء|طلب|ارسل/i.test(normalized);
-}
-
-function wantsMerchantContact(text: string) {
-  const normalized = normalizeArabicText(text);
-  return /رقم|تواصل|واتساب|كلم|احجي|اتصل|phone|contact/i.test(normalized);
-}
-
-function wantsMoreResults(text: string) {
-  const normalized = normalizeArabicText(text);
-  return /المزيد|زيادة|اكثر|أكثر|next|more/i.test(normalized);
-}
-
-function wantsWithoutLocation(text: string) {
-  const normalized = normalizeArabicText(text);
-  return /بدون موقع|بلا موقع|ما اريد اشارك|مااريد اشارك|no location/i.test(normalized);
 }
 
 type CustomerSession = {
@@ -308,74 +215,7 @@ const ACTION_MORE_RESULTS = "more_results";
 const ACTION_COMPLETE_PURCHASE = "complete_purchase";
 const ACTION_MESSAGE_MERCHANT = "message_merchant";
 const ACTION_NEW_SEARCH = "new_search";
-
-const cp1252ReverseMap: Record<number, number> = {
-  8218: 0x82,
-  402: 0x83,
-  8222: 0x84,
-  8230: 0x85,
-  8224: 0x86,
-  8225: 0x87,
-  710: 0x88,
-  8240: 0x89,
-  352: 0x8a,
-  8249: 0x8b,
-  338: 0x8c,
-  381: 0x8e,
-  8216: 0x91,
-  8217: 0x92,
-  8220: 0x93,
-  8221: 0x94,
-  8226: 0x95,
-  8211: 0x96,
-  8212: 0x97,
-  732: 0x98,
-  8482: 0x99,
-  353: 0x9a,
-  8250: 0x9b,
-  339: 0x9c,
-  382: 0x9e,
-  376: 0x9f,
-};
-
-function decodeMojibakeOnce(text: string) {
-  const bytes: number[] = [];
-  let output = "";
-  const flush = () => {
-    if (bytes.length === 0) return;
-    output += new TextDecoder().decode(new Uint8Array(bytes));
-    bytes.length = 0;
-  };
-
-  for (const char of text) {
-    const code = char.charCodeAt(0);
-    if (code <= 0xff) {
-      bytes.push(code);
-    } else if (cp1252ReverseMap[code]) {
-      bytes.push(cp1252ReverseMap[code]);
-    } else {
-      flush();
-      output += char;
-    }
-  }
-
-  try {
-    flush();
-    return output;
-  } catch {
-    return text;
-  }
-}
-
-function ar(text: string) {
-  let current = text;
-  for (let i = 0; i < 3; i += 1) {
-    const decoded = decodeMojibakeOnce(current);
-    if (decoded === current) return decoded;
-    current = decoded;
-  }
-  return current;
-}
+const ACTION_SEARCH_ALTERNATIVE = "search_alternative";
 
 function buttonResponse(
   body: string,
@@ -390,25 +230,45 @@ function textResponse(body: string, guardReason = "workflow_text"): WorkflowResp
   return { kind: "text", body, guardReason, duplicateWindowMinutes: 10 };
 }
 
-function startWorkflowResponse(): WorkflowResponse {
-  return buttonResponse(ar("هلا بيك في Botly. شنو تحب تسوي؟"), [
-    { id: ACTION_FIND_PRODUCT, title: ar("أريد منتج معين") },
-  ]);
+function startWorkflowResponse(duplicateWindowMinutes = 10): WorkflowResponse {
+  return buttonResponse(
+    "هلا بيك في Botly. شنو تحب تسوي؟",
+    [{ id: ACTION_FIND_PRODUCT, title: "أريد منتج معين" }],
+    "workflow_buttons",
+    duplicateWindowMinutes,
+  );
+}
+
+function notFoundResponse(): WorkflowResponse {
+  return {
+    kind: "buttons",
+    body: "ما لكيت نفس الطلب، تحب أبحثلك عن بديل لو تبحث عن شي ثاني؟",
+    buttons: [
+      { id: ACTION_SEARCH_ALTERNATIVE, title: "بحث عن بديل" },
+      { id: ACTION_NEW_SEARCH, title: "بحث جديد" },
+    ],
+    guardReason: "not_found",
+    duplicateWindowMinutes: 0,
+  };
+}
+
+function askForProductResponse(): WorkflowResponse {
+  return textResponse("شنو المنتج الي تدور عليه؟ اكتب الاسم أو اللون أو السعر التقريبي.");
 }
 
 function locationWorkflowResponse(): WorkflowResponse {
   return {
     kind: "location_request",
-    body: ar("حتى أطلعلك أقرب المتاجر والمنتجات، أرسل موقعك الحالي."),
-    fallbackButtons: [{ id: ACTION_FIND_PRODUCT, title: ar("أرسل موقعك") }],
+    body: "حتى أطلعلك أقرب المتاجر والمنتجات، أرسل موقعك الحالي.",
+    fallbackButtons: [{ id: ACTION_FIND_PRODUCT, title: "أرسل موقعك" }],
     guardReason: "request_location",
     duplicateWindowMinutes: 60,
   };
 }
 
 function enterProductButtonResponse(): WorkflowResponse {
-  return buttonResponse(ar("تمام، وصلتني موقعك. اضغط الزر واكتب اسم المنتج المطلوب."), [
-    { id: ACTION_ENTER_PRODUCT, title: ar("اكتب اسم المنتج") },
+  return buttonResponse("تمام، وصلتني موقعك. اضغط الزر واكتب اسم المنتج المطلوب.", [
+    { id: ACTION_ENTER_PRODUCT, title: "اكتب اسم المنتج" },
   ]);
 }
 
@@ -558,6 +418,22 @@ async function writeCustomerSession(
   }).catch((error) => console.error("[Session] Failed to store customer session", error));
 }
 
+async function findLastKnownLocation(customerNumber: string): Promise<CustomerLocation | null> {
+  const rows = await listEvents("botly_customer_session", 200);
+  for (const row of rows) {
+    const payload = row.payload ?? {};
+    if (getString(payload.customerNumber) !== customerNumber) continue;
+    const loc = payload.customerLocation;
+    if (loc && typeof loc === "object") {
+      const candidate = loc as Partial<CustomerLocation>;
+      if (typeof candidate.latitude === "number" && typeof candidate.longitude === "number") {
+        return { latitude: candidate.latitude, longitude: candidate.longitude };
+      }
+    }
+  }
+  return null;
+}
+
 async function notifyMerchantOfSelection(customerNumber: string, match: ProductMatch) {
   if (!match.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant WhatsApp" };
 
@@ -612,133 +488,38 @@ async function notifyDeliveryOfOrder(customerNumber: string, match: ProductMatch
   return result;
 }
 
-async function handleMarketplaceFlow(
-  customerNumber: string,
-  customerText: string,
-  customerLocation: CustomerLocation | null,
-): Promise<string | null> {
-  const existingSession = await readCustomerSession(customerNumber);
+function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, startIndex = 0) {
+  if (matches.length === 0) return "ما لكيت منتج مطابق قريب منك حالياً.";
 
-  if (customerLocation && existingSession?.pendingIntent) {
-    const matches = await searchProducts(existingSession.pendingIntent, 10, {
-      customerLocation,
-      radiusKm: 15,
-      limit: 10,
-    });
-    await writeCustomerSession(
-      customerNumber,
-      matches,
-      null,
-      existingSession.pendingIntent,
-      customerLocation,
-    );
-    return formatSearchResults(matches, matches.length > 3);
-  }
-
-  if (customerLocation) {
-    await writeCustomerSession(
-      customerNumber,
-      existingSession?.matches ?? [],
-      existingSession?.selectedMatch ?? null,
-      existingSession?.pendingIntent ?? null,
-      customerLocation,
-    );
-    return "وصلني موقعك. اكتب شنو المنتج الي تريده حتى أدورلك ضمن 15 كم.";
-  }
-
-  if (existingSession && wantsMoreResults(customerText)) {
-    const start = existingSession.displayedCount ?? 3;
-    const next = Math.min(start + 3, existingSession.matches.length);
-    const extraMatches = existingSession.matches.slice(start, next);
-    if (extraMatches.length === 0) return "ماكو نتائج إضافية حالياً.";
-    await writeCustomerSession(
-      customerNumber,
-      existingSession.matches,
-      existingSession.selectedMatch ?? null,
-      existingSession.pendingIntent ?? null,
-      existingSession.customerLocation ?? null,
-      next,
-    );
-    return formatSearchResults(extraMatches, existingSession.matches.length > next, start);
-  }
-
-  if (existingSession?.pendingIntent && wantsWithoutLocation(customerText)) {
-    const matches = await searchProducts(existingSession.pendingIntent, 10, { limit: 10 });
-    await writeCustomerSession(customerNumber, matches, null, existingSession.pendingIntent, null);
-    return formatSearchResults(matches, matches.length > 3);
-  }
-
-  const selectedFromSession = existingSession
-    ? parseSelection(customerText, existingSession.matches) ?? existingSession.selectedMatch ?? null
-    : null;
-
-  if (selectedFromSession && wantsMerchantAddress(customerText)) {
-    return selectedFromSession.merchantAddress
-      ? `عنوان ${selectedFromSession.storeName}: ${selectedFromSession.merchantAddress}`
-      : "ما مسجل عنوان واضح لهذا التاجر حالياً. أكدر أخلي التاجر يتواصل وياك.";
-  }
-
-  if (selectedFromSession && wantsMerchantContact(customerText)) {
-    await notifyMerchantOfSelection(customerNumber, selectedFromSession);
-    await writeCustomerSession(
-      customerNumber,
-      existingSession?.matches ?? [],
-      selectedFromSession,
-      existingSession?.pendingIntent ?? null,
-      existingSession?.customerLocation ?? null,
-    );
-    return "تمام، بلغت التاجر بالطلب ورقمك. إذا تريد تكمل شراء اكتب: أكمل الطلب.";
-  }
-
-  if (selectedFromSession && wantsToBuy(customerText)) {
-    await notifyMerchantOfSelection(customerNumber, selectedFromSession);
-    if (selectedFromSession.deliveryPhone) {
-      await notifyDeliveryOfOrder(customerNumber, selectedFromSession);
-      return "تم، ثبتت اهتمامك بالمنتج وبلغت التاجر وشركة التوصيل. راح يتابعون وياك.";
-    }
-    return "تم، ثبتت اهتمامك بالمنتج وبلغت التاجر. راح يتواصل وياك على واتساب.";
-  }
-
-  if (selectedFromSession) {
-    await writeCustomerSession(
-      customerNumber,
-      existingSession?.matches ?? [],
-      selectedFromSession,
-      existingSession?.pendingIntent ?? null,
-      existingSession?.customerLocation ?? null,
-    );
-    return `اختيارك: ${selectedFromSession.title} - ${formatPrice(selectedFromSession)} من ${selectedFromSession.storeName}\nتحب أبلغ التاجر أو أكمل الطلب؟`;
-  }
-
-  const intent = await extractSearchIntent(customerText);
-  if (!existingSession?.customerLocation) {
-    if (await wasPromptSentRecently(customerNumber, existingSession, "share_location", 360)) {
-      console.log("[Webhook] Suppressing repeated location prompt for:", customerNumber);
-      return null;
-    }
-    await writeCustomerSession(customerNumber, [], null, intent, null, 3, {
-      type: "share_location",
-      at: new Date().toISOString(),
-    });
-    return "حتى أطلعلك أقرب النتائج، شارك موقعك وأدورلك ضمن 15 كم. إذا ما تريد تشارك الموقع اكتب: بدون موقع.";
-  }
-
-  const matches = await searchProducts(intent, 10, {
-    customerLocation: existingSession.customerLocation,
-    radiusKm: 15,
-    limit: 10,
+  const lines = matches.slice(0, 3).map((match, index) => {
+    const color = match.color ? `، ${match.color}` : "";
+    const distance =
+      typeof match.distanceKm === "number" ? `، يبعد ${match.distanceKm.toFixed(1)} كم` : "";
+    const source = match.source === "manual" ? "المتجر" : "منشور سوشيال";
+    return `${startIndex + index + 1}. ${match.title}${color}\n${formatPrice(match)} - ${match.storeName}${distance} - ${source}`;
   });
-  await writeCustomerSession(customerNumber, matches, null, intent, existingSession.customerLocation);
-  return formatSearchResults(matches, matches.length > 3);
+
+  const more = hasMore ? "\nإذا تريد نتائج أكثر اضغط المزيد." : "";
+  return `${lines.join("\n\n")}${more}\n\nاختار رقم المنتج حتى أكمله.`;
 }
 
-function isStartAction(actionId: string | null, text: string) {
+function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = false) {
+  const buttons = matches.slice(0, 3).map((_, index) => ({
+    id: `select_${startIndex + index}`,
+    title: `اختيار ${startIndex + index + 1}`,
+  }));
+  if (hasMore && buttons.length < 3) buttons.push({ id: ACTION_MORE_RESULTS, title: "المزيد" });
+  return buttons;
+}
+
+function parseSelection(text: string, matches: ProductMatch[]) {
   const normalized = normalizeArabicText(text).toLowerCase();
-  return (
-    actionId === ACTION_FIND_PRODUCT ||
-    actionId === ACTION_NEW_SEARCH ||
-    /منتج|اريد|أريد|ابحث|دور|search|product/i.test(normalized)
-  );
+  const digitMatch = normalized.match(/\b([1-9]|10)\b/);
+  if (digitMatch) {
+    const index = Number(digitMatch[1]) - 1;
+    return matches[index] ?? null;
+  }
+  return null;
 }
 
 function selectionFromAction(actionId: string | null, matches: ProductMatch[]) {
@@ -747,36 +528,12 @@ function selectionFromAction(actionId: string | null, matches: ProductMatch[]) {
   return matches[Number(match[1])] ?? null;
 }
 
-function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, startIndex = 0) {
-  if (matches.length === 0) return ar("Ù…Ø§ Ù„ÙƒÙŠØª Ù…Ù†ØªØ¬ Ù…Ø·Ø§Ø¨Ù‚ Ù‚Ø±ÙŠØ¨ Ù…Ù†Ùƒ Ø­Ø§Ù„ÙŠØ§Ù‹.");
-
-  const lines = matches.slice(0, 3).map((match, index) => {
-    const color = match.color ? ar(`ØŒ ${match.color}`) : "";
-    const distance =
-      typeof match.distanceKm === "number" ? ar(`ØŒ ÙŠØ¨Ø¹Ø¯ ${match.distanceKm.toFixed(1)} ÙƒÙ…`) : "";
-    const source = match.source === "manual" ? ar("Ø§Ù„Ù…ØªØ¬Ø±") : ar("Ù…Ù†Ø´ÙˆØ± Ø³ÙˆØ´ÙŠØ§Ù„");
-    return ar(`${startIndex + index + 1}. ${match.title}${color}\n${formatPrice(match)} - ${match.storeName}${distance} - ${source}`);
-  });
-
-  const more = hasMore ? ar("\nØ¥Ø°Ø§ ØªØ±ÙŠØ¯ Ù†ØªØ§Ø¦Ø¬ Ø£ÙƒØ«Ø± Ø§Ø¶ØºØ· Ø§Ù„Ù…Ø²ÙŠØ¯.") : "";
-  return ar(`${lines.join("\n\n")}${more}\n\nØ§Ø®ØªØ§Ø± Ø±Ù‚Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø­ØªÙ‰ Ø£ÙƒÙ…Ù„Ùƒ.`);
-}
-
-function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = false) {
-  const buttons = matches.slice(0, 3).map((_, index) => ({
-    id: `select_${startIndex + index}`,
-    title: ar(`Ø§Ø®ØªÙŠØ§Ø± ${startIndex + index + 1}`),
-  }));
-  if (hasMore && buttons.length < 3) buttons.push({ id: ACTION_MORE_RESULTS, title: ar("Ø§Ù„Ù…Ø²ÙŠØ¯") });
-  return buttons;
-}
-
 function afterSelectionResponse(match: ProductMatch): WorkflowResponse {
   return buttonResponse(
-    ar(`Ø§Ø®ØªØ±Øª: ${match.title}\nØ§Ù„Ø³Ø¹Ø±: ${formatPrice(match)}\nØ§Ù„Ù…ØªØ¬Ø±: ${match.storeName}\nØ´Ù†Ùˆ ØªØ­Ø¨ ØªØ³ÙˆÙŠØŸ`),
+    `اختيرت: ${match.title}\nالسعر: ${formatPrice(match)}\nالمتجر: ${match.storeName}\nشنو تحب تسوي؟`,
     [
-      { id: ACTION_COMPLETE_PURCHASE, title: ar("Ø§ÙƒÙ…Ø§Ù„ Ø§Ù„Ø´Ø±Ø§Ø¡") },
-      { id: ACTION_MESSAGE_MERCHANT, title: ar("Ø±Ø³Ø§Ù„Ø© Ù„Ù„ØªØ§Ø¬Ø±") },
+      { id: ACTION_COMPLETE_PURCHASE, title: "اكمال الشراء" },
+      { id: ACTION_MESSAGE_MERCHANT, title: "رسالة للتاجر" },
     ],
     "after_selection",
   );
@@ -784,12 +541,12 @@ function afterSelectionResponse(match: ProductMatch): WorkflowResponse {
 
 async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, details: string) {
   const body = [
-    ar("Botly: Ø·Ù„Ø¨ Ø´Ø±Ø§Ø¡ Ø¬Ø¯ÙŠØ¯"),
-    ar(`Ø§Ù„Ù…Ù†ØªØ¬: ${match.title}`),
-    ar(`Ø§Ù„Ø³Ø¹Ø±: ${formatPrice(match)}`),
-    ar(`Ø§Ù„Ù…ØªØ¬Ø±: ${match.storeName}`),
-    ar(`Ø±Ù‚Ù… Ø§Ù„Ø²Ø¨ÙˆÙ†: ${customerNumber}`),
-    ar(`Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø²Ø¨ÙˆÙ†: ${details}`),
+    "Botly: طلب شراء جديد",
+    `المنتج: ${match.title}`,
+    `السعر: ${formatPrice(match)}`,
+    `المتجر: ${match.storeName}`,
+    `رقم الزبون: ${customerNumber}`,
+    `معلومات الزبون: ${details}`,
   ].join("\n");
 
   const recipient = match.deliveryPhone || match.merchantWhatsapp;
@@ -823,23 +580,86 @@ async function handleButtonWorkflow(
 ): Promise<WorkflowResponse> {
   const existingSession = await readCustomerSession(customerNumber);
   const phase = existingSession?.phase ?? "start";
+  const knownLocation =
+    customerLocation ??
+    existingSession?.customerLocation ??
+    (await findLastKnownLocation(customerNumber));
 
   if (!existingSession || actionId === ACTION_NEW_SEARCH) {
+    if (knownLocation) {
+      await writeCustomerSession(
+        customerNumber,
+        [],
+        null,
+        null,
+        knownLocation,
+        3,
+        null,
+        "awaiting_product_query",
+      );
+      return askForProductResponse();
+    }
     await writeCustomerSession(customerNumber, [], null, null, null, 3, null, "start");
     return startWorkflowResponse();
   }
 
-  if (actionId === ACTION_FIND_PRODUCT || (phase === "start" && isStartAction(actionId, customerText))) {
-    await writeCustomerSession(customerNumber, [], null, null, null, 3, {
-      type: "share_location",
-      at: new Date().toISOString(),
-    }, "awaiting_location");
+  if (actionId === ACTION_SEARCH_ALTERNATIVE) {
+    await writeCustomerSession(
+      customerNumber,
+      [],
+      null,
+      existingSession.pendingIntent ?? null,
+      knownLocation,
+      3,
+      null,
+      "awaiting_product_query",
+      existingSession.lastQuery,
+    );
+    return textResponse("تمام، اكتب اسم المنتج البديل الي تدور عليه.");
+  }
+
+  if (actionId === ACTION_FIND_PRODUCT || phase === "start") {
+    if (knownLocation) {
+      await writeCustomerSession(
+        customerNumber,
+        [],
+        null,
+        null,
+        knownLocation,
+        3,
+        null,
+        "awaiting_product_query",
+      );
+      return askForProductResponse();
+    }
+    await writeCustomerSession(
+      customerNumber,
+      [],
+      null,
+      null,
+      null,
+      3,
+      {
+        type: "share_location",
+        at: new Date().toISOString(),
+      },
+      "awaiting_location",
+    );
     return locationWorkflowResponse();
   }
 
   if (phase === "awaiting_location") {
-    if (!customerLocation) return locationWorkflowResponse();
-    await writeCustomerSession(customerNumber, [], null, null, customerLocation, 3, null, "awaiting_product_button");
+    if (!knownLocation) return locationWorkflowResponse();
+    await writeCustomerSession(
+      customerNumber,
+      [],
+      null,
+      null,
+      knownLocation,
+      3,
+      null,
+      "awaiting_product_button",
+    );
     return enterProductButtonResponse();
   }
 
@@ -870,14 +690,16 @@ async function handleButtonWorkflow(
         null,
         "awaiting_product_query",
       );
-      return textResponse(ar("Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø£Ùˆ ÙˆØµÙÙ‡ØŒ Ù…Ø«Ù„: ØªÙŠØ´Ø±Øª Ø£Ø¨ÙŠØ¶ Ø³Ø§Ø¯Ø©ØŒ Ù‚Ø§Ø¹Ø¯Ø© Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø§ÙŠÙÙˆÙ†ØŒ Ù„ØµÙ‚Ø© Ø´Ø§Ø´Ø© Ù‡ÙˆØ§ÙˆÙŠ."));
+      return textResponse(
+        "اكتب اسم المنتج أو وصفه، مثل: تيشيرت أبيض سادة، قاعدة موبايل ايفون، لصقة شاشة هواوي.",
+      );
     }
     if (!customerText) return enterProductButtonResponse();
   }
 
   if (phase === "awaiting_product_query" || (phase === "awaiting_product_button" && customerText)) {
     const query = customerText.trim();
-    if (query.length < 2) return textResponse(ar("Ø§ÙƒØªØ¨ Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ø¨Ø´ÙƒÙ„ Ø£ÙˆØ¶Ø­ Ø­ØªÙ‰ Ø£Ú¯Ø¯Ø± Ø£Ø¨Ø­Ø« Ø¹Ù†Ù‡."));
+    if (query.length < 2) return textResponse("اكتب اسم المنتج بشكل أوضح حتى أقدر أبحث عنه.");
 
     const intent = await extractSearchIntent(query);
     const matches = await searchProducts(intent, 10, {
@@ -898,9 +720,7 @@ async function handleButtonWorkflow(
       query,
     );
     if (visible.length === 0) {
-      return buttonResponse(ar("Ù…Ø§ Ù„ÙƒÙŠØª Ù…Ù†ØªØ¬ Ù…Ø·Ø§Ø¨Ù‚ Ù‚Ø±ÙŠØ¨ Ù…Ù†Ùƒ Ø­Ø§Ù„ÙŠØ§Ù‹."), [
-        { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
-      ]);
+      return notFoundResponse();
     }
     return buttonResponse(
       formatWorkflowSearchResults(visible, matches.length > visible.length),
@@ -910,14 +730,12 @@ async function handleButtonWorkflow(
   }
 
   if (phase === "awaiting_selection") {
-    if (actionId === ACTION_MORE_RESULTS || wantsMoreResults(customerText)) {
+    if (actionId === ACTION_MORE_RESULTS) {
       const start = existingSession.displayedCount ?? 3;
       const next = Math.min(start + 3, existingSession.matches.length);
       const extraMatches = existingSession.matches.slice(start, next);
       if (extraMatches.length === 0) {
-        return buttonResponse(ar("Ù…Ø§ÙƒÙˆ Ù†ØªØ§Ø¦Ø¬ Ø¥Ø¶Ø§ÙÙŠØ© Ø­Ø§Ù„ÙŠØ§Ù‹."), [
-          { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
-        ]);
+        return notFoundResponse();
       }
       await writeCustomerSession(
         customerNumber,
@@ -942,7 +760,7 @@ async function handleButtonWorkflow(
       parseSelection(customerText, existingSession.matches);
     if (!selected) {
       return buttonResponse(
-        ar("Ø§Ø®ØªØ§Ø± Ù…Ù†ØªØ¬ Ù…Ù† Ø§Ù„Ù†ØªØ§Ø¦Ø¬ Ø­ØªÙ‰ Ø£ÙƒÙ…Ù„Ùƒ."),
+        "اختار منتج من النتائج حتى أكمله.",
         selectionButtons(
           existingSession.matches.slice(0, Math.min(existingSession.displayedCount ?? 3, 3)),
           0,
@@ -970,9 +788,18 @@ async function handleButtonWorkflow(
     if (!selected) return startWorkflowResponse();
     if (actionId === ACTION_MESSAGE_MERCHANT) {
       await notifyMerchantOfSelection(customerNumber, selected);
-      await writeCustomerSession(customerNumber, [], null, null, existingSession.customerLocation ?? null, 3, null, "start");
-      return buttonResponse(ar("ØªÙ…ØŒ Ø±Ø³Ù„Øª Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù‡ØªÙ…Ø§Ù…Ùƒ Ù„Ù„ØªØ§Ø¬Ø±. ØªØ­Ø¨ ØªØ¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬ Ø«Ø§Ù†ÙŠØŸ"), [
-        { id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") },
+      await writeCustomerSession(
+        customerNumber,
+        [],
+        null,
+        null,
+        existingSession.customerLocation ?? null,
+        3,
+        null,
+        "start",
+      );
+      return buttonResponse("تم، رسالت معلومات اهتمامك للتاجر. تحب تبحث عن منتج ثاني؟", [
+        { id: ACTION_NEW_SEARCH, title: "بحث جديد" },
       ]);
     }
     if (actionId === ACTION_COMPLETE_PURCHASE) {
@@ -987,7 +814,9 @@ async function handleButtonWorkflow(
         "awaiting_customer_details",
         existingSession.lastQuery,
       );
-      return textResponse(ar("Ø§ÙƒØªØ¨ Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø·Ù„Ø¨: Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ø¹Ù†ÙˆØ§Ù†ØŒ Ø£Ù‚Ø±Ø¨ Ù†Ù‚Ø·Ø© Ø¯Ø§Ù„Ø©ØŒ ÙˆØ±Ù‚Ù… Ø¨Ø¯ÙŠÙ„ Ø¥Ø°Ø§ Ù…ÙˆØ¬ÙˆØ¯."));
+      return textResponse(
+        "اكتب معلومات الطلب: الاسم، العنوان، أقرب نقطة دالة، ورقم بديل إذا موجود.",
+      );
     }
     return afterSelectionResponse(selected);
   }
@@ -996,338 +825,28 @@ async function handleButtonWorkflow(
     const selected = existingSession.selectedMatch ?? null;
     if (!selected) return startWorkflowResponse();
     if (customerText.trim().length < 5) {
-      return textResponse(ar("Ø§Ø­ØªØ§Ø¬ ØªÙØ§ØµÙŠÙ„ Ø£ÙƒØ«Ø±: Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ø¹Ù†ÙˆØ§Ù†ØŒ ÙˆØ£Ù‚Ø±Ø¨ Ù†Ù‚Ø·Ø© Ø¯Ø§Ù„Ø©."));
+      return textResponse("احتاج تفاصيل أكثر: الاسم، العنوان، وأقرب نقطة دالة.");
     }
     const result = await sendPurchaseDetails(customerNumber, selected, customerText.trim());
-    await writeCustomerSession(customerNumber, [], null, null, existingSession.customerLocation ?? null, 3, null, "start");
+    await writeCustomerSession(
+      customerNumber,
+      [],
+      null,
+      null,
+      existingSession.customerLocation ?? null,
+      3,
+      null,
+      "start",
+    );
     return buttonResponse(
       result.ok
-        ? ar("ØªÙ… Ø§Ø³ØªÙ„Ø§Ù… Ø·Ù„Ø¨Ùƒ ÙˆØ¥Ø±Ø³Ø§Ù„Ù‡ Ù„Ù„Ø¬Ù‡Ø© Ø§Ù„Ù…Ù†Ø§Ø³Ø¨Ø©. ØªØ­Ø¨ ØªØ¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬ Ø«Ø§Ù†ÙŠØŸ")
-        : ar("Ø³Ø¬Ù„Øª Ø·Ù„Ø¨ÙƒØŒ Ø¨Ø³ ØµØ§Ø± Ø®Ù„Ù„ Ø¨Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±. Ø¬Ø±Ø¨ ØªØ±Ø§Ø³Ù„ Ø§Ù„ØªØ§Ø¬Ø± Ø£Ùˆ Ø§Ø¨Ø­Ø« Ù…Ù† Ø¬Ø¯ÙŠØ¯."),
-      [{ id: ACTION_NEW_SEARCH, title: ar("Ø¨Ø­Ø« Ø¬Ø¯ÙŠØ¯") }],
+        ? "تم استلام طلبك وإرساله للجهة المناسبة. تحب تبحث عن منتج ثاني؟"
+        : "سجلت طلبك، بس صار خلل بإرسال الإشعار. جرب تراسل التاجر أو ابحث من جديد.",
+      [{ id: ACTION_NEW_SEARCH, title: "بحث جديد" }],
     );
   }
 
   return startWorkflowResponse();
-}
-
-function latestEventRowsByMerchant(rows: Awaited<ReturnType<typeof listEvents>>) {
-  const latest = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
-    const merchantId = getString(row.payload?.merchantId) || row.id;
-    if (!latest.has(merchantId)) latest.set(merchantId, row);
-  }
-  return [...latest.values()];
-}
-
-function phoneVariants(phone: string | null) {
-  const normalized = normalizePhone(phone ?? "").replace(/^\+/, "");
-  const variants = new Set<string>();
-  if (!normalized) return variants;
-  variants.add(normalized);
-  if (normalized.startsWith("0") && normalized.length >= 10) {
-    variants.add(`964${normalized.slice(1)}`);
-  }
-  return variants;
-}
-
-function merchantMatchesWhatsAppNumber(
-  payload: Record<string, unknown>,
-  phoneNumberId: string | null,
-  displayPhoneNumber: string | null,
-) {
-  if (phoneNumberId) {
-    const storedPhoneNumberIds = [
-      getString(payload.whatsappPhoneNumberId),
-      getString(payload.phoneNumberId),
-      getString(payload.metaPhoneNumberId),
-      getString(payload.whatsappBusinessPhoneNumberId),
-    ].filter(Boolean);
-    if (storedPhoneNumberIds.includes(phoneNumberId)) return true;
-  }
-
-  if (displayPhoneNumber) {
-    const displayVariants = phoneVariants(displayPhoneNumber);
-    const merchantVariants = phoneVariants(
-      getString(payload.whatsappNormalized) || getString(payload.whatsapp),
-    );
-    for (const display of displayVariants) {
-      if (merchantVariants.has(display)) return true;
-    }
-  }
-
-  return false;
-}
-
-async function resolveMerchantForWebhook(
-  phoneNumberId: string | null,
-  displayPhoneNumber: string | null,
-) {
-  const merchants = latestEventRowsByMerchant(await listEvents("botly_merchant"));
-  const matched = merchants.find((row) =>
-    merchantMatchesWhatsAppNumber(row.payload ?? {}, phoneNumberId, displayPhoneNumber),
-  );
-  if (!matched) return null;
-
-  const payload = matched.payload ?? {};
-  if (payload.bannedFromBot === true || payload.visibilityEnabled === false || payload.isActive === false) {
-    return null;
-  }
-
-  return getString(payload.merchantId) || matched.id;
-}
-
-const IRAQI_SYSTEM_PROMPT = `أنت مساعد بيع عراقي. كلامك عراقي طبيعي بغدادي فقط.
-لازم:
-- تكون مختصر جداً (سطر واحد أو اثنين فقط)
-- ما تستخدم إيموجي أبداً
-- ما تذكر اسم لنفسك ولا تعرّف عن نفسك
-- ما تستخدم كلام رسمي أو تسويقي
-- ترد على الزبون بطريقة طبيعية زي الشات العراقي
-- تعتمد على الكتالوج الحقيقي فقط
-
-إذا ما حصلت البضاعة، قول: "نعتذر منك طلبك مو متوفر حاليا" 
-إذا ما فهمت شنو يدور، قول: "ممكن توضح المنتج المطلوب؟ اكتب الاسم أو اللون أو السعر التقريبي."
-
-أمثلة ردود صحيحة:
-- "موجودة، السعر 50 ألف"
-- "نفذت حاليا"
-- "تحب أي لون أو سعر تقريبي؟"
-- "هذني الأنواع الموجودة..."
-`;
-
-async function callAnthropicModel(
-  apiKey: string,
-  model: string,
-  customerText: string,
-  catalog: string,
-  systemPrompt?: string,
-): Promise<string | null> {
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 512,
-        temperature: 0.3,
-        system: systemPrompt || IRAQI_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `رسالة الزبون: ${customerText}\n\nكتالوج المنتجات الحقيقي:\n${catalog}`,
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("[Anthropic] Reply generation failed:", response.status, await response.text());
-      return null;
-    }
-
-    const data = (await response.json()) as {
-      content?: Array<{ type?: string; text?: string }>;
-    };
-
-    return data.content?.find((part) => part.type === "text")?.text?.trim() || null;
-  } catch (error) {
-    console.error("[Anthropic] Reply generation failed:", error);
-    return null;
-  }
-}
-
-async function callOpenAIModel(
-  apiKey: string,
-  model: string,
-  customerText: string,
-  catalog: string,
-  systemPrompt?: string,
-): Promise<string | null> {
-  try {
-    const client = new OpenAI({ apiKey });
-    const response = await client.chat.completions.create({
-      model,
-      max_tokens: 512,
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: systemPrompt || IRAQI_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `رسالة الزبون: ${customerText}\n\nكتالوج المنتجات الحقيقي:\n${catalog}`,
-        },
-      ],
-    });
-    const text = response.choices[0]?.message?.content?.trim();
-    return text || null;
-  } catch (error) {
-    console.error("[OpenAI] Reply generation failed:", error);
-    return null;
-  }
-}
-
-function buildCatalogFromMatches(matches: ProductMatch[]): string {
-  if (matches.length === 0) return "لا توجد منتجات مطابقة في قاعدة البيانات.";
-  return matches
-    .map((m, i) => {
-      const options = m.color ? `، لون ${m.color}` : "";
-      const price = m.price ? `، السعر ${m.price} ${m.currency}` : "";
-      return `${i + 1}. ${m.title}${price}${options}`;
-    })
-    .join("\n");
-}
-
-async function generateClaudeReplyEnhanced(
-  customerText: string,
-  merchantId: string,
-  fromNumber?: string,
-): Promise<{
-  text: string;
-  model: string;
-  confidence: ConfidenceScore;
-  fallbackUsed: boolean;
-  metadata: ParsingMetadata;
-  matches: ProductMatch[];
-} | null> {
-  const spamAnalysis = detectSpam(customerText);
-  if (spamAnalysis.isSpam && spamAnalysis.score > 0.7) {
-    console.warn("[Reply] Spam detected, score:", spamAnalysis.score);
-    return null;
-  }
-
-  if (fromNumber) {
-    try {
-      const isRepeated = await isRepeatedMessage(fromNumber, customerText, 3600);
-      if (isRepeated) {
-        console.warn("[Reply] Repeated message from:", fromNumber);
-        return null;
-      }
-    } catch (err) {
-      console.warn("[Reply] isRepeatedMessage check failed (non-fatal):", err);
-    }
-  }
-
-  const arabicAnalysis = detectIraqiDialect(customerText);
-  const normalizedText = normalizeArabicText(customerText);
-
-  const anthropicKey = getAnthropicApiKey();
-  const openAIKey = getOpenAIApiKey();
-
-  if (!anthropicKey && !openAIKey) {
-    console.error("[Reply] No ANTHROPIC_API_KEY or OPENAI_API_KEY set");
-    return null;
-  }
-
-  const intent = await extractSearchIntent(customerText);
-  const matches = await searchProducts(intent, 8, merchantId);
-  const catalog = buildCatalogFromMatches(matches);
-  console.log("[Reply] Matches found:", matches.length);
-
-  const provider = anthropicKey ? "anthropic" : "openai";
-  const model = anthropicKey ? getAnthropicModel() : getOpenAIModel();
-  const systemPrompt = buildIraqiReplyPrompt(normalizedText, catalog, {
-    language: arabicAnalysis.dialect,
-    spamScore: spamAnalysis.score,
-    messageTimestamp: new Date(),
-  });
-
-  let aiReply = anthropicKey
-    ? await callAnthropicModel(anthropicKey, model, normalizedText, catalog, systemPrompt)
-    : await callOpenAIModel(openAIKey!, model, normalizedText, catalog, systemPrompt);
-
-  let fallbackUsed = false;
-
-  if (!aiReply) {
-    console.warn("[Reply] AI returned null — trying fallback");
-    try {
-      const fallback = await fallbackExtraction(customerText);
-      if (fallback.confidence > 0.3 && Object.keys(fallback.extracted).length > 0) {
-        fallbackUsed = true;
-        aiReply = generateFallbackReply(fallback.extracted);
-        console.log("[Reply] Fallback reply:", aiReply);
-      }
-    } catch (err) {
-      console.error("[Reply] Fallback extraction failed:", err);
-    }
-  }
-
-  if (!aiReply) {
-    console.warn("[Reply] No reply generated");
-    return null;
-  }
-
-  const mockProduct: ParsedProduct = {
-    title: customerText.substring(0, 100),
-    images: [],
-    confidence: 0,
-    validationErrors: [],
-    normalizedKeywords: extractArabicKeywords(normalizedText),
-  };
-
-  const confidenceScore = scoreProductParsing(
-    { text: customerText, type: "text", fromNumber },
-    mockProduct,
-    {
-      language: arabicAnalysis.dialect,
-      spamScore: spamAnalysis.score,
-      messageTimestamp: new Date(),
-      fallback_used: fallbackUsed,
-    },
-  );
-
-  const guardrailConfig: GuardrailConfig = {
-    prevent_price_hallucination: true,
-    prevent_availability_hallucination: true,
-    prevent_merchant_hallucination: true,
-    uncertain_threshold: 0.5,
-  };
-
-  const guardrailed = applyGuardrails(aiReply, confidenceScore, guardrailConfig);
-  const sanitized = sanitizeReplyForWhatsApp(guardrailed.reply);
-
-  const metadata: ParsingMetadata = {
-    language: arabicAnalysis.dialect,
-    spamScore: spamAnalysis.score,
-    messageTimestamp: new Date(),
-    ai_provider: provider,
-    ai_model: model,
-    parsing_version: "v2",
-    confidence_score: confidenceScore.overall,
-    confidence_reasons: confidenceScore.reasons,
-    fallback_used: fallbackUsed,
-    raw_ai_response: aiReply,
-  };
-
-  return { text: sanitized, model, confidence: confidenceScore, fallbackUsed, metadata, matches };
-}
-
-async function storeParsingMetadata(
-  webhookEventId: string,
-  metadata: ParsingMetadata,
-  confidenceScore?: ConfidenceScore,
-): Promise<void> {
-  try {
-    const { error } = await supabaseAdmin.from("product_parsing_metadata" as never).insert({
-      webhook_event_id: webhookEventId,
-      ai_provider: metadata.ai_provider,
-      ai_model: metadata.ai_model,
-      parsing_version: metadata.parsing_version,
-      confidence_score: metadata.confidence_score,
-      confidence_reasons: metadata.confidence_reasons,
-      fallback_used: metadata.fallback_used,
-      raw_ai_response: metadata.raw_ai_response,
-      language_detected: metadata.language,
-      spam_score: metadata.spamScore,
-      created_at: new Date().toISOString(),
-    } as never);
-    if (error) console.error("[Storage] Parsing metadata failed:", error.message);
-  } catch (err) {
-    console.error("[Storage] Unexpected error storing metadata:", err);
-  }
 }
 
 export const Route = createFileRoute("/api/whatsapp/webhook")({
@@ -1393,15 +912,13 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             });
           }
 
-          let enhancedResult: Awaited<ReturnType<typeof generateClaudeReplyEnhanced>> | null = null;
           let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
           let workflowResponse: WorkflowResponse = { kind: "none" };
 
-          if (
-            incoming.from &&
-            (incoming.text || incoming.location) &&
-            isCustomerStartedMessage(incoming.type)
-          ) {
+          const isCustomerMessage =
+            Boolean(incoming.from) && summary.eventType.startsWith("message.");
+
+          if (isCustomerMessage && incoming.from) {
             try {
               workflowResponse = await handleButtonWorkflow(
                 incoming.from,
@@ -1412,9 +929,24 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               console.log("[Webhook] Workflow response:", workflowResponse.kind);
             } catch (err) {
               console.error("[Webhook] handleButtonWorkflow threw:", err);
+              await writeCustomerSession(
+                incoming.from,
+                [],
+                null,
+                null,
+                null,
+                3,
+                null,
+                "start",
+              ).catch(() => {});
+              workflowResponse = startWorkflowResponse(0);
             }
 
-            if (workflowResponse.kind !== "none") {
+            if (workflowResponse.kind === "none") {
+              workflowResponse = startWorkflowResponse(0);
+            }
+
+            {
               const replyText = workflowResponse.body;
               try {
                 const duplicateWindowMinutes = workflowResponse.duplicateWindowMinutes ?? 10;
@@ -1452,16 +984,14 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                       if (workflowResponse.fallbackButtons?.length) {
                         sendResult = await sendWhatsAppButtons(
                           incoming.from,
-                          ar(`${replyText}
-إذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`),
+                          `${replyText}\nإذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`,
                           workflowResponse.fallbackButtons,
                           summary.phoneNumberId,
                         );
                       } else {
                         sendResult = await sendWhatsAppText(
                           incoming.from,
-                          ar(`${replyText}
-إذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`),
+                          `${replyText}\nإذا ما ظهر زر مشاركة الموقع، أرسل اللوكيشن من زر المرفقات في واتساب.`,
                           summary.phoneNumberId,
                         );
                       }
@@ -1478,65 +1008,15 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               } catch (err) {
                 console.error("[Webhook] sendWhatsAppText threw:", err);
               }
-            } else {
-              console.log("[Webhook] Marketplace flow returned no reply; skipping outbound send");
             }
           } else {
-            console.log(
-              "[Webhook] No customer-started message — status update or unsupported message, skipping reply",
-            );
+            console.log("[Webhook] No customer message — status update, skipping reply");
           }
 
-          const payloadForStorage = {
-            ...(payload && typeof payload === "object"
-              ? (payload as Record<string, unknown>)
-              : { raw: payload }),
-            botly_ai: {
-              provider: enhancedResult?.metadata.ai_provider ?? "fallback",
-              model:
-                enhancedResult?.model ??
-                (getAnthropicApiKey() ? getAnthropicModel() : getOpenAIModel()),
-              incoming_type: incoming.type,
-              replied: Boolean(enhancedResult) || Boolean(sendResult?.ok),
-              sent: Boolean(sendResult?.ok),
-              confidence_score: enhancedResult?.confidence.overall,
-              fallback_used: enhancedResult?.fallbackUsed ?? !enhancedResult,
-              language: enhancedResult?.metadata.language,
-            },
-          };
-
-          supabaseAdmin
-            .from("whatsapp_webhook_events")
-            .insert({
-              source: summary.source,
-              event_type: summary.eventType,
-              phone_number_id: summary.phoneNumberId,
-              wa_message_id: summary.waMessageId,
-              from_number: summary.fromNumber,
-              payload: payloadForStorage as Json,
-              product_confidence: enhancedResult?.confidence.overall,
-              fallback_used: enhancedResult?.fallbackUsed ?? !enhancedResult,
-              language_detected: enhancedResult?.metadata.language,
-              spam_score: enhancedResult?.metadata.spamScore,
-            } as never)
-            .select("id")
-            .then(({ data, error }) => {
-              if (error) {
-                console.error("[Storage] Event insert failed:", error.message);
-                return;
-              }
-              const webhookEventId = data?.[0]?.id;
-              if (webhookEventId && enhancedResult?.metadata) {
-                storeParsingMetadata(
-                  webhookEventId,
-                  enhancedResult.metadata,
-                  enhancedResult.confidence,
-                ).catch((err) => console.error("[Storage] Metadata insert failed:", err));
-              }
-            })
-            .catch((err) => console.error("[Storage] Event insert threw:", err));
-
-          return new Response(JSON.stringify({ ok: true }), { status: 200, headers: jsonHeaders });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: jsonHeaders,
+          });
         } catch (err) {
           console.error("[Webhook] Unhandled error in POST handler:", err);
           return new Response(JSON.stringify({ ok: false, error: "Internal error" }), {
