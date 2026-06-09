@@ -310,7 +310,15 @@ async function fallbackDirectSearch(
       }
     }
 
-    const queryLower = query.toLowerCase();
+    const queryNormalized = normalizeArabicText(query).toLowerCase();
+    // Token-based matching: a product matches if it shares ANY meaningful word
+    // with the query. Full-phrase substring matching is far too strict for
+    // natural-language queries ("نطلون جينز ازرق" would never match a product
+    // titled "جينز ازرق رجالي"). Word matching + Arabic normalization fixes that.
+    const queryTokens = queryNormalized
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2);
     const matches: ProductMatch[] = [];
     const seen = new Set<string>();
 
@@ -330,6 +338,9 @@ async function fallbackDirectSearch(
       });
     }
 
+    // Score each product by how many query words it contains, then sort by score.
+    const scored: Array<{ match: ProductMatch; score: number }> = [];
+
     for (const { row, productId, merchantId } of latestByProductId.values()) {
       if (seen.has(productId)) continue;
       const p = row.payload ?? {};
@@ -340,41 +351,62 @@ async function fallbackDirectSearch(
       // Filter: merchant must not be hidden.
       if (hiddenMerchants.has(merchantId)) continue;
 
-      // Filter: text must match (simple substring, no trigram).
-      const searchableText = [
+      // Build + normalize the searchable text (same fields the RPC indexes).
+      const searchableRaw = [
         getString(p.title),
         getString(p.description),
+        getString(p.category),
+        getString(p.brand),
         getString(p.color),
         getString(p.size),
         getString(p.searchText),
+        getString(p.keywords),
       ]
         .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+        .join(" ");
+      const searchable = normalizeArabicText(searchableRaw).toLowerCase();
 
-      if (!searchableText.includes(queryLower)) continue;
+      // Count matching query words. Also accept a full-phrase substring hit.
+      let score = 0;
+      for (const token of queryTokens) {
+        if (searchable.includes(token)) score += 1;
+      }
+      if (queryNormalized.length >= 2 && searchable.includes(queryNormalized)) {
+        score += queryTokens.length; // boost exact-phrase hits to the top
+      }
+
+      // No word matched at all → not a result.
+      if (score === 0) continue;
 
       seen.add(productId);
       const merchant = merchants.get(merchantId);
-      matches.push({
-        id: productId,
-        merchantId,
-        title: getString(p.title) || getString(p.description) || "منتج",
-        description: getString(p.description),
-        price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
-        currency: getString(p.currency) || "IQD",
-        imageUrl: getString(p.imageUrl),
-        postUrl: getString(p.postUrl),
-        color: getString(p.color) || null,
-        similarity: 0.5,
-        storeName: merchant?.storeName || "متجر",
-        merchantAddress: merchant?.address ?? null,
-        merchantWhatsapp: merchant?.whatsapp ?? null,
-        deliveryPhone: merchant?.deliveryPhone ?? null,
-        sponsored: Boolean((p as Record<string, unknown>).sponsored),
-        source: getString(p.source) || "manual",
+      scored.push({
+        score,
+        match: {
+          id: productId,
+          merchantId,
+          title: getString(p.title) || getString(p.description) || "منتج",
+          description: getString(p.description),
+          price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
+          currency: getString(p.currency) || "IQD",
+          imageUrl: getString(p.imageUrl),
+          postUrl: getString(p.postUrl),
+          color: getString(p.color) || null,
+          similarity: 0.5,
+          storeName: merchant?.storeName || "متجر",
+          merchantAddress: merchant?.address ?? null,
+          merchantWhatsapp: merchant?.whatsapp ?? null,
+          deliveryPhone: merchant?.deliveryPhone ?? null,
+          sponsored: Boolean((p as Record<string, unknown>).sponsored),
+          source: getString(p.source) || "manual",
+        },
       });
+    }
 
+    // Best matches (most query words) first, capped to the buffer size.
+    scored.sort((a, b) => b.score - a.score);
+    for (const { match } of scored) {
+      matches.push(match);
       if (matches.length >= maxResults * 3) break;
     }
 
