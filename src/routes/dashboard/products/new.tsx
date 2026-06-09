@@ -31,6 +31,8 @@ function NewProductPage() {
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
@@ -44,6 +46,38 @@ function NewProductPage() {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
 
+  // Handle file upload: convert to data URL for preview.
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setImageFile(null);
+      setImagePreview("");
+      return;
+    }
+
+    // Validate file size (limit to 2MB for data URL).
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("حجم الصورة يجب أن لا يزيد على 2MB");
+      return;
+    }
+
+    // Validate file type.
+    if (!file.type.startsWith("image/")) {
+      toast.error("اختر صورة فقط");
+      return;
+    }
+
+    setImageFile(file);
+
+    // Convert to data URL for preview + storage.
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setImagePreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const merchantSession = readMerchantSession();
@@ -52,16 +86,23 @@ function NewProductPage() {
       return;
     }
 
-    if (!imageUrl.trim()) {
-      toast.error("رابط صورة المنتج مطلوب");
+    // Validation: must have EITHER imageFile OR imageUrl (not both required, at least one).
+    let finalImageUrl = "";
+    if (imageFile && imagePreview) {
+      finalImageUrl = imagePreview;
+    } else if (imageUrl.trim()) {
+      try {
+        new URL(imageUrl.trim());
+        finalImageUrl = imageUrl.trim();
+      } catch {
+        toast.error("رابط الصورة غير صحيح");
+        return;
+      }
+    } else {
+      toast.error("أضف صورة: إما رابط أو ارفع صورة من جهازك");
       return;
     }
-    try {
-      new URL(imageUrl.trim());
-    } catch {
-      toast.error("رابط الصورة غير صحيح");
-      return;
-    }
+
     const price = Number(currentPrice);
     const salePrice = discountPrice.trim() ? Number(discountPrice) : undefined;
     const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
@@ -85,7 +126,7 @@ function NewProductPage() {
           token: merchantSession.token,
           title: title.trim(),
           description: description.trim(),
-          imageUrl: imageUrl.trim(),
+          imageUrl: finalImageUrl,
           currentPrice: price,
           discountPrice: salePrice,
           currency,
@@ -106,7 +147,7 @@ function NewProductPage() {
   return (
     <DashboardLayout
       title="إضافة منتج"
-      subtitle="أضف رابط صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية."
+      subtitle="أضف اسم المنتج والسعر والوصف. الصورة اختيارية: إما ارفع من جهازك أو ضع رابط."
     >
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
@@ -120,30 +161,56 @@ function NewProductPage() {
       <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
-            <Field id="imageUrl" label="رابط صورة المنتج">
-              <Input
-                id="imageUrl"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://example.com/product.jpg"
-                dir="ltr"
-                className="h-11 text-start"
-                required
-              />
-              <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-                {imageUrl.trim() ? (
-                  <img src={imageUrl.trim()} alt="Product" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-center text-muted-foreground">
-                    <span>
-                      <ImagePlus className="mx-auto h-8 w-8 text-primary" />
-                      <span className="mt-3 block text-sm font-medium">معاينة الصورة</span>
-                      <span className="mt-1 block text-xs">نخزن الرابط فقط، مو ملف الصورة</span>
-                    </span>
-                  </div>
-                )}
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="imageFile" className="text-sm font-medium">ارفع صورة من جهازك</Label>
+                <Input
+                  id="imageFile"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageFileChange}
+                  className="mt-2 h-11"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">PNG, JPG، إلخ (حد أقصى 2MB)</p>
               </div>
-            </Field>
+
+              <div className="relative flex items-center gap-3">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-muted-foreground">أو</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+
+              <div>
+                <Label htmlFor="imageUrl" className="text-sm font-medium">أو ضع رابط الصورة</Label>
+                <Input
+                  id="imageUrl"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://example.com/product.jpg"
+                  dir="ltr"
+                  className="mt-2 h-11 text-start"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
+              {imagePreview || (imageUrl.trim()) ? (
+                <img
+                  src={imagePreview || imageUrl.trim()}
+                  alt="Product preview"
+                  className="h-full w-full object-cover"
+                  onError={() => imageUrl && toast.error("خطأ بتحميل الصورة من الرابط")}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-center text-muted-foreground">
+                  <span>
+                    <ImagePlus className="mx-auto h-8 w-8 text-primary" />
+                    <span className="mt-3 block text-sm font-medium">معاينة الصورة</span>
+                    <span className="mt-1 block text-xs">ارفع صورة أو ضع رابط</span>
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
