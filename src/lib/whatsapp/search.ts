@@ -10,7 +10,7 @@ import OpenAI from "openai";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { normalizeArabicText } from "./iraqi-arabic";
-import { getString, getNumber } from "@/lib/eventStore.server";
+import { getString, getNumber, listEvents } from "@/lib/eventStore.server";
 
 function getOpenAIApiKey() {
   return process.env.OPENAI_API_KEY;
@@ -134,6 +134,42 @@ export interface SearchOptions {
   limit?: number;
 }
 
+interface MerchantInfo {
+  storeName?: string;
+  address?: string | null;
+  whatsapp?: string | null;
+  deliveryPhone?: string | null;
+  latitude?: number;
+  longitude?: number;
+}
+
+// Merchant location + contact details live on the `botly_merchant` event, NOT on
+// the product. Build a merchantId → latest-merchant map so search results can be
+// enriched (store name / phone) and filtered by real merchant coordinates.
+async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
+  const map = new Map<string, MerchantInfo>();
+  try {
+    // listEvents returns newest-first, so the first row per merchantId wins.
+    const rows = await listEvents("botly_merchant");
+    for (const row of rows) {
+      const p = row.payload ?? {};
+      const id = getString(p.merchantId) || row.id;
+      if (!id || map.has(id)) continue;
+      map.set(id, {
+        storeName: getString(p.storeName) || getString(p.merchantName) || getString(p.name) || undefined,
+        address: getString(p.address) || getString(p.merchantAddress) || null,
+        whatsapp: getString(p.whatsapp) || getString(p.merchantWhatsapp) || getString(p.phone) || null,
+        deliveryPhone: getString(p.deliveryPhone) || null,
+        latitude: getNumber(p.latitude) ?? getNumber(p.merchantLatitude),
+        longitude: getNumber(p.longitude) ?? getNumber(p.merchantLongitude),
+      });
+    }
+  } catch (error) {
+    console.error("[Search] Failed to load merchant map", error);
+  }
+  return map;
+}
+
 // Run the actual database search via the pg_trgm RPC. Falls back gracefully to
 // an empty result set if the RPC (migration) isn't deployed yet.
 export async function searchProducts(
@@ -171,12 +207,18 @@ export async function searchProducts(
     similarity: number;
   }>;
 
+  // Enrich with merchant details (store name / phone / coordinates) — these live
+  // on the merchant event, not the product. Falls back gracefully if the lookup
+  // fails so search still returns products.
+  const merchants = await loadMerchantMap();
+
   let matches: ProductMatch[] = rows.map((row) => {
     const p = row.payload ?? {};
-    const m = row.payload as any;
+    const merchantId = getString(p.merchantId);
+    const merchant = merchants.get(merchantId);
     return {
       id: getString(p.productId) || row.id,
-      merchantId: getString(p.merchantId),
+      merchantId,
       title: getString(p.title) || getString(p.description) || "منتج",
       description: getString(p.description),
       price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
@@ -185,12 +227,12 @@ export async function searchProducts(
       postUrl: getString(p.postUrl),
       color: getString(p.color) || null,
       similarity: row.similarity ?? 0,
-      storeName: getString(m.storeName) || getString(m.merchantName) || "متجر",
-      merchantAddress: getString(m.merchantAddress) || null,
-      merchantWhatsapp: getString(m.merchantWhatsapp) || getString(m.merchantPhone) || null,
-      deliveryPhone: getString(m.deliveryPhone) || null,
-      sponsored: Boolean(m.sponsored),
-      source: getString(m.source) || "manual",
+      storeName: merchant?.storeName || "متجر",
+      merchantAddress: merchant?.address ?? null,
+      merchantWhatsapp: merchant?.whatsapp ?? null,
+      deliveryPhone: merchant?.deliveryPhone ?? null,
+      sponsored: Boolean((p as Record<string, unknown>).sponsored),
+      source: getString(p.source) || "manual",
     };
   });
 
@@ -202,11 +244,14 @@ export async function searchProducts(
     const radius = options.radiusKm || 15;
     matches = matches
       .map((m) => {
-        const payload = rows.find((r) => getString(r.payload?.productId) === m.id)?.payload ?? {};
-        const mLat = getNumber(payload.merchantLatitude) ?? getNumber(payload.latitude);
-        const mLon = getNumber(payload.merchantLongitude) ?? getNumber(payload.longitude);
+        const merchant = merchants.get(m.merchantId);
+        const mLat = merchant?.latitude;
+        const mLon = merchant?.longitude;
+        // Merchant has no coordinates yet → keep the product (distance unknown).
+        // We must NEVER drop a real product just because its store hasn't shared
+        // a location; that would empty the results for every registered store.
         if (typeof mLat !== "number" || typeof mLon !== "number") {
-          return { ...m, distanceKm: radius + 1 };
+          return { ...m, distanceKm: undefined };
         }
         const dist = haversineDistance(
           options.customerLocation!.latitude,
@@ -216,8 +261,11 @@ export async function searchProducts(
         );
         return { ...m, distanceKm: dist };
       })
-      .filter((m) => !m.distanceKm || m.distanceKm <= radius)
-      .sort((a, b) => (a.distanceKm || Infinity) - (b.distanceKm || Infinity));
+      // Only exclude products whose merchant has coordinates AND is out of range.
+      // Coordinate-less products (distanceKm undefined) are retained.
+      .filter((m) => m.distanceKm === undefined || m.distanceKm <= radius)
+      // Nearest first; unknown-distance products sort to the end.
+      .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
   }
 
   return matches.slice(0, options?.limit || maxResults);
