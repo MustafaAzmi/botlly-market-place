@@ -494,12 +494,39 @@ async function notifyDeliveryOfOrder(customerNumber: string, match: ProductMatch
     .join("\n");
 
   const result = await sendWhatsAppText(match.deliveryPhone, body);
+
+  // Always tell the merchant a sale happened, even though delivery got the order.
+  let merchantNotified = false;
+  if (match.merchantWhatsapp) {
+    const merchantResult = await sendWhatsAppText(
+      match.merchantWhatsapp,
+      [
+        "🎉 Botly: تم بيع منتج من متجرك!",
+        `المنتج: ${match.title}`,
+        `السعر: ${formatPrice(match)}`,
+        `رقم الزبون: ${customerNumber}`,
+        "",
+        "✅ تم تحويل الطلب لشركة التوصيل مباشرة.",
+      ].join("\n"),
+    ).catch((error) => {
+      console.error("[Order] Failed to notify merchant", error);
+      return { ok: false, status: 0, error: String(error) };
+    });
+    merchantNotified = merchantResult.ok;
+  }
+
   await appendEvent("botly_order", {
     orderId: crypto.randomUUID(),
     merchantId: match.merchantId,
     productId: match.id,
+    productTitle: match.title,
+    productPrice: match.price,
+    currency: match.currency,
+    storeName: match.storeName,
     customerNumber,
     deliveryPhone: match.deliveryPhone,
+    merchantWhatsapp: match.merchantWhatsapp,
+    merchantNotified,
     status: result.ok ? "sent_to_delivery" : "delivery_notification_failed",
     createdAt: new Date().toISOString(),
   }).catch((error) => console.error("[Order] Failed to record order", error));
@@ -568,17 +595,46 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
     `معلومات الزبون: ${details}`,
   ].join("\n");
 
+  // Primary recipient: delivery company if configured, otherwise the merchant.
   const recipient = match.deliveryPhone || match.merchantWhatsapp;
   if (!recipient) return { ok: false, status: 0, error: "Missing recipient" };
   const result = await sendWhatsAppText(recipient, body);
+
+  // The merchant must ALWAYS know the bot sold a product — even while away or
+  // asleep, and even when the order went straight to the delivery company.
+  // This is the core promise of the product.
+  let merchantNotified = !match.deliveryPhone && result.ok;
+  if (match.deliveryPhone && match.merchantWhatsapp) {
+    const merchantBody = [
+      "🎉 Botly: تم بيع منتج من متجرك!",
+      `المنتج: ${match.title}`,
+      `السعر: ${formatPrice(match)}`,
+      `معلومات الزبون: ${details}`,
+      `رقم الزبون: ${customerNumber}`,
+      "",
+      "✅ تم تحويل الطلب لشركة التوصيل مباشرة.",
+    ].join("\n");
+    const merchantResult = await sendWhatsAppText(match.merchantWhatsapp, merchantBody).catch(
+      (error) => {
+        console.error("[Order] Failed to notify merchant", error);
+        return { ok: false, status: 0, error: String(error) };
+      },
+    );
+    merchantNotified = merchantResult.ok;
+  }
 
   await appendEvent("botly_order", {
     orderId: crypto.randomUUID(),
     merchantId: match.merchantId,
     productId: match.id,
+    productTitle: match.title,
+    productPrice: match.price,
+    currency: match.currency,
+    storeName: match.storeName,
     customerNumber,
     deliveryPhone: match.deliveryPhone,
     merchantWhatsapp: match.merchantWhatsapp,
+    merchantNotified,
     status: result.ok
       ? match.deliveryPhone
         ? "sent_to_delivery"

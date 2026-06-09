@@ -1,8 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ShoppingBag } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { Loader2, ShoppingBag, Truck, Store, BellRing } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Badge } from "@/components/ui/badge";
 import { useT } from "@/i18n/LanguageProvider";
+import { listMerchantOrders, type MerchantOrder } from "@/lib/merchant.functions";
+import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/orders/")({
   head: () => ({ meta: [{ title: "Orders - Botly" }] }),
@@ -11,10 +17,112 @@ export const Route = createFileRoute("/dashboard/orders/")({
 
 function OrdersPage() {
   const t = useT();
+  const navigate = useNavigate();
+  const listMerchantOrdersFn = useServerFn(listMerchantOrders);
+  const [orders, setOrders] = useState<MerchantOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) {
+      navigate({ to: "/auth" });
+      return;
+    }
+
+    listMerchantOrdersFn({ data: { token: merchantSession.token } })
+      .then(setOrders)
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "تعذر تحميل الطلبات");
+      })
+      .finally(() => setLoading(false));
+  }, [listMerchantOrdersFn, navigate]);
+
   return (
     <DashboardLayout title={t("orders.title")} subtitle={t("orders.subtitle")}>
-      <EmptyState />
+      {loading ? (
+        <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+          <p className="mt-3 text-sm">جاري تحميل الطلبات...</p>
+        </div>
+      ) : orders.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order) => (
+            <OrderCard key={order.id} order={order} />
+          ))}
+        </div>
+      )}
     </DashboardLayout>
+  );
+}
+
+function formatOrderDate(iso: string) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("ar-IQ", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function statusBadge(order: MerchantOrder) {
+  if (order.status === "sent_to_delivery") {
+    return (
+      <Badge className="gap-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+        <Truck className="h-3.5 w-3.5" />
+        تم التحويل لشركة التوصيل
+      </Badge>
+    );
+  }
+  if (order.status === "sent_to_merchant") {
+    return (
+      <Badge className="gap-1 bg-sky-100 text-sky-700 hover:bg-sky-100">
+        <Store className="h-3.5 w-3.5" />
+        أُرسل لك مباشرة
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="gap-1">
+      <BellRing className="h-3.5 w-3.5" />
+      تعذر إرسال الإشعار
+    </Badge>
+  );
+}
+
+function OrderCard({ order }: { order: MerchantOrder }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">{order.productTitle}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {order.productPrice ? `${order.productPrice} ${order.currency}` : "بدون سعر معلن"}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          {statusBadge(order)}
+          <span className="text-xs text-muted-foreground">{formatOrderDate(order.createdAt)}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 rounded-xl bg-secondary/60 p-4 text-sm">
+        {order.customerDetails ? (
+          <p>
+            <span className="font-medium">معلومات الزبون: </span>
+            {order.customerDetails}
+          </p>
+        ) : null}
+        <p>
+          <span className="font-medium">رقم الزبون (واتساب): </span>
+          <span dir="ltr">{order.customerNumber}</span>
+        </p>
+      </div>
+    </div>
   );
 }
 

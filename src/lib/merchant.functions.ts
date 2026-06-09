@@ -554,3 +554,45 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
       },
     } satisfies MerchantDashboard;
   });
+
+export type MerchantOrder = {
+  id: string;
+  productTitle: string;
+  productPrice: number;
+  currency: string;
+  customerNumber: string;
+  customerDetails: string;
+  status: string;
+  sentToDelivery: boolean;
+  merchantNotified: boolean;
+  createdAt: string;
+};
+
+// Orders created by the WhatsApp bot for this merchant — shown on
+// /dashboard/orders so the merchant always sees what the bot sold, even when
+// the order was forwarded straight to the delivery company.
+export const listMerchantOrders = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchant = await getAuthorizedMerchant(data.token);
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents("botly_order");
+
+    return rows
+      .filter((row) => getString(row.payload?.merchantId) === merchantId)
+      .map((row) => {
+        const p = row.payload ?? {};
+        return {
+          id: getString(p.orderId) || row.id,
+          productTitle: getString(p.productTitle) || "منتج",
+          productPrice: getNumber(p.productPrice) ?? 0,
+          currency: getString(p.currency) || "IQD",
+          customerNumber: getString(p.customerNumber),
+          customerDetails: getString(p.customerDetails),
+          status: getString(p.status) || "unknown",
+          sentToDelivery: Boolean(getString(p.deliveryPhone)),
+          merchantNotified: p.merchantNotified === true,
+          createdAt: getString(p.createdAt) || getString(row.created_at) || "",
+        } satisfies MerchantOrder;
+      });
+  });
