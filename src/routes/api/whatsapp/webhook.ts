@@ -28,6 +28,7 @@ import {
 } from "@/lib/whatsapp/search";
 import {
   sendWhatsAppButtons,
+  sendWhatsAppImage,
   sendWhatsAppLocationRequest,
   sendWhatsAppText,
 } from "@/lib/whatsapp/send.server";
@@ -537,16 +538,34 @@ async function notifyDeliveryOfOrder(customerNumber: string, match: ProductMatch
 function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, startIndex = 0) {
   if (matches.length === 0) return "ما لكيت منتج مطابق قريب منك حالياً.";
 
+  // NOTE: deliberately no postUrl, no merchant address, and no source label —
+  // where the product came from (social import vs manual) stays secret.
   const lines = matches.slice(0, 3).map((match, index) => {
     const color = match.color ? `، ${match.color}` : "";
     const distance =
       typeof match.distanceKm === "number" ? `، يبعد ${match.distanceKm.toFixed(1)} كم` : "";
-    const source = match.source === "manual" ? "المتجر" : "منشور سوشيال";
-    return `${startIndex + index + 1}. ${match.title}${color}\n${formatPrice(match)} - ${match.storeName}${distance} - ${source}`;
+    return `${startIndex + index + 1}. ${match.title}${color}\n${formatPrice(match)} - ${match.storeName}${distance}`;
   });
 
   const more = hasMore ? "\nإذا تريد نتائج أكثر اضغط المزيد." : "";
   return `${lines.join("\n\n")}${more}\n\nاختار رقم المنتج حتى أكمله.`;
+}
+
+// Send one image per displayed product (best-effort). Only public https URLs
+// can be delivered by WhatsApp — data: URLs (manual uploads) are skipped. The
+// caption shows number/title/price only; no links or merchant location.
+async function sendResultImages(
+  customerNumber: string,
+  matches: ProductMatch[],
+  startIndex = 0,
+) {
+  for (const [index, match] of matches.slice(0, 3).entries()) {
+    if (!match.imageUrl || !/^https:\/\//i.test(match.imageUrl)) continue;
+    const caption = `${startIndex + index + 1}️⃣ ${match.title}\n${formatPrice(match)} - ${match.storeName}`;
+    await sendWhatsAppImage(customerNumber, match.imageUrl, caption).catch((error) =>
+      console.error("[Workflow] Failed to send product image", error),
+    );
+  }
 }
 
 function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = false) {
@@ -797,6 +816,7 @@ async function handleButtonWorkflow(
     if (visible.length === 0) {
       return notFoundResponse();
     }
+    await sendResultImages(customerNumber, visible, 0);
     return buttonResponse(
       formatWorkflowSearchResults(visible, matches.length > visible.length),
       selectionButtons(visible, 0, matches.length > visible.length),
@@ -823,6 +843,7 @@ async function handleButtonWorkflow(
         "awaiting_selection",
         existingSession.lastQuery,
       );
+      await sendResultImages(customerNumber, extraMatches, start);
       return buttonResponse(
         formatWorkflowSearchResults(extraMatches, existingSession.matches.length > next, start),
         selectionButtons(extraMatches, start, existingSession.matches.length > next),

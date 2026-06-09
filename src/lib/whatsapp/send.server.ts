@@ -91,6 +91,46 @@ export async function sendWhatsAppButtons(
   };
 }
 
+// Send a product image with an optional caption. WhatsApp requires a PUBLIC
+// https URL — data: URLs (manually uploaded images stored as base64) cannot be
+// sent and the caller must skip them.
+export async function sendWhatsAppImage(
+  to: string,
+  imageUrl: string,
+  caption?: string,
+  phoneNumberId?: string,
+): Promise<SendResult> {
+  const accessToken = getWhatsAppAccessToken();
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
+    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+  }
+  if (!/^https:\/\//i.test(imageUrl)) {
+    return { ok: false, status: 0, error: "Image URL must be public https" };
+  }
+
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "image",
+      image: caption ? { link: imageUrl, caption } : { link: imageUrl },
+    }),
+  });
+
+  if (response.ok) return { ok: true, status: response.status };
+  return {
+    ok: false,
+    status: response.status,
+    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+  };
+}
+
 export async function sendWhatsAppLocationRequest(
   to: string,
   body: string,

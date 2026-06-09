@@ -154,10 +154,14 @@ export async function importMediaBatch(
     }
   }
 
+  // Rolling window: keep only the latest 10 posts as products; a new post
+  // replaces the oldest. SAFETY: when the fetch returned nothing (API hiccup,
+  // rate limit) we must NOT treat "no posts" as "expire everything" — apply
+  // only the 7-day age expiry in that case, never the window expiry.
   summary.expired += await expireOldSocialProducts(
     connection.merchantId,
     platform,
-    activePostIds,
+    recentItems.length > 0 ? activePostIds : null,
     cutoffTime,
   );
 
@@ -167,7 +171,8 @@ export async function importMediaBatch(
 async function expireOldSocialProducts(
   merchantId: string,
   platform: SocialPlatform,
-  activePostIds: Set<string>,
+  // null = the sync batch was empty; skip window expiry, apply age expiry only.
+  activePostIds: Set<string> | null,
   cutoffTime: number,
 ) {
   let expired = 0;
@@ -189,7 +194,7 @@ async function expireOldSocialProducts(
     const postId = getString(payload.postId);
     const timestamp = getString(payload.postTimestamp) || getString(payload.createdAt);
     const postTime = timestamp ? new Date(timestamp).getTime() : 0;
-    const outsideRecentWindow = postId ? !activePostIds.has(postId) : true;
+    const outsideRecentWindow = activePostIds ? (postId ? !activePostIds.has(postId) : true) : false;
     const olderThanRetention = Number.isFinite(postTime) && postTime > 0 && postTime < cutoffTime;
 
     if (!outsideRecentWindow && !olderThanRetention) continue;
