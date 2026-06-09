@@ -2,6 +2,7 @@ export interface MerchantSession {
   token?: string;
   merchantId?: string;
   storeName?: string;
+  storeSlug?: string;
   whatsapp?: string;
   email?: string;
   bio?: string;

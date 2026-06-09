@@ -20,6 +20,9 @@ type EventRow = {
 export type MerchantProfile = {
   id: string;
   storeName: string;
+  // URL-safe unique store identifier. Derived from the store name when it's
+  // English; a unique number when the name is Arabic (Arabic text breaks URLs).
+  storeSlug?: string;
   whatsapp: string;
   email?: string;
   bio?: string;
@@ -135,11 +138,51 @@ function merchantIdentity(row: EventRow) {
   return getString(row.payload?.merchantId) || row.id;
 }
 
+// Slugify an English store name for use in URLs. Returns "" when the name has
+// no usable latin characters (e.g. an Arabic name) — caller falls back to a
+// numeric identifier instead.
+function slugifyStoreName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+// Unique URL identifier for a store. English name → readable slug ("yosif");
+// Arabic name → unique number so the URL never contains Arabic text.
+async function generateStoreSlug(storeName: string): Promise<string> {
+  const rows = await listEvents(MERCHANT_PROVIDER);
+  const taken = new Set(
+    rows.map((row) => getString(row.payload?.storeSlug)).filter(Boolean),
+  );
+
+  const base = slugifyStoreName(storeName);
+  if (base.length >= 2) {
+    if (!taken.has(base)) return base;
+    for (let i = 2; i < 1000; i += 1) {
+      const candidate = `${base}-${i}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
+  // Arabic (or unusable) name: issue a unique store number.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = String(100000 + Math.floor(Math.random() * 900000));
+    if (!taken.has(candidate)) return candidate;
+  }
+  return String(Date.now());
+}
+
 function toProfile(row: EventRow): MerchantProfile {
   const payload = row.payload ?? {};
   return {
     id: merchantIdentity(row),
     storeName: getString(payload.storeName),
+    storeSlug: getString(payload.storeSlug) || undefined,
     whatsapp: getString(payload.whatsapp),
     email: getString(payload.email) || undefined,
     bio: getString(payload.bio) || undefined,
@@ -402,9 +445,12 @@ export const signupMerchant = createServerFn({ method: "POST" })
     const whatsappNormalized = normalizePhone(data.whatsapp);
     const merchantId = crypto.randomUUID();
 
+    const storeSlug = await generateStoreSlug(data.storeName);
+
     const row = await insertEvent(MERCHANT_PROVIDER, {
       merchantId,
       storeName: data.storeName,
+      storeSlug,
       whatsapp: data.whatsapp,
       whatsappNormalized,
       email: data.email || "",
@@ -439,6 +485,19 @@ export const loginMerchant = createServerFn({ method: "POST" })
     if (!salt || actualHash !== expectedHash) throw new Error("كلمة المرور غير صحيحة.");
 
     const profile = toProfile(row);
+
+    // Backfill: merchants registered before store slugs existed get one on
+    // their next login so their dashboard URL is uniquely identified too.
+    if (!profile.storeSlug) {
+      const storeSlug = await generateStoreSlug(profile.storeName || profile.id);
+      await insertEvent(MERCHANT_PROVIDER, {
+        ...row.payload,
+        storeSlug,
+        updatedAt: new Date().toISOString(),
+      });
+      profile.storeSlug = storeSlug;
+    }
+
     const token = await createSession(row);
     return { token, profile };
   });

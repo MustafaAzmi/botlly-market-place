@@ -5,6 +5,8 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  Eye,
+  EyeOff,
   KeyRound,
   Mail,
   MessageCircle,
@@ -146,6 +148,7 @@ function AuthPage() {
       token: result.token,
       merchantId: result.profile.id,
       storeName: result.profile.storeName,
+      storeSlug: result.profile.storeSlug,
       whatsapp: result.profile.whatsapp,
       email: result.profile.email,
       bio: result.profile.bio,
@@ -352,14 +355,17 @@ function AuthPage() {
 
                   {mode === "signup" && (
                     <>
-                      <Field
-                        icon={Building2}
-                        id="storeName"
-                        label={text.storeName}
-                        value={storeName}
-                        onChange={setStoreName}
-                        placeholder={text.storeNamePlaceholder}
-                      />
+                      <div>
+                        <Field
+                          icon={Building2}
+                          id="storeName"
+                          label={text.storeName}
+                          value={storeName}
+                          onChange={setStoreName}
+                          placeholder={text.storeNamePlaceholder}
+                        />
+                        <StoreSlugHint storeName={storeName} locale={locale} />
+                      </div>
                       <Field
                         icon={Mail}
                         id="email"
@@ -373,15 +379,12 @@ function AuthPage() {
                     </>
                   )}
 
-                  <Field
-                    icon={KeyRound}
+                  <PasswordField
                     id="password"
                     label={text.password}
                     value={password}
                     onChange={setPassword}
                     placeholder={text.passwordPlaceholder}
-                    type="password"
-                    dir="ltr"
                   />
 
                   {mode === "login" && (
@@ -461,6 +464,94 @@ function Field({
         />
       </div>
     </div>
+  );
+}
+
+// Password input with a show/hide toggle.
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <KeyRound className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id={id}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          dir="ltr"
+          className="h-11 ps-10 pe-10"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+          tabIndex={-1}
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Client-side mirror of the server slug rules (merchant.functions
+// generateStoreSlug): English names become a readable URL slug; Arabic names
+// get a unique number so URLs never contain Arabic text.
+function previewStoreSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+// Live hint under the store-name field showing the store's URL identifier.
+function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" }) {
+  if (!storeName.trim()) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {locale === "ar"
+          ? "يفضّل كتابة اسم المتجر بالإنكليزي حتى يظهر برابط متجرك."
+          : "Prefer an English store name — it becomes your store URL."}
+      </p>
+    );
+  }
+  const slug = previewStoreSlug(storeName);
+  if (slug.length >= 2) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {locale === "ar" ? "رابط متجرك: " : "Your store URL: "}
+        <span dir="ltr" className="font-medium text-primary">
+          bot-lly.tech/dashboard?store={slug}
+        </span>
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1.5 text-xs text-amber-600">
+      {locale === "ar"
+        ? "الاسم بالعربي — راح ينعطي متجرك رقم مميز بالرابط بدل الاسم حتى ما يصير خلل بالاستدعاء."
+        : "Arabic name detected — a unique store number will be used in the URL instead."}
+    </p>
   );
 }
 

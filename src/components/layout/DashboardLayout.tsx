@@ -1,10 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { LayoutDashboard, Package, Store, ShoppingBag, Workflow, LogOut } from "lucide-react";
+import { useEffect } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
-import { clearMerchantSession } from "@/lib/merchantSession";
+import { clearMerchantSession, readMerchantSession } from "@/lib/merchantSession";
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
@@ -27,6 +28,20 @@ export function DashboardLayout({
 }) {
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  // Keep the signed-in store's unique identifier visible in the URL
+  // (?store=<slug>) on every dashboard page, so each store's pages are
+  // unambiguously addressed and links/bookmarks never mix stores up.
+  useEffect(() => {
+    const session = readMerchantSession();
+    const slug = session?.storeSlug || session?.merchantId?.slice(0, 8);
+    if (!slug) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("store") !== slug) {
+      url.searchParams.set("store", slug);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [pathname]);
 
   return (
     <div className="min-h-screen bg-secondary/40">
