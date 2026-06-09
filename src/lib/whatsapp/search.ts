@@ -20,12 +20,24 @@ function getOpenAIModel() {
   return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 }
 
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+
+function getAnthropicModel() {
+  return process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+}
+
 export interface SearchIntent {
   searchTerms: string;
   category: string | null;
   brand: string | null;
   color: string | null;
   maxPrice: number | null;
+  // AI-generated alternative search words: spelling corrections, synonyms,
+  // singular/plural and dialect variants. These drive tolerant matching so the
+  // customer doesn't have to spell the product exactly as the merchant did.
+  keywords: string[];
 }
 
 export interface CustomerLocation {
@@ -53,12 +65,35 @@ export interface ProductMatch {
   source?: string;
 }
 
-const INTENT_PROMPT = `استخرج نية البحث من رسالة الزبون. رجّع JSON فقط:
-{"search_terms": string, "category": string|null, "brand": string|null, "color": string|null, "max_price": number|null}
-search_terms: أهم الكلمات للبحث (نظّف الإيموجي والكلام الزائد).`;
+// The model is the BRAIN that understands the customer — not a string matcher.
+// It corrects spelling mistakes, normalizes hamza/alef/yaa variations, expands
+// Iraqi dialect, and produces synonyms so the customer never has to spell a
+// product exactly the way the merchant typed it.
+const INTENT_PROMPT = `أنت مساعد ذكي تفهم قصد الزبون من رسالته حتى لو فيها أخطاء إملائية أو أحرف ناقصة أو همزات غلط أو لهجة عراقية.
 
-// GPT-based intent extraction. Falls back to the normalized raw message if the
-// model is unavailable or errors — search must still work without AI.
+مهمتك: افهم شنو يريد الزبون، صحّح الأخطاء، واستخرج كلمات بحث نظيفة + مرادفات.
+
+رجّع JSON فقط بهذا الشكل:
+{
+  "search_terms": "الكلمات الأساسية المصححة والنظيفة للبحث",
+  "keywords": ["مرادف1","مرادف2","صيغة مفرد/جمع","تصحيح إملائي بديل"],
+  "category": "الفئة أو null",
+  "brand": "الماركة أو null",
+  "color": "اللون أو null",
+  "max_price": رقم أو null
+}
+
+قواعد مهمة:
+- صحّح الأخطاء الإملائية (مثال: "بنطرون" → "بنطلون"، "جنز" → "جينز").
+- وحّد الهمزات والألف (أزرق=ازرق=إزرق).
+- keywords: ضع كل الصيغ المحتملة الي ممكن التاجر كتب فيها المنتج (مفرد، جمع، مرادفات، أسماء شائعة).
+- مثال: لو الزبون كتب "نطلون جنز ازرق" → search_terms="بنطلون جينز ازرق"، keywords=["بنطلون","نطلون","جينز","جنز","ازرق","ازرك","ديم","jeans"].
+- نظّف الإيموجي والكلام الزائد.`;
+
+// AI-driven intent understanding. Order of preference:
+//   1. Claude (opus 4.8) — primary brain, best at typo/dialect understanding.
+//   2. OpenAI — secondary.
+//   3. Normalized raw text — last-resort fallback so search never fully breaks.
 export async function extractSearchIntent(customerText: string): Promise<SearchIntent> {
   const normalized = normalizeArabicText(customerText);
   const fallback: SearchIntent = {
@@ -67,16 +102,108 @@ export async function extractSearchIntent(customerText: string): Promise<SearchI
     brand: null,
     color: null,
     maxPrice: null,
+    keywords: [],
   };
 
+  // 1. Claude (opus 4.8) first.
+  if (getAnthropicApiKey()) {
+    const viaClaude = await extractIntentWithClaude(customerText, normalized);
+    if (viaClaude) return viaClaude;
+  }
+
+  // 2. OpenAI fallback.
+  if (getOpenAIApiKey()) {
+    const viaOpenAI = await extractIntentWithOpenAI(normalized);
+    if (viaOpenAI) return viaOpenAI;
+  }
+
+  // 3. Raw normalized text.
+  return fallback;
+}
+
+interface RawIntent {
+  search_terms?: string;
+  keywords?: string[];
+  category?: string | null;
+  brand?: string | null;
+  color?: string | null;
+  max_price?: number | null;
+}
+
+function normalizeRawIntent(raw: RawIntent, normalized: string): SearchIntent {
+  const keywords = Array.isArray(raw.keywords)
+    ? raw.keywords
+        .map((k) => (typeof k === "string" ? k.trim() : ""))
+        .filter((k) => k.length >= 2)
+    : [];
+  return {
+    searchTerms: (raw.search_terms ?? "").trim() || normalized,
+    category: raw.category?.trim() || null,
+    brand: raw.brand?.trim() || null,
+    color: raw.color?.trim() || null,
+    maxPrice: typeof raw.max_price === "number" && raw.max_price > 0 ? raw.max_price : null,
+    keywords,
+  };
+}
+
+// Primary: Claude opus 4.8 understands the customer (typos, hamza, dialect).
+async function extractIntentWithClaude(
+  customerText: string,
+  normalized: string,
+): Promise<SearchIntent | null> {
+  const apiKey = getAnthropicApiKey();
+  if (!apiKey) return null;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: getAnthropicModel(),
+        max_tokens: 400,
+        temperature: 0.1,
+        system: INTENT_PROMPT,
+        messages: [{ role: "user", content: customerText }],
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn("[Search] Claude intent extraction failed", response.status);
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    const text = data.content?.find((part) => part.type === "text")?.text;
+    if (!text) return null;
+
+    // Claude may wrap JSON in prose or code fences — extract the JSON object.
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const raw = JSON.parse(jsonMatch[0]) as RawIntent;
+    return normalizeRawIntent(raw, normalized);
+  } catch (error) {
+    console.error("[Search] Claude intent extraction error", error);
+    return null;
+  }
+}
+
+// Secondary: OpenAI extraction with JSON mode.
+async function extractIntentWithOpenAI(normalized: string): Promise<SearchIntent | null> {
   const apiKey = getOpenAIApiKey();
-  if (!apiKey) return fallback;
+  if (!apiKey) return null;
 
   try {
     const client = new OpenAI({ apiKey });
     const response = await client.chat.completions.create({
       model: getOpenAIModel(),
-      max_tokens: 150,
+      max_tokens: 400,
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
@@ -86,26 +213,13 @@ export async function extractSearchIntent(customerText: string): Promise<SearchI
     });
 
     const content = response.choices[0]?.message?.content;
-    if (!content) return fallback;
+    if (!content) return null;
 
-    const raw = JSON.parse(content) as {
-      search_terms?: string;
-      category?: string | null;
-      brand?: string | null;
-      color?: string | null;
-      max_price?: number | null;
-    };
-
-    return {
-      searchTerms: (raw.search_terms ?? "").trim() || normalized,
-      category: raw.category?.trim() || null,
-      brand: raw.brand?.trim() || null,
-      color: raw.color?.trim() || null,
-      maxPrice: typeof raw.max_price === "number" && raw.max_price > 0 ? raw.max_price : null,
-    };
+    const raw = JSON.parse(content) as RawIntent;
+    return normalizeRawIntent(raw, normalized);
   } catch (error) {
-    console.error("[Search] Intent extraction failed, using raw query", error);
-    return fallback;
+    console.error("[Search] OpenAI intent extraction error", error);
+    return null;
   }
 }
 
@@ -188,9 +302,10 @@ export async function searchProducts(
   let matches = await tryRpcSearch(query, maxResults);
 
   // RPC failed or returned nothing: fall back to direct database search.
-  // Ensures we still return products even if the RPC isn't deployed.
+  // Ensures we still return products even if the RPC isn't deployed. The AI's
+  // corrected keywords drive tolerant matching here.
   if (matches.length === 0) {
-    matches = await fallbackDirectSearch(query, maxResults);
+    matches = await fallbackDirectSearch(query, intent.keywords ?? [], maxResults);
   }
 
   // Apply price filter.
@@ -284,6 +399,7 @@ async function tryRpcSearch(query: string, maxResults: number): Promise<ProductM
 // deployed yet.
 async function fallbackDirectSearch(
   query: string,
+  aiKeywords: string[],
   maxResults: number,
 ): Promise<ProductMatch[]> {
   try {
@@ -315,10 +431,21 @@ async function fallbackDirectSearch(
     // with the query. Full-phrase substring matching is far too strict for
     // natural-language queries ("نطلون جينز ازرق" would never match a product
     // titled "جينز ازرق رجالي"). Word matching + Arabic normalization fixes that.
-    const queryTokens = queryNormalized
-      .split(/\s+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length >= 2);
+    //
+    // The match vocabulary = the query words PLUS the AI's corrected keywords
+    // (synonyms / spelling fixes / dialect variants). This is what lets a
+    // misspelled query still find the right product: the model already mapped
+    // "جنز" → "جينز", so we match on the corrected form too.
+    const queryTokens = Array.from(
+      new Set(
+        [
+          ...queryNormalized.split(/\s+/),
+          ...aiKeywords.map((k) => normalizeArabicText(k).toLowerCase()),
+        ]
+          .map((t) => t.trim())
+          .filter((t) => t.length >= 2),
+      ),
+    );
     const matches: ProductMatch[] = [];
     const seen = new Set<string>();
 
