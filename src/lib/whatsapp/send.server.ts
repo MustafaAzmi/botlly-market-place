@@ -15,14 +15,18 @@ function getWhatsAppPhoneNumberId() {
 
 export type SendResult = { ok: boolean; status: number; error?: string };
 
-export async function sendWhatsAppText(to: string, body: string): Promise<SendResult> {
+export async function sendWhatsAppText(
+  to: string,
+  body: string,
+  phoneNumberId?: string,
+): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const phoneNumberId = getWhatsAppPhoneNumberId();
-  if (!accessToken || !phoneNumberId) {
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -33,6 +37,86 @@ export async function sendWhatsAppText(to: string, body: string): Promise<SendRe
       to,
       type: "text",
       text: { preview_url: false, body },
+    }),
+  });
+
+  if (response.ok) return { ok: true, status: response.status };
+  return {
+    ok: false,
+    status: response.status,
+    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+  };
+}
+
+export async function sendWhatsAppButtons(
+  to: string,
+  body: string,
+  buttons: Array<{ id: string; title: string }>,
+  phoneNumberId?: string,
+): Promise<SendResult> {
+  const accessToken = getWhatsAppAccessToken();
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
+    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+  }
+
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: body },
+        action: {
+          buttons: buttons.map((btn) => ({
+            type: "reply",
+            reply: { id: btn.id, title: btn.title },
+          })),
+        },
+      },
+    }),
+  });
+
+  if (response.ok) return { ok: true, status: response.status };
+  return {
+    ok: false,
+    status: response.status,
+    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+  };
+}
+
+export async function sendWhatsAppLocationRequest(
+  to: string,
+  body: string,
+  phoneNumberId?: string,
+): Promise<SendResult> {
+  const accessToken = getWhatsAppAccessToken();
+  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
+  if (!accessToken || !pnId) {
+    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+  }
+
+  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "location_request_message",
+        body: { text: body },
+        action: { text: "أرسل موقعك" },
+      },
     }),
   });
 
