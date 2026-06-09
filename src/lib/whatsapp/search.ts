@@ -171,7 +171,7 @@ async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
 }
 
 // Run the actual database search via the pg_trgm RPC. Falls back gracefully to
-// an empty result set if the RPC (migration) isn't deployed yet.
+// direct database query if the RPC (migration) isn't deployed or returns nothing.
 export async function searchProducts(
   intent: SearchIntent,
   maxResults = 8,
@@ -184,72 +184,29 @@ export async function searchProducts(
 
   if (!query) return [];
 
-  // The RPC lives in a migration not reflected in the generated Supabase types,
-  // so we bypass the typed client surface here (same pattern as merchant.functions).
-  const { data, error } = await (
-    supabaseAdmin.rpc as unknown as (
-      fn: string,
-      args: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: unknown }>
-  )("search_botly_products", {
-    search_query: query,
-    max_results: Math.max(maxResults * 3, 30),
-  });
+  // Try the RPC first (faster, with similarity scoring + merchant visibility filters).
+  let matches = await tryRpcSearch(query, maxResults);
 
-  if (error) {
-    console.error("[Search] RPC search_botly_products failed", error);
-    return [];
+  // RPC failed or returned nothing: fall back to direct database search.
+  // Ensures we still return products even if the RPC isn't deployed.
+  if (matches.length === 0) {
+    matches = await fallbackDirectSearch(query, maxResults);
   }
 
-  const rows = (data ?? []) as Array<{
-    id: string;
-    payload: Record<string, unknown>;
-    similarity: number;
-  }>;
-
-  // Enrich with merchant details (store name / phone / coordinates) — these live
-  // on the merchant event, not the product. Falls back gracefully if the lookup
-  // fails so search still returns products.
-  const merchants = await loadMerchantMap();
-
-  let matches: ProductMatch[] = rows.map((row) => {
-    const p = row.payload ?? {};
-    const merchantId = getString(p.merchantId);
-    const merchant = merchants.get(merchantId);
-    return {
-      id: getString(p.productId) || row.id,
-      merchantId,
-      title: getString(p.title) || getString(p.description) || "منتج",
-      description: getString(p.description),
-      price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
-      currency: getString(p.currency) || "IQD",
-      imageUrl: getString(p.imageUrl),
-      postUrl: getString(p.postUrl),
-      color: getString(p.color) || null,
-      similarity: row.similarity ?? 0,
-      storeName: merchant?.storeName || "متجر",
-      merchantAddress: merchant?.address ?? null,
-      merchantWhatsapp: merchant?.whatsapp ?? null,
-      deliveryPhone: merchant?.deliveryPhone ?? null,
-      sponsored: Boolean((p as Record<string, unknown>).sponsored),
-      source: getString(p.source) || "manual",
-    };
-  });
-
+  // Apply price filter.
   if (intent.maxPrice) {
     matches = matches.filter((m) => m.price === 0 || m.price <= intent.maxPrice!);
   }
 
+  // Apply geographic filter + enrichment.
   if (options?.customerLocation) {
     const radius = options.radiusKm || 15;
+    const merchants = await loadMerchantMap();
     matches = matches
       .map((m) => {
         const merchant = merchants.get(m.merchantId);
         const mLat = merchant?.latitude;
         const mLon = merchant?.longitude;
-        // Merchant has no coordinates yet → keep the product (distance unknown).
-        // We must NEVER drop a real product just because its store hasn't shared
-        // a location; that would empty the results for every registered store.
         if (typeof mLat !== "number" || typeof mLon !== "number") {
           return { ...m, distanceKm: undefined };
         }
@@ -261,12 +218,169 @@ export async function searchProducts(
         );
         return { ...m, distanceKm: dist };
       })
-      // Only exclude products whose merchant has coordinates AND is out of range.
-      // Coordinate-less products (distanceKm undefined) are retained.
       .filter((m) => m.distanceKm === undefined || m.distanceKm <= radius)
-      // Nearest first; unknown-distance products sort to the end.
       .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
   }
 
   return matches.slice(0, options?.limit || maxResults);
+}
+
+// Try the RPC search (fast, with similarity + filters).
+async function tryRpcSearch(query: string, maxResults: number): Promise<ProductMatch[]> {
+  try {
+    const { data, error } = await (
+      supabaseAdmin.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: unknown }>
+    )("search_botly_products", {
+      search_query: query,
+      max_results: Math.max(maxResults * 3, 30),
+    });
+
+    if (error) {
+      console.warn("[Search] RPC search_botly_products failed", error);
+      return [];
+    }
+
+    const rows = (data ?? []) as Array<{
+      id: string;
+      payload: Record<string, unknown>;
+      similarity: number;
+    }>;
+
+    const merchants = await loadMerchantMap();
+    return rows.map((row) => {
+      const p = row.payload ?? {};
+      const merchantId = getString(p.merchantId);
+      const merchant = merchants.get(merchantId);
+      return {
+        id: getString(p.productId) || row.id,
+        merchantId,
+        title: getString(p.title) || getString(p.description) || "منتج",
+        description: getString(p.description),
+        price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
+        currency: getString(p.currency) || "IQD",
+        imageUrl: getString(p.imageUrl),
+        postUrl: getString(p.postUrl),
+        color: getString(p.color) || null,
+        similarity: row.similarity ?? 0,
+        storeName: merchant?.storeName || "متجر",
+        merchantAddress: merchant?.address ?? null,
+        merchantWhatsapp: merchant?.whatsapp ?? null,
+        deliveryPhone: merchant?.deliveryPhone ?? null,
+        sponsored: Boolean((p as Record<string, unknown>).sponsored),
+        source: getString(p.source) || "manual",
+      };
+    });
+  } catch (error) {
+    console.error("[Search] RPC search failed", error);
+    return [];
+  }
+}
+
+// Fallback: search products directly (no RPC, no similarity scoring, but reliable).
+// Used when RPC fails or returns nothing. Ensures results even if migrations aren't
+// deployed yet.
+async function fallbackDirectSearch(
+  query: string,
+  maxResults: number,
+): Promise<ProductMatch[]> {
+  try {
+    const merchants = await loadMerchantMap();
+    const rows = await listEvents("botly_product");
+    const hiddenMerchants = new Set<string>();
+
+    // Build hidden merchant set (same logic as RPC).
+    const merchantRows = await listEvents("botly_merchant");
+    for (const row of merchantRows) {
+      const p = row.payload ?? {};
+      if (
+        (p.bannedFromBot === true || p.bannedFromBot === "true") ||
+        p.visibilityEnabled === "false" ||
+        p.isActive === "false" ||
+        (p.suspendedAt && String(p.suspendedAt).trim() !== "") ||
+        p.subscriptionStatus === "expired" ||
+        (p.packageExpiry &&
+          String(p.packageExpiry).trim() !== "" &&
+          new Date(String(p.packageExpiry)) < new Date())
+      ) {
+        const merchantId = getString(p.merchantId);
+        if (merchantId) hiddenMerchants.add(merchantId);
+      }
+    }
+
+    const queryLower = query.toLowerCase();
+    const matches: ProductMatch[] = [];
+    const seen = new Set<string>();
+
+    // Keep latest version of each product.
+    const latestByProductId = new Map<
+      string,
+      { row: (typeof rows)[0]; productId: string; merchantId: string }
+    >();
+    for (const row of rows) {
+      const p = row.payload ?? {};
+      const productId = getString(p.productId) || String(row.id);
+      if (latestByProductId.has(productId)) continue;
+      latestByProductId.set(productId, {
+        row,
+        productId,
+        merchantId: getString(p.merchantId),
+      });
+    }
+
+    for (const { row, productId, merchantId } of latestByProductId.values()) {
+      if (seen.has(productId)) continue;
+      const p = row.payload ?? {};
+
+      // Filter: status must be active.
+      if (getString(p.status) !== "active") continue;
+
+      // Filter: merchant must not be hidden.
+      if (hiddenMerchants.has(merchantId)) continue;
+
+      // Filter: text must match (simple substring, no trigram).
+      const searchableText = [
+        getString(p.title),
+        getString(p.description),
+        getString(p.color),
+        getString(p.size),
+        getString(p.searchText),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      if (!searchableText.includes(queryLower)) continue;
+
+      seen.add(productId);
+      const merchant = merchants.get(merchantId);
+      matches.push({
+        id: productId,
+        merchantId,
+        title: getString(p.title) || getString(p.description) || "منتج",
+        description: getString(p.description),
+        price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
+        currency: getString(p.currency) || "IQD",
+        imageUrl: getString(p.imageUrl),
+        postUrl: getString(p.postUrl),
+        color: getString(p.color) || null,
+        similarity: 0.5,
+        storeName: merchant?.storeName || "متجر",
+        merchantAddress: merchant?.address ?? null,
+        merchantWhatsapp: merchant?.whatsapp ?? null,
+        deliveryPhone: merchant?.deliveryPhone ?? null,
+        sponsored: Boolean((p as Record<string, unknown>).sponsored),
+        source: getString(p.source) || "manual",
+      });
+
+      if (matches.length >= maxResults * 3) break;
+    }
+
+    return matches;
+  } catch (error) {
+    console.error("[Search] Fallback search failed", error);
+    return [];
+  }
 }
