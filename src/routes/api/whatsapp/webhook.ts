@@ -167,6 +167,12 @@ function formatPrice(match: ProductMatch) {
   return match.price ? `${match.price} ${match.currency}` : "بدون سعر معلن";
 }
 
+type OrderDetails = {
+  name?: string;
+  landmark?: string;
+  governorate?: string;
+};
+
 type CustomerSession = {
   customerNumber: string;
   phase?: WorkflowPhase;
@@ -178,6 +184,7 @@ type CustomerSession = {
   displayedCount?: number;
   lastPromptType?: string;
   lastPromptAt?: string;
+  orderDetails?: OrderDetails | null;
   createdAt: string;
   expiresAt: string;
 };
@@ -189,7 +196,13 @@ type WorkflowPhase =
   | "awaiting_product_query"
   | "awaiting_selection"
   | "awaiting_after_selection"
-  | "awaiting_customer_details";
+  // Legacy free-text order phase (kept so in-flight sessions don't break).
+  | "awaiting_customer_details"
+  // Three-step order form: the bot asks one field at a time. The customer's
+  // WhatsApp number is already known, so the phone is never asked.
+  | "awaiting_customer_name"
+  | "awaiting_customer_landmark"
+  | "awaiting_customer_governorate";
 
 type WorkflowResponse =
   | { kind: "none" }
@@ -385,6 +398,10 @@ async function readCustomerSession(customerNumber: string): Promise<CustomerSess
     displayedCount: getNumber(payload.displayedCount) ?? 3,
     lastPromptType: getString(payload.lastPromptType) || undefined,
     lastPromptAt: getString(payload.lastPromptAt) || undefined,
+    orderDetails:
+      payload.orderDetails && typeof payload.orderDetails === "object"
+        ? (payload.orderDetails as OrderDetails)
+        : null,
     createdAt: getString(payload.createdAt),
     expiresAt: getString(payload.expiresAt),
   };
@@ -400,6 +417,7 @@ async function writeCustomerSession(
   prompt?: { type: string; at?: string } | null,
   phase: WorkflowPhase = "start",
   lastQuery?: string,
+  orderDetails?: OrderDetails | null,
 ) {
   const now = Date.now();
   await appendEvent("botly_customer_session", {
@@ -413,6 +431,7 @@ async function writeCustomerSession(
     displayedCount,
     lastPromptType: prompt?.type ?? null,
     lastPromptAt: prompt?.at ?? null,
+    orderDetails: orderDetails ?? null,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
   }).catch((error) => console.error("[Session] Failed to store customer session", error));
@@ -811,23 +830,93 @@ async function handleButtonWorkflow(
         existingSession.customerLocation ?? null,
         existingSession.displayedCount ?? 3,
         null,
-        "awaiting_customer_details",
+        "awaiting_customer_name",
         existingSession.lastQuery,
+        {},
       );
-      return textResponse(
-        "اكتب معلومات الطلب: الاسم، العنوان، أقرب نقطة دالة، ورقم بديل إذا موجود.",
-      );
+      // Three-step order form starts here. The customer's WhatsApp number is
+      // forwarded with the order automatically, so we never ask for a phone.
+      return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
     }
     return afterSelectionResponse(selected);
   }
 
+  // Legacy phase from older sessions: restart it as the new step-by-step form.
   if (phase === "awaiting_customer_details") {
     const selected = existingSession.selectedMatch ?? null;
     if (!selected) return startWorkflowResponse();
-    if (customerText.trim().length < 5) {
-      return textResponse("احتاج تفاصيل أكثر: الاسم، العنوان، وأقرب نقطة دالة.");
+    await writeCustomerSession(
+      customerNumber,
+      existingSession.matches,
+      selected,
+      existingSession.pendingIntent ?? null,
+      existingSession.customerLocation ?? null,
+      existingSession.displayedCount ?? 3,
+      null,
+      "awaiting_customer_name",
+      existingSession.lastQuery,
+      {},
+    );
+    return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
+  }
+
+  if (phase === "awaiting_customer_name") {
+    const selected = existingSession.selectedMatch ?? null;
+    if (!selected) return startWorkflowResponse();
+    const name = customerText.trim();
+    if (name.length < 2) {
+      return textResponse("اكتب اسمك الكامل من فضلك.");
     }
-    const result = await sendPurchaseDetails(customerNumber, selected, customerText.trim());
+    await writeCustomerSession(
+      customerNumber,
+      existingSession.matches,
+      selected,
+      existingSession.pendingIntent ?? null,
+      existingSession.customerLocation ?? null,
+      existingSession.displayedCount ?? 3,
+      null,
+      "awaiting_customer_landmark",
+      existingSession.lastQuery,
+      { ...existingSession.orderDetails, name },
+    );
+    return textResponse(`شكراً ${name} 🌟\n2️⃣ شنو أقرب نقطة دالة على موقعك؟ (مثلاً: جامع، مدرسة، شارع معروف)`);
+  }
+
+  if (phase === "awaiting_customer_landmark") {
+    const selected = existingSession.selectedMatch ?? null;
+    if (!selected) return startWorkflowResponse();
+    const landmark = customerText.trim();
+    if (landmark.length < 2) {
+      return textResponse("اكتب أقرب نقطة دالة من فضلك (مثلاً: جامع، مدرسة، شارع معروف).");
+    }
+    await writeCustomerSession(
+      customerNumber,
+      existingSession.matches,
+      selected,
+      existingSession.pendingIntent ?? null,
+      existingSession.customerLocation ?? null,
+      existingSession.displayedCount ?? 3,
+      null,
+      "awaiting_customer_governorate",
+      existingSession.lastQuery,
+      { ...existingSession.orderDetails, landmark },
+    );
+    return textResponse("ممتاز 👍\n3️⃣ شنو المحافظة؟");
+  }
+
+  if (phase === "awaiting_customer_governorate") {
+    const selected = existingSession.selectedMatch ?? null;
+    if (!selected) return startWorkflowResponse();
+    const governorate = customerText.trim();
+    if (governorate.length < 2) {
+      return textResponse("اكتب اسم المحافظة من فضلك.");
+    }
+    const details = [
+      `الاسم: ${existingSession.orderDetails?.name ?? "غير مذكور"}`,
+      `أقرب نقطة دالة: ${existingSession.orderDetails?.landmark ?? "غير مذكورة"}`,
+      `المحافظة: ${governorate}`,
+    ].join(" | ");
+    const result = await sendPurchaseDetails(customerNumber, selected, details);
     await writeCustomerSession(
       customerNumber,
       [],
@@ -840,7 +929,7 @@ async function handleButtonWorkflow(
     );
     return buttonResponse(
       result.ok
-        ? "تم استلام طلبك وإرساله للجهة المناسبة. تحب تبحث عن منتج ثاني؟"
+        ? "تم استلام طلبك وإرساله للجهة المناسبة ✅\nرقم الواتساب مالتك راح يوصل للتاجر مع الطلب.\nتحب تبحث عن منتج ثاني؟"
         : "سجلت طلبك، بس صار خلل بإرسال الإشعار. جرب تراسل التاجر أو ابحث من جديد.",
       [{ id: ACTION_NEW_SEARCH, title: "بحث جديد" }],
     );
