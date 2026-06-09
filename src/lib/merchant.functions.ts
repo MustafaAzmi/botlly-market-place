@@ -91,7 +91,22 @@ const profileInput = tokenInput.extend({
 const productInput = tokenInput.extend({
   title: z.string().trim().min(1).max(140),
   description: z.string().trim().min(1).max(280),
-  imageUrl: z.string().url().max(2_000),
+  // Either a normal http(s) link, or an inline base64 image (data:image/...)
+  // produced by the dashboard's file-upload path (client-side compressed).
+  imageUrl: z
+    .string()
+    .min(1, "رابط الصورة مطلوب")
+    .max(3_000_000)
+    .refine((value) => {
+      if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return true;
+      if (value.length > 2_000) return false;
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "رابط الصورة غير صحيح"),
   currentPrice: z.number().min(0).max(999_999_999),
   discountPrice: z.number().min(0).max(999_999_999).optional(),
   currency: z.string().trim().min(1).max(8),

@@ -46,8 +46,37 @@ function NewProductPage() {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
 
-  // Handle file upload: convert to data URL for preview.
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Resize + recompress the uploaded image to a small JPEG data URL. Raw
+  // camera photos are megabytes; the server caps the stored image, and big
+  // base64 blobs bloat the database — so we shrink client-side first.
+  const compressImageFile = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("تعذر قراءة الصورة"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("تعذر فتح الصورة"));
+        img.onload = () => {
+          const maxDim = 1000;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("تعذر معالجة الصورة"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+
+  // Handle file upload: compress then keep as data URL for preview + storage.
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
       setImageFile(null);
@@ -55,27 +84,23 @@ function NewProductPage() {
       return;
     }
 
-    // Validate file size (limit to 2MB for data URL).
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن لا يزيد على 2MB");
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("حجم الصورة يجب أن لا يزيد على 8MB");
       return;
     }
 
-    // Validate file type.
     if (!file.type.startsWith("image/")) {
       toast.error("اختر صورة فقط");
       return;
     }
 
-    setImageFile(file);
-
-    // Convert to data URL for preview + storage.
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
+    try {
+      const dataUrl = await compressImageFile(file);
+      setImageFile(file);
       setImagePreview(dataUrl);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر معالجة الصورة");
+    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
