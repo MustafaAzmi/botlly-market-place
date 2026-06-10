@@ -131,39 +131,3 @@ export async function sendWhatsAppImage(
   };
 }
 
-export async function sendWhatsAppLocationRequest(
-  to: string,
-  body: string,
-  phoneNumberId?: string,
-): Promise<SendResult> {
-  const accessToken = getWhatsAppAccessToken();
-  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
-  if (!accessToken || !pnId) {
-    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
-  }
-
-  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "location_request_message",
-        body: { text: body },
-        action: { text: "أرسل موقعك" },
-      },
-    }),
-  });
-
-  if (response.ok) return { ok: true, status: response.status };
-  return {
-    ok: false,
-    status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
-  };
-}

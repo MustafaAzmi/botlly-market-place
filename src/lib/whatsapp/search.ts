@@ -40,11 +40,6 @@ export interface SearchIntent {
   keywords: string[];
 }
 
-export interface CustomerLocation {
-  latitude: number;
-  longitude: number;
-}
-
 export interface ProductMatch {
   id: string;
   merchantId: string;
@@ -60,7 +55,6 @@ export interface ProductMatch {
   merchantAddress?: string | null;
   merchantWhatsapp?: string | null;
   deliveryPhone?: string | null;
-  distanceKm?: number;
   sponsored?: boolean;
   source?: string;
 }
@@ -223,28 +217,7 @@ async function extractIntentWithOpenAI(normalized: string): Promise<SearchIntent
   }
 }
 
-function haversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 export interface SearchOptions {
-  customerLocation?: CustomerLocation;
-  radiusKm?: number;
   limit?: number;
 }
 
@@ -253,13 +226,11 @@ interface MerchantInfo {
   address?: string | null;
   whatsapp?: string | null;
   deliveryPhone?: string | null;
-  latitude?: number;
-  longitude?: number;
 }
 
-// Merchant location + contact details live on the `botly_merchant` event, NOT on
-// the product. Build a merchantId → latest-merchant map so search results can be
-// enriched (store name / phone) and filtered by real merchant coordinates.
+// Merchant contact details live on the `botly_merchant` event, NOT on the
+// product. Build a merchantId → latest-merchant map so search results can be
+// enriched (store name / phone).
 async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
   const map = new Map<string, MerchantInfo>();
   try {
@@ -274,8 +245,6 @@ async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
         address: getString(p.address) || getString(p.merchantAddress) || null,
         whatsapp: getString(p.whatsapp) || getString(p.merchantWhatsapp) || getString(p.phone) || null,
         deliveryPhone: getString(p.deliveryPhone) || null,
-        latitude: getNumber(p.latitude) ?? getNumber(p.merchantLatitude),
-        longitude: getNumber(p.longitude) ?? getNumber(p.merchantLongitude),
       });
     }
   } catch (error) {
@@ -313,30 +282,8 @@ export async function searchProducts(
     matches = matches.filter((m) => m.price === 0 || m.price <= intent.maxPrice!);
   }
 
-  // Apply geographic filter + enrichment.
-  if (options?.customerLocation) {
-    const radius = options.radiusKm || 15;
-    const merchants = await loadMerchantMap();
-    matches = matches
-      .map((m) => {
-        const merchant = merchants.get(m.merchantId);
-        const mLat = merchant?.latitude;
-        const mLon = merchant?.longitude;
-        if (typeof mLat !== "number" || typeof mLon !== "number") {
-          return { ...m, distanceKm: undefined };
-        }
-        const dist = haversineDistance(
-          options.customerLocation!.latitude,
-          options.customerLocation!.longitude,
-          mLat,
-          mLon,
-        );
-        return { ...m, distanceKm: dist };
-      })
-      .filter((m) => m.distanceKm === undefined || m.distanceKm <= radius)
-      .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
-  }
-
+  // Search is open nationwide — most sales are delivery, so no geographic
+  // filtering is applied. Results are ranked purely by match quality.
   return matches.slice(0, options?.limit || maxResults);
 }
 
