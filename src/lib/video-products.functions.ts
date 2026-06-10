@@ -25,7 +25,7 @@ function getOpenAIClient() {
 }
 
 function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  return process.env.OPENAI_MODEL ?? "gpt-4-mini";
 }
 
 export type TranscriptSegment = {
