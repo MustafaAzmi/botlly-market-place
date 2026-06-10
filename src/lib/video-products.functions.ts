@@ -25,7 +25,10 @@ function getOpenAIClient() {
 }
 
 function getOpenAIModel() {
-  return process.env.OPENAI_MODEL ?? "gpt-4-mini";
+  // Must be a real OpenAI model id — "gpt-4.1-mini" matches the rest of the
+  // codebase (search.ts, netlify webhook). "gpt-4-mini" does NOT exist and
+  // makes every extraction call fail with model_not_found.
+  return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 }
 
 export type TranscriptSegment = {

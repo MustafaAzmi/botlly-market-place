@@ -40,6 +40,7 @@ function StoreProfilePage() {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
+  const [storeSlug, setStoreSlug] = useState("");
   // Platform delivery companies registered by the admin (/admin/delivery) —
   // merchants without their own courier pick one from the dropdown.
   const [deliveryCompanies, setDeliveryCompanies] = useState<DeliveryCompanyRecord[]>([]);
@@ -74,37 +75,16 @@ function StoreProfilePage() {
       typeof merchantSession.longitude === "number" ? String(merchantSession.longitude) : "",
     );
     setDeliveryPhone(merchantSession.deliveryPhone ?? "");
+    setStoreSlug(merchantSession.storeSlug ?? "");
 
     // Load the admin-registered delivery companies for the dropdown
     // (best-effort: the manual phone field still works if this fails).
-    // Use a simple cache with 1-hour TTL to avoid redundant API calls.
-    const cacheKey = "botly.delivery_companies";
-    const cached = (() => {
-      try {
-        const data = localStorage?.getItem(cacheKey);
-        if (!data) return null;
-        const { companies, timestamp } = JSON.parse(data) as { companies: unknown; timestamp: number };
-        if (Date.now() - timestamp > 3600000) return null; // 1 hour TTL
-        return companies as DeliveryCompanyRecord[];
-      } catch {
-        return null;
-      }
-    })();
-
-    if (cached) {
-      setDeliveryCompanies(cached);
-    } else {
-      listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
-        .then((companies) => {
-          setDeliveryCompanies(companies);
-          try {
-            localStorage?.setItem(cacheKey, JSON.stringify({ companies, timestamp: Date.now() }));
-          } catch {
-            // Ignore storage quota errors
-          }
-        })
-        .catch(() => setDeliveryCompanies([]));
-    }
+    // Always fetch fresh — caching here made newly admin-added companies
+    // invisible to merchants for up to an hour (stale/empty cached lists).
+    localStorage.removeItem("botly.delivery_companies");
+    listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
+      .then(setDeliveryCompanies)
+      .catch(() => setDeliveryCompanies([]));
 
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
       .then((profile) => {
@@ -115,10 +95,12 @@ function StoreProfilePage() {
         setLatitude(typeof profile.latitude === "number" ? String(profile.latitude) : "");
         setLongitude(typeof profile.longitude === "number" ? String(profile.longitude) : "");
         setDeliveryPhone(profile.deliveryPhone ?? "");
+        if (profile.storeSlug) setStoreSlug(profile.storeSlug);
         setLogoPreview(profile.logoUrl ?? null);
         setCoverPreview(profile.coverUrl ?? null);
         writeMerchantSession({
           merchantId: profile.id,
+          storeSlug: profile.storeSlug,
           storeName: profile.storeName,
           whatsapp: profile.whatsapp,
           email: profile.email,
@@ -246,7 +228,7 @@ function StoreProfilePage() {
       subtitle="بيانات المتجر محفوظة بقاعدة البيانات، تقدر تعدلها وتكمل باقي الصفحة."
       actions={
         <Button asChild variant="outline" size="lg" className="gap-2">
-          <Link to="/store/$slug" params={{ slug: "noor-store" }}>
+          <Link to="/store/$slug" params={{ slug: storeSlug || "store" }}>
             <ExternalLink className="h-4 w-4" />
             معاينة الصفحة
           </Link>

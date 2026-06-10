@@ -35,8 +35,10 @@ import {
   appendEvent,
   getNumber,
   getString,
+  listEvents,
   listEventsByPayloadField,
   normalizePhone,
+  phoneKey,
   sha256,
 } from "@/lib/eventStore.server";
 
@@ -1079,65 +1081,91 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           const isCustomerMessage =
             Boolean(incoming.from) && summary.eventType.startsWith("message.");
 
-          // Check if this is a merchant order confirmation action
+          // Merchant pressed an order-status button (sent by sendPurchaseDetails).
           if (
             isCustomerMessage &&
             incoming.from &&
-            incoming.actionId &&
             (incoming.actionId === ACTION_CONFIRM_ORDER ||
               incoming.actionId === ACTION_PRODUCT_OUT_OF_STOCK)
           ) {
-            // This is a merchant response to order confirmation buttons.
-            // Look up the most recent order for this merchant phone.
-            const merchantOrders = await listEventsByPayloadField(
-              "botly_order",
-              "merchantWhatsapp",
-              incoming.from,
-              10,
-            );
-            const recentOrder = merchantOrders[0]; // Newest first
-            if (recentOrder) {
-              const order = recentOrder.payload ?? {};
+            const phoneNumberId = summary.phoneNumberId ?? undefined;
+            // The webhook `from` is a wa_id (9647...), while merchantWhatsapp
+            // is stored as the merchant typed it (07... / +9647...), so match
+            // by format-independent phone key over the recent orders.
+            const fromKey = phoneKey(incoming.from);
+            const rows = await listEvents("botly_order", 200).catch(() => []);
+            const respondedOrderIds = new Set<string>();
+            let orderRow: (typeof rows)[number] | null = null;
+            for (const row of rows) {
+              const p = row.payload ?? {};
+              const orderId = getString(p.orderId) || row.id;
+              // Newest-first: a response event marks its order as handled.
+              if (getString(p.merchantResponseStatus)) {
+                respondedOrderIds.add(orderId);
+                continue;
+              }
+              if (respondedOrderIds.has(orderId)) continue;
+              if (fromKey && phoneKey(getString(p.merchantWhatsapp)) === fromKey) {
+                orderRow = row;
+                break;
+              }
+            }
+
+            if (orderRow) {
+              const order = orderRow.payload ?? {};
               const customerNumber = getString(order.customerNumber);
-              const productTitle = getString(order.productTitle);
-              const storeName = getString(order.storeName);
+              const productTitle = getString(order.productTitle) || "المنتج";
+              const storeName = getString(order.storeName) || "المتجر";
+              const isConfirmed = incoming.actionId === ACTION_CONFIRM_ORDER;
 
               if (customerNumber) {
-                const isConfirmed = incoming.actionId === ACTION_CONFIRM_ORDER;
                 const responseMsg = isConfirmed
-                  ? `✅ تم تأكيد طلبك من ${storeName}\nالمنتج: ${productTitle}`
-                  : `❌ المنتج ${productTitle} منتهي حالياً من ${storeName}.\nسيتم إعلامك حال توفره مجدداً.`;
+                  ? `✅ تم تأكيد طلبك من ${storeName}\nالمنتج: ${productTitle}\nراح يوصلك بأقرب وقت إن شاء الله 🚚`
+                  : `للأسف المنتج «${productTitle}» منتهي حالياً من ${storeName} ❌\nراح يتم إعلامك حال توفره مرة ثانية. تحب تدور على منتج بديل؟ اكتب اسمه وأبحثلك.`;
 
-                await sendWhatsAppText(customerNumber, responseMsg).catch((error) => {
-                  console.error("[Merchant] Failed to send order response to customer:", error);
+                const sentToCustomer = await sendWhatsAppText(
+                  customerNumber,
+                  responseMsg,
+                  phoneNumberId,
+                ).catch((error) => {
+                  console.error("[Merchant] Failed to notify customer:", error);
+                  return { ok: false as const, status: 0, error: String(error) };
                 });
 
-                // Record the merchant's response
+                // Record the response on the same orderId (newest event wins —
+                // the dashboard dedupes by orderId so this updates the status).
                 await appendEvent("botly_order", {
-                  orderId: getString(order.orderId) || crypto.randomUUID(),
-                  merchantId: getString(order.merchantId),
-                  productId: getString(order.productId),
-                  productTitle,
-                  productPrice: getNumber(order.productPrice),
-                  currency: getString(order.currency),
-                  storeName,
-                  customerNumber,
-                  deliveryPhone: getString(order.deliveryPhone),
-                  merchantWhatsapp: incoming.from,
+                  ...order,
+                  orderId: getString(order.orderId) || orderRow.id,
                   merchantResponse: incoming.actionId,
                   merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
                   status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
-                  createdAt: new Date().toISOString(),
+                  customerNotifiedOfStatus: sentToCustomer.ok,
+                  respondedAt: new Date().toISOString(),
                 }).catch((error) =>
                   console.error("[Merchant] Failed to record merchant response:", error),
                 );
 
-                workflowResponse = { kind: "none" };
+                // Acknowledge to the merchant so the button press isn't silent.
+                await sendWhatsAppText(
+                  incoming.from,
+                  sentToCustomer.ok
+                    ? isConfirmed
+                      ? `تم ✅ بلغنا الزبون بتأكيد طلب «${productTitle}».`
+                      : `تم ✅ بلغنا الزبون أن «${productTitle}» منتهي حالياً.`
+                    : "سجلنا ردك، بس صار خلل بإيصال الرسالة للزبون. جرب تراسله مباشرة.",
+                  phoneNumberId,
+                ).catch((error) => console.error("[Merchant] Failed to ack merchant:", error));
               } else {
-                console.warn("[Merchant] No customer number in recent order");
+                console.warn("[Merchant] Order has no customer number:", orderRow.id);
               }
             } else {
-              console.warn("[Merchant] No recent orders found for merchant:", incoming.from);
+              console.warn("[Merchant] No pending order found for:", incoming.from);
+              await sendWhatsAppText(
+                incoming.from,
+                "ما لكينا طلب جديد مرتبط بهذا الزر — يمكن تم الرد عليه سابقاً.",
+                phoneNumberId,
+              ).catch(() => {});
             }
           } else if (isCustomerMessage && incoming.from) {
             // Voice search: transcribe the voice note first, then run the SAME

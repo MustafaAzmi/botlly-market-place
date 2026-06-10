@@ -124,6 +124,14 @@ function normalizePhone(phone: string) {
     .trim();
 }
 
+// Format-independent phone identity: "07801234567", "+9647801234567" and
+// "9647801234567" are all the same subscriber. Comparing the last 10 digits
+// makes login work no matter which format the merchant typed at signup.
+function phoneKey(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
 function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -313,9 +321,18 @@ async function listEvents(provider: string) {
 }
 
 async function findMerchantByPhone(whatsapp: string) {
-  const normalized = normalizePhone(whatsapp);
+  const key = phoneKey(whatsapp);
+  if (!key) return null;
   const rows = await listEvents(MERCHANT_PROVIDER);
-  return rows.find((row) => getString(row.payload?.whatsappNormalized) === normalized) ?? null;
+  return (
+    rows.find((row) => {
+      const payload = row.payload ?? {};
+      return (
+        phoneKey(getString(payload.whatsappNormalized)) === key ||
+        phoneKey(getString(payload.whatsapp)) === key
+      );
+    }) ?? null
+  );
 }
 
 async function findMerchantById(id: string) {
@@ -751,7 +768,18 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
     const merchantId = merchantIdentity(merchant);
     const rows = await listEvents("botly_order");
 
-    return rows
+    // The bot appends a second event with the same orderId when the merchant
+    // answers the confirmation buttons — keep only the newest event per order
+    // so status updates show up without duplicating the order in the list.
+    const seen = new Set<string>();
+    const latestPerOrder = rows.filter((row) => {
+      const orderId = getString(row.payload?.orderId) || row.id;
+      if (seen.has(orderId)) return false;
+      seen.add(orderId);
+      return true;
+    });
+
+    return latestPerOrder
       .filter((row) => getString(row.payload?.merchantId) === merchantId)
       .map((row) => {
         const p = row.payload ?? {};

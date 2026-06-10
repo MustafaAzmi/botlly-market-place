@@ -143,15 +143,15 @@ async function findMerchantById(id: string): Promise<EventRow | null> {
 }
 
 async function findMerchantByPhone(phone: string): Promise<EventRow | null> {
-  const normalized = normalizePhone(phone);
-  if (!normalized) return null;
+  const key = phoneKey(phone);
+  if (!key) return null;
   const rows = await listEvents("botly_merchant");
   return (
     rows.find((row) => {
       const payload = row.payload ?? {};
       return (
-        normalizePhone(getString(payload.whatsappNormalized)) === normalized ||
-        normalizePhone(getString(payload.whatsapp)) === normalized
+        phoneKey(getString(payload.whatsappNormalized)) === key ||
+        phoneKey(getString(payload.whatsapp)) === key
       );
     }) ?? null
   );
@@ -181,6 +181,14 @@ export function normalizePhone(phone: string): string {
     .replace(/[^\d+]/g, "")
     .replace(/^00/, "+")
     .trim();
+}
+
+// Format-independent phone identity: "07801234567", "+9647801234567" and
+// "9647801234567" all refer to the same subscriber. Comparing the last 10
+// digits matches numbers regardless of country-code/leading-zero format.
+export function phoneKey(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
 // Validate a merchant session token and return the resolved merchant id.
