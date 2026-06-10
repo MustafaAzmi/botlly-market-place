@@ -30,6 +30,7 @@ import {
   sendWhatsAppImage,
   sendWhatsAppText,
 } from "@/lib/whatsapp/send.server";
+import { transcribeWhatsAppVoice } from "@/lib/whatsapp/voice.server";
 import {
   appendEvent,
   getNumber,
@@ -135,6 +136,7 @@ function readIncomingMessage(payload: unknown) {
             text?: { body?: string };
             button?: { text?: string };
             interactive?: { button_reply?: { id?: string; title?: string } };
+            audio?: { id?: string; voice?: boolean };
           }>;
         };
       }>;
@@ -149,6 +151,8 @@ function readIncomingMessage(payload: unknown) {
     from: message?.from ?? null,
     type: message?.type ?? null,
     actionId: message?.interactive?.button_reply?.id ?? null,
+    // Voice notes and audio files both arrive as type "audio" with a media id.
+    audioId: message?.type === "audio" ? (message.audio?.id ?? null) : null,
     text: text.trim(),
   };
 }
@@ -221,7 +225,7 @@ function textResponse(body: string, guardReason = "workflow_text"): WorkflowResp
 
 function startWorkflowResponse(): WorkflowResponse {
   return textResponse(
-    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم أو وصف المنتج الي ادور عليه. ممكن تكتب سعر بحدود كذا وي الوصف. مثلاً: تيشيرت أحمر، تيشيرت أقل من ٥٠ ألف، جاكيت شتوي، إلخ.",
+    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم أو وصف المنتج الي ادور عليه، أو دز رسالة صوتية 🎤 واحنا نفهمها. ممكن تذكر سعر بحدود كذا وي الوصف. مثلاً: تيشيرت أحمر، تيشيرت أقل من ٥٠ ألف، جاكيت شتوي، إلخ.",
     "workflow_start",
   );
 }
@@ -1038,23 +1042,62 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             Boolean(incoming.from) && summary.eventType.startsWith("message.");
 
           if (isCustomerMessage && incoming.from) {
-            try {
-              workflowResponse = await handleButtonWorkflow(
-                incoming.from,
-                incoming.text,
-                incoming.actionId,
+            // Voice search: transcribe the voice note first, then run the SAME
+            // workflow with the transcript as if the customer typed it.
+            let customerText = incoming.text;
+            let voicePrefix = "";
+            let voiceFailed = false;
+            if (incoming.audioId) {
+              const voice = await transcribeWhatsAppVoice(incoming.audioId);
+              if (voice.ok) {
+                customerText = voice.text;
+                voicePrefix = `🎤 سمعتك تقول: «${voice.text}»\n\n`;
+                console.log("[Webhook] Voice transcript:", voice.text.slice(0, 80));
+              } else {
+                voiceFailed = true;
+                console.warn("[Webhook] Voice transcription failed:", voice.reason);
+              }
+            }
+
+            if (voiceFailed) {
+              workflowResponse = textResponse(
+                "ما كدرت أسمع الرسالة الصوتية بوضوح 🎤\nجرب تسجلها مرة ثانية بمكان هادئ، أو اكتب اسم المنتج كتابة.",
+                "voice_failed",
               );
-              console.log("[Webhook] Workflow response:", workflowResponse.kind);
-            } catch (err) {
-              console.error("[Webhook] handleButtonWorkflow threw:", err);
-              await writeCustomerSession(incoming.from, [], null, null, 3, null, "awaiting_product_query").catch(
-                () => {},
-              );
-              workflowResponse = startWorkflowResponse();
+            } else {
+              try {
+                workflowResponse = await handleButtonWorkflow(
+                  incoming.from,
+                  customerText,
+                  incoming.actionId,
+                );
+                console.log("[Webhook] Workflow response:", workflowResponse.kind);
+              } catch (err) {
+                console.error("[Webhook] handleButtonWorkflow threw:", err);
+                await writeCustomerSession(
+                  incoming.from,
+                  [],
+                  null,
+                  null,
+                  3,
+                  null,
+                  "awaiting_product_query",
+                ).catch(() => {});
+                workflowResponse = startWorkflowResponse();
+              }
             }
 
             if (workflowResponse.kind === "none") {
               workflowResponse = startWorkflowResponse();
+            }
+
+            // Echo back what the bot understood from the voice note so the
+            // customer can correct it if Whisper misheard.
+            if (voicePrefix && workflowResponse.kind !== "none") {
+              workflowResponse = {
+                ...workflowResponse,
+                body: `${voicePrefix}${workflowResponse.body}`,
+              };
             }
 
             if (workflowResponse.kind !== "none") {
