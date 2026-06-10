@@ -193,11 +193,10 @@ type CustomerSession = {
 type WorkflowPhase =
   | "start"
   | "awaiting_location"
-  | "awaiting_product_button"
   | "awaiting_product_query"
   | "awaiting_selection"
   | "awaiting_after_selection"
-  // Legacy free-text order phase (kept so in-flight sessions don't break).
+  // Legacy free-text order phases (kept so in-flight sessions don't break).
   | "awaiting_customer_details"
   // Three-step order form: the bot asks one field at a time. The customer's
   // WhatsApp number is already known, so the phone is never asked.
@@ -565,11 +564,7 @@ function deliverableImageUrl(match: ProductMatch): string | null {
 
 // Send one image per displayed product (best-effort). The caption shows
 // number/title/price only; no links or merchant location.
-async function sendResultImages(
-  customerNumber: string,
-  matches: ProductMatch[],
-  startIndex = 0,
-) {
+async function sendResultImages(customerNumber: string, matches: ProductMatch[], startIndex = 0) {
   for (const [index, match] of matches.slice(0, 3).entries()) {
     const imageUrl = match.imageUrl ? deliverableImageUrl(match) : null;
     if (!imageUrl) continue;
@@ -764,9 +759,9 @@ async function handleButtonWorkflow(
       knownLocation,
       3,
       null,
-      "awaiting_product_button",
+      "awaiting_product_query",
     );
-    return enterProductButtonResponse();
+    return askForProductResponse();
   }
 
   if (customerLocation) {
@@ -778,32 +773,13 @@ async function handleButtonWorkflow(
       customerLocation,
       existingSession.displayedCount ?? 3,
       null,
-      "awaiting_product_button",
+      "awaiting_product_query",
       existingSession.lastQuery,
     );
-    return enterProductButtonResponse();
+    return askForProductResponse();
   }
 
-  if (phase === "awaiting_product_button") {
-    if (actionId === ACTION_ENTER_PRODUCT) {
-      await writeCustomerSession(
-        customerNumber,
-        existingSession.matches,
-        null,
-        existingSession.pendingIntent ?? null,
-        existingSession.customerLocation ?? null,
-        3,
-        null,
-        "awaiting_product_query",
-      );
-      return textResponse(
-        "اكتب اسم المنتج أو وصفه، مثل: تيشيرت أبيض سادة، قاعدة موبايل ايفون، لصقة شاشة هواوي.",
-      );
-    }
-    if (!customerText) return enterProductButtonResponse();
-  }
-
-  if (phase === "awaiting_product_query" || (phase === "awaiting_product_button" && customerText)) {
+  if (phase === "awaiting_product_query" && customerText.trim().length > 0) {
     const query = customerText.trim();
     if (query.length < 2) return textResponse("اكتب اسم المنتج بشكل أوضح حتى أقدر أبحث عنه.");
 
@@ -968,7 +944,9 @@ async function handleButtonWorkflow(
       existingSession.lastQuery,
       { ...existingSession.orderDetails, name },
     );
-    return textResponse(`شكراً ${name} 🌟\n2️⃣ شنو أقرب نقطة دالة على موقعك؟ (مثلاً: جامع، مدرسة، شارع معروف)`);
+    return textResponse(
+      `شكراً ${name} 🌟\n2️⃣ شنو أقرب نقطة دالة على موقعك؟ (مثلاً: جامع، مدرسة، شارع معروف)`,
+    );
   }
 
   if (phase === "awaiting_customer_landmark") {
@@ -1128,7 +1106,13 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               const replyText = workflowResponse.body;
               try {
                 const duplicateWindowMinutes = workflowResponse.duplicateWindowMinutes ?? 10;
-                if (await wasOutboundReplySentRecently(incoming.from, replyText, duplicateWindowMinutes)) {
+                if (
+                  await wasOutboundReplySentRecently(
+                    incoming.from,
+                    replyText,
+                    duplicateWindowMinutes,
+                  )
+                ) {
                   console.log("[Webhook] Duplicate outbound reply suppressed for:", incoming.from);
                 } else {
                   await recordOutboundReply(
@@ -1144,7 +1128,10 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                       summary.phoneNumberId,
                     );
                     if (!sendResult.ok) {
-                      console.warn("[Webhook] Button send failed, falling back to text:", sendResult);
+                      console.warn(
+                        "[Webhook] Button send failed, falling back to text:",
+                        sendResult,
+                      );
                       sendResult = await sendWhatsAppText(
                         incoming.from,
                         replyText,
