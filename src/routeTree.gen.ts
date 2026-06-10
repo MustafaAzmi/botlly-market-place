@@ -32,7 +32,7 @@ import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/ord
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
-import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id.edit'
+import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
 
 const TermsRoute = TermsRouteImport.update({
