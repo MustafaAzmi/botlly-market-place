@@ -551,18 +551,30 @@ function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, s
   return `${lines.join("\n\n")}${more}\n\nاختار رقم المنتج حتى أكمله.`;
 }
 
-// Send one image per displayed product (best-effort). Only public https URLs
-// can be delivered by WhatsApp — data: URLs (manual uploads) are skipped. The
-// caption shows number/title/price only; no links or merchant location.
+// WhatsApp can only deliver public https links. Link-based images go out as-is;
+// manually uploaded images (stored as data: URLs) are served through the public
+// /api/product-image endpoint so customers see them too.
+function deliverableImageUrl(match: ProductMatch): string | null {
+  if (/^https:\/\//i.test(match.imageUrl)) return match.imageUrl;
+  if (match.imageUrl.startsWith("data:") && match.id) {
+    const base = (process.env.PUBLIC_SITE_URL ?? "https://www.bot-lly.tech").replace(/\/$/, "");
+    return `${base}/api/product-image/${encodeURIComponent(match.id)}`;
+  }
+  return null;
+}
+
+// Send one image per displayed product (best-effort). The caption shows
+// number/title/price only; no links or merchant location.
 async function sendResultImages(
   customerNumber: string,
   matches: ProductMatch[],
   startIndex = 0,
 ) {
   for (const [index, match] of matches.slice(0, 3).entries()) {
-    if (!match.imageUrl || !/^https:\/\//i.test(match.imageUrl)) continue;
+    const imageUrl = match.imageUrl ? deliverableImageUrl(match) : null;
+    if (!imageUrl) continue;
     const caption = `${startIndex + index + 1}️⃣ ${match.title}\n${formatPrice(match)} - ${match.storeName}`;
-    await sendWhatsAppImage(customerNumber, match.imageUrl, caption).catch((error) =>
+    await sendWhatsAppImage(customerNumber, imageUrl, caption).catch((error) =>
       console.error("[Workflow] Failed to send product image", error),
     );
   }

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ImagePlus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Camera, ImagePlus, Images } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -33,12 +33,11 @@ function EditProductPage() {
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   // existingImage = the image saved on the product (kept when the merchant
-  // doesn't touch the image fields). imageFile/imagePreview = a newly uploaded
-  // file. imageUrl = a link typed by the merchant.
+  // doesn't pick a new one). imagePreview = a newly captured/picked photo.
   const [existingImage, setExistingImage] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
@@ -65,9 +64,6 @@ function EditProductPage() {
         setTitle(product.title);
         setDescription(product.description);
         setExistingImage(product.imageUrl);
-        // Uploaded images are stored as huge data: URLs — never put those in
-        // the link input; only show real links there.
-        if (/^https?:\/\//i.test(product.imageUrl)) setImageUrl(product.imageUrl);
         setCurrentPrice(String(product.currentPrice));
         setDiscountPrice(product.discountPrice ? String(product.discountPrice) : "");
         setCurrency(product.currency);
@@ -110,11 +106,7 @@ function EditProductPage() {
 
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) {
-      setImageFile(null);
-      setImagePreview("");
-      return;
-    }
+    if (!file) return;
 
     if (file.size > 8 * 1024 * 1024) {
       toast.error("حجم الصورة يجب أن لا يزيد على 8MB");
@@ -128,7 +120,6 @@ function EditProductPage() {
 
     try {
       const dataUrl = await compressImageFile(file);
-      setImageFile(file);
       setImagePreview(dataUrl);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر معالجة الصورة");
@@ -143,22 +134,10 @@ function EditProductPage() {
       return;
     }
 
-    // Image priority: newly uploaded file > typed link > current saved image.
-    let finalImageUrl = "";
-    if (imageFile && imagePreview.startsWith("data:")) {
-      finalImageUrl = imagePreview;
-    } else if (imageUrl.trim()) {
-      try {
-        new URL(imageUrl.trim());
-        finalImageUrl = imageUrl.trim();
-      } catch {
-        toast.error("رابط الصورة غير صحيح");
-        return;
-      }
-    } else if (existingImage) {
-      finalImageUrl = existingImage;
-    } else {
-      toast.error("أضف صورة: إما رابط أو ارفع صورة من جهازك");
+    // Image priority: newly captured/picked photo > current saved image.
+    const finalImageUrl = imagePreview || existingImage;
+    if (!finalImageUrl) {
+      toast.error("أضف صورة المنتج: التقطها بالكاميرا أو اخترها من الاستديو");
       return;
     }
 
@@ -231,57 +210,63 @@ function EditProductPage() {
       <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="imageFile" className="text-sm font-medium">ارفع صورة من جهازك</Label>
-                <Input
-                  id="imageFile"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageFileChange}
-                  className="mt-2 h-11"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">PNG, JPG، إلخ (حد أقصى 2MB)</p>
-              </div>
-
-              <div className="relative flex items-center gap-3">
-                <div className="flex-1 border-t border-border" />
-                <span className="text-xs text-muted-foreground">أو</span>
-                <div className="flex-1 border-t border-border" />
-              </div>
-
-              <div>
-                <Label htmlFor="imageUrl" className="text-sm font-medium">أو ضع رابط الصورة</Label>
-                <Input
-                  id="imageUrl"
-                  value={imageUrl}
-                  onChange={(e) => {
-                    setImageUrl(e.target.value);
-                    // Typing a link replaces any uploaded file.
-                    setImageFile(null);
-                    setImagePreview("");
-                  }}
-                  placeholder="https://example.com/product.jpg"
-                  dir="ltr"
-                  className="mt-2 h-11 text-start"
-                />
-              </div>
+            <Label className="text-sm font-medium">صورة المنتج</Label>
+            {/* Hidden inputs: capture="environment" opens the camera directly
+                on mobile; the plain one opens the photo gallery / file picker. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleImageFileChange}
+              className="hidden"
+            />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageFileChange}
+              className="hidden"
+            />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                <Camera className="h-5 w-5" />
+                التقط بالكاميرا
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2"
+                onClick={() => galleryInputRef.current?.click()}
+              >
+                <Images className="h-5 w-5" />
+                اختر من الاستديو
+              </Button>
             </div>
+            {imagePreview && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                تم اختيار صورة جديدة — ستستبدل الصورة الحالية عند الحفظ.
+              </p>
+            )}
 
             <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-              {imagePreview || imageUrl.trim() || existingImage ? (
+              {imagePreview || existingImage ? (
                 <img
-                  src={imagePreview || imageUrl.trim() || existingImage}
+                  src={imagePreview || existingImage}
                   alt="Product preview"
                   className="h-full w-full object-cover"
-                  onError={() => imageUrl && toast.error("خطأ بتحميل الصورة من الرابط")}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center text-center text-muted-foreground">
                   <span>
                     <ImagePlus className="mx-auto h-8 w-8 text-primary" />
                     <span className="mt-3 block text-sm font-medium">معاينة الصورة</span>
-                    <span className="mt-1 block text-xs">ارفع صورة أو ضع رابط</span>
+                    <span className="mt-1 block text-xs">التقط صورة أو اختر من الاستديو</span>
                   </span>
                 </div>
               )}

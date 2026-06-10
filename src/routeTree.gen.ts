@@ -31,6 +31,7 @@ import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/p
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
+import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
 import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
@@ -145,6 +146,11 @@ const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
   path: '/api/whatsapp/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProductImageIdRoute = ApiProductImageIdRouteImport.update({
+  id: '/api/product-image/$id',
+  path: '/api/product-image/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronSyncSocialRoute = ApiCronSyncSocialRouteImport.update({
   id: '/api/cron/sync-social',
   path: '/api/cron/sync-social',
@@ -178,6 +184,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
@@ -205,6 +212,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
   '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders': typeof DashboardOrdersIndexRoute
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/dashboard/'
     | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/dashboard/'
     | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
@@ -344,6 +356,7 @@ export interface RootRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
   ApiCronSyncSocialRoute: typeof ApiCronSyncSocialRoute
+  ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
   DashboardOrdersIndexRoute: typeof DashboardOrdersIndexRoute
@@ -511,6 +524,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/product-image/$id': {
+      id: '/api/product-image/$id'
+      path: '/api/product-image/$id'
+      fullPath: '/api/product-image/$id'
+      preLoaderRoute: typeof ApiProductImageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/sync-social': {
       id: '/api/cron/sync-social'
       path: '/api/cron/sync-social'
@@ -552,6 +572,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
   ApiCronSyncSocialRoute: ApiCronSyncSocialRoute,
+  ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,
   DashboardOrdersIndexRoute: DashboardOrdersIndexRoute,
