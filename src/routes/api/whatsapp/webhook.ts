@@ -209,6 +209,8 @@ const ACTION_COMPLETE_PURCHASE = "complete_purchase";
 const ACTION_MESSAGE_MERCHANT = "message_merchant";
 const ACTION_NEW_SEARCH = "new_search";
 const ACTION_SEARCH_ALTERNATIVE = "search_alternative";
+const ACTION_CONFIRM_ORDER = "merchant_confirm_order";
+const ACTION_PRODUCT_OUT_OF_STOCK = "merchant_product_out_of_stock";
 
 function buttonResponse(
   body: string,
@@ -584,6 +586,32 @@ function afterSelectionResponse(match: ProductMatch): WorkflowResponse {
   );
 }
 
+async function sendMerchantOrderButtons(
+  merchantPhone: string,
+  customerNumber: string,
+  productTitle: string,
+  price: string,
+) {
+  const body = [
+    `🎉 طلب جديد من زبون!`,
+    `المنتج: ${productTitle}`,
+    `السعر: ${price}`,
+    `رقم الزبون: ${customerNumber}`,
+    "",
+    "حالة الطلب:",
+  ].join("\n");
+
+  return sendWhatsAppButtons(
+    merchantPhone,
+    body,
+    [
+      { id: ACTION_CONFIRM_ORDER, title: "✅ تم تأكيد الطلب" },
+      { id: ACTION_PRODUCT_OUT_OF_STOCK, title: "❌ المنتج منتهي" },
+    ],
+    undefined,
+  );
+}
+
 async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, details: string) {
   const body = [
     "Botly: طلب شراء جديد",
@@ -603,27 +631,36 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
   // asleep, and even when the order went straight to the delivery company.
   // This is the core promise of the product.
   let merchantNotified = !match.deliveryPhone && result.ok;
-  if (match.deliveryPhone && match.merchantWhatsapp) {
-    const merchantBody = [
-      "🎉 Botly: تم بيع منتج من متجرك!",
-      `المنتج: ${match.title}`,
-      `السعر: ${formatPrice(match)}`,
-      `معلومات الزبون: ${details}`,
-      `رقم الزبون: ${customerNumber}`,
-      "",
-      "✅ تم تحويل الطلب لشركة التوصيل مباشرة.",
-    ].join("\n");
-    const merchantResult = await sendWhatsAppText(match.merchantWhatsapp, merchantBody).catch(
-      (error) => {
-        console.error("[Order] Failed to notify merchant", error);
-        return { ok: false, status: 0, error: String(error) };
-      },
-    );
-    merchantNotified = merchantResult.ok;
+  let merchantButtonsResult = { ok: false };
+  if (match.merchantWhatsapp) {
+    // Send order confirmation buttons to merchant
+    merchantButtonsResult = await sendMerchantOrderButtons(
+      match.merchantWhatsapp,
+      customerNumber,
+      match.title,
+      formatPrice(match),
+    ).catch((error) => {
+      console.error("[Order] Failed to send merchant buttons", error);
+      return { ok: false, status: 0, error: String(error) };
+    });
+
+    if (match.deliveryPhone) {
+      // Also send text notification if order went to delivery
+      const merchantBody = [
+        "ℹ️ تم تحويل الطلب لشركة التوصيل مباشرة.",
+        `رقم الزبون: ${customerNumber}`,
+      ].join("\n");
+      await sendWhatsAppText(match.merchantWhatsapp, merchantBody).catch((error) => {
+        console.error("[Order] Failed to notify merchant about delivery", error);
+      });
+    }
+
+    merchantNotified = merchantButtonsResult.ok;
   }
 
+  const orderId = crypto.randomUUID();
   await appendEvent("botly_order", {
-    orderId: crypto.randomUUID(),
+    orderId,
     merchantId: match.merchantId,
     productId: match.id,
     productTitle: match.title,
@@ -634,6 +671,7 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
     deliveryPhone: match.deliveryPhone,
     merchantWhatsapp: match.merchantWhatsapp,
     merchantNotified,
+    merchantButtonsSent: merchantButtonsResult.ok,
     status: result.ok
       ? match.deliveryPhone
         ? "sent_to_delivery"
@@ -1041,7 +1079,67 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           const isCustomerMessage =
             Boolean(incoming.from) && summary.eventType.startsWith("message.");
 
-          if (isCustomerMessage && incoming.from) {
+          // Check if this is a merchant order confirmation action
+          if (
+            isCustomerMessage &&
+            incoming.from &&
+            incoming.actionId &&
+            (incoming.actionId === ACTION_CONFIRM_ORDER ||
+              incoming.actionId === ACTION_PRODUCT_OUT_OF_STOCK)
+          ) {
+            // This is a merchant response to order confirmation buttons.
+            // Look up the most recent order for this merchant phone.
+            const merchantOrders = await listEventsByPayloadField(
+              "botly_order",
+              "merchantWhatsapp",
+              incoming.from,
+              10,
+            );
+            const recentOrder = merchantOrders[0]; // Newest first
+            if (recentOrder) {
+              const order = recentOrder.payload ?? {};
+              const customerNumber = getString(order.customerNumber);
+              const productTitle = getString(order.productTitle);
+              const storeName = getString(order.storeName);
+
+              if (customerNumber) {
+                const isConfirmed = incoming.actionId === ACTION_CONFIRM_ORDER;
+                const responseMsg = isConfirmed
+                  ? `✅ تم تأكيد طلبك من ${storeName}\nالمنتج: ${productTitle}`
+                  : `❌ المنتج ${productTitle} منتهي حالياً من ${storeName}.\nسيتم إعلامك حال توفره مجدداً.`;
+
+                await sendWhatsAppText(customerNumber, responseMsg).catch((error) => {
+                  console.error("[Merchant] Failed to send order response to customer:", error);
+                });
+
+                // Record the merchant's response
+                await appendEvent("botly_order", {
+                  orderId: getString(order.orderId) || crypto.randomUUID(),
+                  merchantId: getString(order.merchantId),
+                  productId: getString(order.productId),
+                  productTitle,
+                  productPrice: getNumber(order.productPrice),
+                  currency: getString(order.currency),
+                  storeName,
+                  customerNumber,
+                  deliveryPhone: getString(order.deliveryPhone),
+                  merchantWhatsapp: incoming.from,
+                  merchantResponse: incoming.actionId,
+                  merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
+                  status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
+                  createdAt: new Date().toISOString(),
+                }).catch((error) =>
+                  console.error("[Merchant] Failed to record merchant response:", error),
+                );
+
+                workflowResponse = { kind: "none" };
+              } else {
+                console.warn("[Merchant] No customer number in recent order");
+              }
+            } else {
+              console.warn("[Merchant] No recent orders found for merchant:", incoming.from);
+            }
+          } else if (isCustomerMessage && incoming.from) {
             // Voice search: transcribe the voice note first, then run the SAME
             // workflow with the transcript as if the customer typed it.
             let customerText = incoming.text;
