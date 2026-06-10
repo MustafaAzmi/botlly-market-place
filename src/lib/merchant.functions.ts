@@ -749,13 +749,28 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
         .eq("id", row.id);
       if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
     } else {
-      const result = await supabaseAdmin
+      // Products are append-only (edits add rows with the same productId):
+      // delete EVERY event row of this product, otherwise an older version
+      // resurrects as "latest" right after the delete.
+      const pid = getString(row.payload?.productId);
+      if (pid) {
+        const byProductId = await supabaseAdmin
+          .from("whatsapp_webhook_events")
+          .delete()
+          .eq("source", "botly")
+          .eq("event_type", PRODUCT_PROVIDER)
+          .eq("payload->>productId" as never, pid);
+        if (byProductId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+      }
+      // Also remove the matched row itself (covers legacy rows without a
+      // productId in the payload).
+      const byRowId = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
         .eq("source", "botly")
         .eq("event_type", PRODUCT_PROVIDER)
         .eq("id", row.id);
-      if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+      if (byRowId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
     }
 
     return { ok: true };

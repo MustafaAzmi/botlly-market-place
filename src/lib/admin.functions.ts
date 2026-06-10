@@ -370,37 +370,42 @@ export const deleteMerchantStore = createServerFn({ method: "POST" })
 
     const merchantId = merchantIdentity(row);
 
+    // PostgREST JSON-path filter syntax is payload->>field (no quotes).
+    // supabase-js returns errors in the result instead of throwing, so each
+    // step checks result.error explicitly.
+
     // Delete all products for this merchant
-    try {
-      await supabaseAdmin
-        .from("whatsapp_webhook_events")
-        .delete()
-        .eq("source", "botly")
-        .eq("event_type", "botly_product")
-        .eq(`payload->>'merchantId'` as never, merchantId);
-    } catch (error) {
-      console.error("[Admin] Failed to delete products", error);
+    const productsResult = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .delete()
+      .eq("source", "botly")
+      .eq("event_type", "botly_product")
+      .eq("payload->>merchantId" as never, merchantId);
+    if (productsResult.error) {
+      console.error("[Admin] Failed to delete products", productsResult.error);
     }
 
     // Delete all orders for this merchant
-    try {
-      await supabaseAdmin
-        .from("whatsapp_webhook_events")
-        .delete()
-        .eq("source", "botly")
-        .eq("event_type", "botly_order")
-        .eq(`payload->>'merchantId'` as never, merchantId);
-    } catch (error) {
-      console.error("[Admin] Failed to delete orders", error);
+    const ordersResult = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .delete()
+      .eq("source", "botly")
+      .eq("event_type", "botly_order")
+      .eq("payload->>merchantId" as never, merchantId);
+    if (ordersResult.error) {
+      console.error("[Admin] Failed to delete orders", ordersResult.error);
     }
 
     // Delete the merchant record itself
-    await supabaseAdmin
+    const merchantResult = await supabaseAdmin
       .from("whatsapp_webhook_events")
       .delete()
       .eq("source", "botly")
       .eq("event_type", "botly_merchant")
-      .eq(`payload->>'merchantId'` as never, merchantId);
+      .eq("payload->>merchantId" as never, merchantId);
+    if (merchantResult.error) {
+      throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${merchantResult.error.message}`);
+    }
 
     return { ok: true };
   });
