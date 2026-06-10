@@ -607,6 +607,105 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
     return rows.filter((row) => getString(row.payload?.merchantId) === merchantId).map(toProduct);
   });
 
+export const getMerchantProduct = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.extend({ productId: z.string().min(1) }).parse(d))
+  .handler(async ({ data }) => {
+    const merchant = await getAuthorizedMerchant(data.token);
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents(PRODUCT_PROVIDER);
+    const row = rows.find(
+      (row) =>
+        getString(row.payload?.merchantId) === merchantId &&
+        (getString(row.payload?.productId) === data.productId || row.id === data.productId),
+    );
+    if (!row) throw new Error("لم يتم العثور على المنتج.");
+    return toProduct(row);
+  });
+
+const updateProductInput = tokenInput.extend({
+  productId: z.string().min(1),
+  title: z.string().trim().min(1).max(140).optional(),
+  description: z.string().trim().min(1).max(280).optional(),
+  imageUrl: z
+    .string()
+    .min(1, "رابط الصورة مطلوب")
+    .max(3_000_000)
+    .refine((value) => {
+      if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return true;
+      if (value.length > 2_000) return false;
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "رابط الصورة غير صحيح")
+    .optional(),
+  currentPrice: z.number().min(0).max(999_999_999).optional(),
+  discountPrice: z.number().min(0).max(999_999_999).optional(),
+  currency: z.string().trim().min(1).max(8).optional(),
+  size: z.string().trim().max(80).optional().or(z.literal("")),
+  color: z.string().trim().max(80).optional().or(z.literal("")),
+  quantity: z.number().int().min(0).max(999_999).optional(),
+});
+
+export const updateMerchantProduct = createServerFn({ method: "POST" })
+  .inputValidator((d) => updateProductInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchant = await getAuthorizedMerchant(data.token);
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents(PRODUCT_PROVIDER);
+    const row = rows.find(
+      (row) =>
+        getString(row.payload?.merchantId) === merchantId &&
+        (getString(row.payload?.productId) === data.productId || row.id === data.productId),
+    );
+    if (!row) throw new Error("لم يتم العثور على المنتج.");
+
+    const currentPayload = row.payload ?? {};
+    const keywords = buildManualProductKeywords({
+      title: data.title || getString(currentPayload.title),
+      description: data.description || getString(currentPayload.description),
+      size: data.size || getString(currentPayload.size),
+      color: data.color || getString(currentPayload.color),
+    });
+
+    const searchText = [
+      data.title || getString(currentPayload.title),
+      data.description || getString(currentPayload.description),
+      data.color || getString(currentPayload.color),
+      data.size || getString(currentPayload.size),
+      ...keywords,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const quantity = data.quantity !== undefined ? data.quantity : getNumber(currentPayload.quantity);
+
+    const payload = {
+      ...currentPayload,
+      productId: getString(currentPayload.productId) || data.productId,
+      merchantId,
+      title: data.title || getString(currentPayload.title),
+      description: data.description || getString(currentPayload.description),
+      imageUrl: data.imageUrl || getString(currentPayload.imageUrl),
+      currentPrice: data.currentPrice ?? getNumber(currentPayload.currentPrice),
+      discountPrice: data.discountPrice ?? getNumber(currentPayload.discountPrice),
+      currency: data.currency || getString(currentPayload.currency),
+      size: data.size !== undefined ? data.size : getString(currentPayload.size),
+      color: data.color !== undefined ? data.color : getString(currentPayload.color),
+      quantity,
+      keywords,
+      searchText,
+      availability: quantity === 0 ? "out_of_stock" : "in_stock",
+      createdAt: getString(currentPayload.createdAt) || eventTime(row),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updated = await insertEvent(PRODUCT_PROVIDER, payload);
+    return toProduct(updated);
+  });
+
 export const getMerchantDashboard = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }) => {

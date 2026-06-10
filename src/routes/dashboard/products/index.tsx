@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Package, Plus, Search } from "lucide-react";
+import { Loader2, Package, Plus, Search, Edit2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -127,6 +127,12 @@ function ProductCard({ product }: { product: MerchantProduct }) {
             </span>
           )}
         </div>
+        <Button asChild size="sm" variant="ghost" className="mt-3 w-full gap-2">
+          <Link to={`/dashboard/products/${product.id}/edit`}>
+            <Edit2 className="h-3.5 w-3.5" />
+            تعديل
+          </Link>
+        </Button>
       </div>
     </div>
   );
