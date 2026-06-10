@@ -34,7 +34,7 @@ import {
   appendEvent,
   getNumber,
   getString,
-  listEvents,
+  listEventsByPayloadField,
   normalizePhone,
   sha256,
 } from "@/lib/eventStore.server";
@@ -253,7 +253,7 @@ function confirmAddressResponse(savedAddress: OrderDetails): WorkflowResponse {
     .join(" | ");
 
   return buttonResponse(
-    `عنوانك الحالي:\n${addressStr}\n\nهذا الحنين بتاع الطلب؟`,
+    `عنوانك المحفوظ:\n${addressStr}\n\nنكمل الطلب على نفس هذا العنوان؟`,
     [
       { id: "confirm_address", title: "نعم، نفسه" },
       { id: "change_address", title: "لا، بدل العنوان" },
@@ -289,39 +289,14 @@ function isRecentIso(value: string, minutes: number) {
   return Date.now() - timestamp < minutes * 60 * 1000;
 }
 
-async function wasPromptSentRecently(
-  customerNumber: string,
-  session: CustomerSession | null,
-  promptType: string,
-  minutes = 360,
-) {
-  if (
-    session?.lastPromptType === promptType &&
-    session.lastPromptAt &&
-    isRecentIso(session.lastPromptAt, minutes)
-  ) {
-    return true;
-  }
-
-  const rows = await listEvents("botly_customer_session", 200);
-  return rows.some((row) => {
-    const payload = row.payload ?? {};
-    return (
-      getString(payload.customerNumber) === customerNumber &&
-      getString(payload.lastPromptType) === promptType &&
-      isRecentIso(getString(payload.lastPromptAt), minutes)
-    );
-  });
-}
-
 async function wasOutboundReplySentRecently(customerNumber: string, body: string, minutes = 60) {
   const recipient = normalizePhone(customerNumber);
   const bodyHash = await sha256(`${recipient}:${body}`);
-  const rows = await listEvents("botly_outbound_guard", 1000);
+  // Server-side filter: only this recipient's recent guard rows.
+  const rows = await listEventsByPayloadField("botly_outbound_guard", "recipient", recipient, 30);
   return rows.some((row) => {
     const payload = row.payload ?? {};
     return (
-      getString(payload.recipient) === recipient &&
       getString(payload.bodyHash) === bodyHash &&
       isRecentIso(getString(payload.createdAt), minutes)
     );
@@ -340,15 +315,17 @@ async function recordOutboundReply(customerNumber: string, body: string, reason:
 }
 
 async function readCustomerSession(customerNumber: string): Promise<CustomerSession | null> {
-  const rows = await listEvents("botly_customer_session");
+  // Server-side filter: only this customer's newest rows, not the whole table.
+  const rows = await listEventsByPayloadField(
+    "botly_customer_session",
+    "customerNumber",
+    customerNumber,
+    5,
+  );
   const now = Date.now();
-  const row = rows.find((candidate) => {
-    const payload = candidate.payload ?? {};
-    return (
-      getString(payload.customerNumber) === customerNumber &&
-      new Date(getString(payload.expiresAt)).getTime() > now
-    );
-  });
+  const row = rows.find(
+    (candidate) => new Date(getString(candidate.payload?.expiresAt)).getTime() > now,
+  );
   if (!row) return null;
 
   const payload = row.payload ?? {};
@@ -358,11 +335,15 @@ async function readCustomerSession(customerNumber: string): Promise<CustomerSess
       ? (payload.selectedMatch as ProductMatch)
       : null;
 
-  // Legacy sessions may still be parked in the removed awaiting_location phase;
-  // move them straight to the product question.
+  // Legacy sessions may be parked in removed phases (start, awaiting_location,
+  // awaiting_customer_details) — map them to the closest live phase.
   const rawPhase = getString(payload.phase);
   const phase: WorkflowPhase =
-    rawPhase === "awaiting_location" ? "awaiting_product_query" : (rawPhase as WorkflowPhase) || "start";
+    rawPhase === "awaiting_location" || rawPhase === "start" || !rawPhase
+      ? "awaiting_product_query"
+      : rawPhase === "awaiting_customer_details"
+        ? "awaiting_customer_name"
+        : (rawPhase as WorkflowPhase);
 
   return {
     customerNumber,
@@ -393,7 +374,7 @@ async function writeCustomerSession(
   pendingIntent?: SearchIntent | null,
   displayedCount = 3,
   prompt?: { type: string; at?: string } | null,
-  phase: WorkflowPhase = "start",
+  phase: WorkflowPhase = "awaiting_product_query",
   lastQuery?: string,
   orderDetails?: OrderDetails | null,
 ) {
@@ -415,10 +396,14 @@ async function writeCustomerSession(
 }
 
 async function findLastSavedAddress(customerNumber: string): Promise<OrderDetails | null> {
-  const rows = await listEvents("botly_customer_session", 100);
+  const rows = await listEventsByPayloadField(
+    "botly_customer_session",
+    "customerNumber",
+    customerNumber,
+    30,
+  );
   for (const row of rows) {
     const payload = row.payload ?? {};
-    if (getString(payload.customerNumber) !== customerNumber) continue;
     const details = payload.orderDetails;
     if (details && typeof details === "object") {
       const order = details as Partial<OrderDetails>;
@@ -526,7 +511,7 @@ function formatWorkflowSearchResults(matches: ProductMatch[], hasMore = false, s
   });
 
   const more = hasMore ? "\nإذا تريد نتائج أكثر اضغط المزيد." : "";
-  return `${lines.join("\n\n")}${more}\n\nاختار رقم المنتج حتى أكمله.`;
+  return `${lines.join("\n\n")}${more}\n\nاختار رقم المنتج حتى أكمله.\n0️⃣ اضغط 0 لإلغاء البحث والعودة للبداية.`;
 }
 
 // WhatsApp can only deliver public https links. Link-based images go out as-is;
@@ -544,14 +529,18 @@ function deliverableImageUrl(match: ProductMatch): string | null {
 // Send one image per displayed product (best-effort). The caption shows
 // number/title/price only; no links or merchant location.
 async function sendResultImages(customerNumber: string, matches: ProductMatch[], startIndex = 0) {
-  for (const [index, match] of matches.slice(0, 3).entries()) {
-    const imageUrl = match.imageUrl ? deliverableImageUrl(match) : null;
-    if (!imageUrl) continue;
-    const caption = `${startIndex + index + 1}️⃣ ${match.title}\n${formatPrice(match)} - ${match.storeName}`;
-    await sendWhatsAppImage(customerNumber, imageUrl, caption).catch((error) =>
-      console.error("[Workflow] Failed to send product image", error),
-    );
-  }
+  // Fire all image sends in parallel — sequential awaits added ~1.5s of
+  // customer-visible latency for 3 images.
+  await Promise.allSettled(
+    matches.slice(0, 3).map((match, index) => {
+      const imageUrl = match.imageUrl ? deliverableImageUrl(match) : null;
+      if (!imageUrl) return Promise.resolve();
+      const caption = `${startIndex + index + 1}️⃣ ${match.title}\n${formatPrice(match)} - ${match.storeName}`;
+      return sendWhatsAppImage(customerNumber, imageUrl, caption).catch((error) =>
+        console.error("[Workflow] Failed to send product image", error),
+      );
+    }),
+  );
 }
 
 function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = false) {
@@ -564,7 +553,8 @@ function selectionButtons(matches: ProductMatch[], startIndex = 0, hasMore = fal
 }
 
 function parseSelection(text: string, matches: ProductMatch[]) {
-  const normalized = normalizeArabicText(text).toLowerCase();
+  // Accept Arabic-Indic digits ("١") the same as ASCII ("1").
+  const normalized = toAsciiDigits(normalizeArabicText(text).toLowerCase());
   const digitMatch = normalized.match(/\b([1-9]|10)\b/);
   if (digitMatch) {
     const index = Number(digitMatch[1]) - 1;
@@ -652,6 +642,50 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
   return result;
 }
 
+// Arabic-Indic digits → ASCII so "١" works like "1" everywhere.
+function toAsciiDigits(text: string) {
+  return text.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+}
+
+// "0" cancels whatever is in progress and returns to the start.
+function isCancelInput(text: string) {
+  return toAsciiDigits(text.trim()) === "0";
+}
+
+async function resetToProductQuery(customerNumber: string) {
+  await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
+}
+
+// Run the search and reply with results (shared by first message and re-search).
+async function runProductSearch(
+  customerNumber: string,
+  query: string,
+): Promise<WorkflowResponse> {
+  const intent = await extractSearchIntent(query);
+  // Open nationwide search — most sales are delivery, so no radius filter.
+  const matches = await searchProducts(intent, 10, { limit: 10 });
+  const visible = matches.slice(0, 3);
+  await writeCustomerSession(
+    customerNumber,
+    matches,
+    null,
+    intent,
+    visible.length,
+    null,
+    "awaiting_selection",
+    query,
+  );
+  if (visible.length === 0) {
+    return notFoundResponse();
+  }
+  await sendResultImages(customerNumber, visible, 0);
+  return buttonResponse(
+    formatWorkflowSearchResults(visible, matches.length > visible.length),
+    selectionButtons(visible, 0, matches.length > visible.length),
+    "search_results",
+  );
+}
+
 async function handleButtonWorkflow(
   customerNumber: string,
   customerText: string,
@@ -660,156 +694,43 @@ async function handleButtonWorkflow(
   const existingSession = await readCustomerSession(customerNumber);
   const phase = existingSession?.phase ?? "awaiting_product_query";
 
-  // Address confirmation flow
-  if (phase === "awaiting_address_confirmation") {
-    if (actionId === "confirm_address") {
-      // Use saved address and proceed to completion
-      const selectedMatch = existingSession?.selectedMatch ?? null;
-      if (!selectedMatch) return startWorkflowResponse();
-
-      const details = [
-        `الاسم: ${existingSession?.orderDetails?.name ?? "—"}`,
-        `النقطة الدالة: ${existingSession?.orderDetails?.landmark ?? "—"}`,
-        `المحافظة: ${existingSession?.orderDetails?.governorate ?? "—"}`,
-      ].join(" | ");
-
-      const result = await sendPurchaseDetails(customerNumber, selectedMatch, details);
-      await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
-      return buttonResponse(
-        result.ok
-          ? "تم استلام طلبك وإرساله للجهة المناسبة ✅\nرقم الواتساب مالتك راح يوصل للتاجر مع الطلب.\nتحب تبحث عن منتج ثاني؟"
-          : "سجلت طلبك، بس صار خلل بإرسال الإشعار. جرب تراسل التاجر أو ابحث من جديد.",
-        [{ id: ACTION_NEW_SEARCH, title: "بحث جديد" }],
-      );
-    }
-
-    if (actionId === "change_address") {
-      // Reset order details and ask for name again
-      await writeCustomerSession(
-        customerNumber,
-        existingSession?.matches ?? [],
-        existingSession?.selectedMatch ?? null,
-        existingSession?.pendingIntent ?? null,
-        existingSession?.displayedCount ?? 3,
-        null,
-        "awaiting_customer_name",
-        existingSession?.lastQuery,
-        {},
-      );
-      return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
-    }
-  }
-
-  // Any button action or text → if we're in awaiting_after_selection, handle it
+  // Global escape: "0" or the new-search button cancels everything in
+  // progress and returns to the greeting.
   if (
-    phase === "awaiting_after_selection" &&
-    (actionId === ACTION_MESSAGE_MERCHANT || actionId === ACTION_COMPLETE_PURCHASE)
+    actionId === ACTION_NEW_SEARCH ||
+    (isCancelInput(customerText) && phase !== "awaiting_product_query")
   ) {
-    const selected = existingSession?.selectedMatch ?? null;
-    if (!selected) return startWorkflowResponse();
-
-    if (actionId === ACTION_MESSAGE_MERCHANT) {
-      await notifyMerchantOfSelection(customerNumber, selected);
-      await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
-      return buttonResponse("تم، رسالت معلومات اهتمامك للتاجر. تحب تبحث عن منتج ثاني؟", [
-        { id: ACTION_NEW_SEARCH, title: "بحث جديد" },
-      ]);
-    }
-
-    if (actionId === ACTION_COMPLETE_PURCHASE) {
-      // Check if there's a saved address
-      const savedAddress = await findLastSavedAddress(customerNumber);
-      if (savedAddress) {
-        // Show confirmation
-        await writeCustomerSession(
-          customerNumber,
-          existingSession.matches,
-          selected,
-          existingSession.pendingIntent ?? null,
-          existingSession.displayedCount ?? 3,
-          null,
-          "awaiting_address_confirmation",
-          existingSession.lastQuery,
-          savedAddress,
-        );
-        return confirmAddressResponse(savedAddress);
-      }
-
-      // No saved address — ask for name
-      await writeCustomerSession(
-        customerNumber,
-        existingSession.matches,
-        selected,
-        existingSession.pendingIntent ?? null,
-        existingSession.displayedCount ?? 3,
-        null,
-        "awaiting_customer_name",
-        existingSession.lastQuery,
-        {},
-      );
-      return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
-    }
+    await resetToProductQuery(customerNumber);
+    return startWorkflowResponse();
   }
 
-  // New search button
-  if (actionId === ACTION_NEW_SEARCH) {
-    await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
-    return askForProductResponse();
+  // Brand-new conversation: ANY first message gets the greeting + product
+  // prompt. The customer's next message is treated as the search query.
+  if (!existingSession) {
+    await resetToProductQuery(customerNumber);
+    return startWorkflowResponse();
   }
 
-  // More results in awaiting_selection
-  if (phase === "awaiting_selection" && actionId === ACTION_MORE_RESULTS) {
-    const start = existingSession?.displayedCount ?? 3;
-    const next = Math.min(start + 3, existingSession?.matches.length ?? 0);
-    const extraMatches = (existingSession?.matches ?? []).slice(start, next);
-    if (extraMatches.length === 0) {
-      return notFoundResponse();
-    }
+  if (actionId === ACTION_SEARCH_ALTERNATIVE) {
     await writeCustomerSession(
       customerNumber,
-      existingSession?.matches ?? [],
+      [],
       null,
-      existingSession?.pendingIntent ?? null,
-      next,
+      existingSession.pendingIntent ?? null,
+      3,
       null,
-      "awaiting_selection",
-      existingSession?.lastQuery,
+      "awaiting_product_query",
+      existingSession.lastQuery,
     );
-    await sendResultImages(customerNumber, extraMatches, start);
-    return buttonResponse(
-      formatWorkflowSearchResults(extraMatches, (existingSession?.matches.length ?? 0) > next, start),
-      selectionButtons(extraMatches, start, (existingSession?.matches.length ?? 0) > next),
-      "search_results_more",
-    );
+    return textResponse("تمام، اكتب اسم المنتج البديل الي تدور عليه.");
   }
 
-  if (phase === "awaiting_product_query" && customerText.trim().length > 0) {
+  if (phase === "awaiting_product_query") {
     const query = customerText.trim();
-    if (query.length < 2) return textResponse("اكتب اسم المنتج بشكل أوضح حتى أقدر أبحث عنه.");
-
-    const intent = await extractSearchIntent(query);
-    // Open nationwide search — most sales are delivery, so no radius filter.
-    const matches = await searchProducts(intent, 10, { limit: 10 });
-    const visible = matches.slice(0, 3);
-    await writeCustomerSession(
-      customerNumber,
-      matches,
-      null,
-      intent,
-      visible.length,
-      null,
-      "awaiting_selection",
-      query,
-    );
-    if (visible.length === 0) {
-      return notFoundResponse();
+    if (query.length < 2) {
+      return textResponse("اكتب اسم المنتج بشكل أوضح حتى أقدر أبحث عنه.");
     }
-    await sendResultImages(customerNumber, visible, 0);
-    return buttonResponse(
-      formatWorkflowSearchResults(visible, matches.length > visible.length),
-      selectionButtons(visible, 0, matches.length > visible.length),
-      "search_results",
-    );
+    return runProductSearch(customerNumber, query);
   }
 
   if (phase === "awaiting_selection") {
@@ -843,7 +764,7 @@ async function handleButtonWorkflow(
       parseSelection(customerText, existingSession.matches);
     if (!selected) {
       return buttonResponse(
-        "اختار منتج من النتائج حتى أكمله.",
+        "اختار رقم المنتج من النتائج حتى أكمله.\n0️⃣ أو اضغط 0 لإلغاء البحث والبدء من جديد.",
         selectionButtons(
           existingSession.matches.slice(0, Math.min(existingSession.displayedCount ?? 3, 3)),
           0,
@@ -868,14 +789,34 @@ async function handleButtonWorkflow(
   if (phase === "awaiting_after_selection") {
     const selected = existingSession.selectedMatch ?? null;
     if (!selected) return startWorkflowResponse();
+
     if (actionId === ACTION_MESSAGE_MERCHANT) {
       await notifyMerchantOfSelection(customerNumber, selected);
-      await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
+      await resetToProductQuery(customerNumber);
       return buttonResponse("تم، رسالت معلومات اهتمامك للتاجر. تحب تبحث عن منتج ثاني؟", [
         { id: ACTION_NEW_SEARCH, title: "بحث جديد" },
       ]);
     }
+
     if (actionId === ACTION_COMPLETE_PURCHASE) {
+      // Returning customer with a saved address: confirm it instead of
+      // re-asking the three questions.
+      const savedAddress = await findLastSavedAddress(customerNumber);
+      if (savedAddress) {
+        await writeCustomerSession(
+          customerNumber,
+          existingSession.matches,
+          selected,
+          existingSession.pendingIntent ?? null,
+          existingSession.displayedCount ?? 3,
+          null,
+          "awaiting_address_confirmation",
+          existingSession.lastQuery,
+          savedAddress,
+        );
+        return confirmAddressResponse(savedAddress);
+      }
+
       await writeCustomerSession(
         customerNumber,
         existingSession.matches,
@@ -887,29 +828,62 @@ async function handleButtonWorkflow(
         existingSession.lastQuery,
         {},
       );
-      // Three-step order form starts here. The customer's WhatsApp number is
-      // forwarded with the order automatically, so we never ask for a phone.
+      // The customer's WhatsApp number is forwarded with the order
+      // automatically, so we never ask for a phone.
       return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
     }
+
     return afterSelectionResponse(selected);
   }
 
-  // Legacy phase from older sessions: restart it as the new step-by-step form.
-  if (phase === "awaiting_customer_details") {
+  if (phase === "awaiting_address_confirmation") {
     const selected = existingSession.selectedMatch ?? null;
     if (!selected) return startWorkflowResponse();
-    await writeCustomerSession(
-      customerNumber,
-      existingSession.matches,
-      selected,
-      existingSession.pendingIntent ?? null,
-      existingSession.displayedCount ?? 3,
-      null,
-      "awaiting_customer_name",
-      existingSession.lastQuery,
-      {},
-    );
-    return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
+
+    if (actionId === "confirm_address") {
+      const details = [
+        `الاسم: ${existingSession.orderDetails?.name ?? "—"}`,
+        `أقرب نقطة دالة: ${existingSession.orderDetails?.landmark ?? "—"}`,
+        `المحافظة: ${existingSession.orderDetails?.governorate ?? "—"}`,
+      ].join(" | ");
+
+      const result = await sendPurchaseDetails(customerNumber, selected, details);
+      // Keep orderDetails on the reset session so the address stays saved.
+      await writeCustomerSession(
+        customerNumber,
+        [],
+        null,
+        null,
+        3,
+        null,
+        "awaiting_product_query",
+        undefined,
+        existingSession.orderDetails,
+      );
+      return buttonResponse(
+        result.ok
+          ? "تم استلام طلبك وإرساله للجهة المناسبة ✅\nرقم الواتساب مالتك راح يوصل للتاجر مع الطلب.\nتحب تبحث عن منتج ثاني؟"
+          : "سجلت طلبك، بس صار خلل بإرسال الإشعار. جرب تراسل التاجر أو ابحث من جديد.",
+        [{ id: ACTION_NEW_SEARCH, title: "بحث جديد" }],
+      );
+    }
+
+    if (actionId === "change_address") {
+      await writeCustomerSession(
+        customerNumber,
+        existingSession.matches,
+        selected,
+        existingSession.pendingIntent ?? null,
+        existingSession.displayedCount ?? 3,
+        null,
+        "awaiting_customer_name",
+        existingSession.lastQuery,
+        {},
+      );
+      return textResponse("تمام! حتى نكمل الطلب،\n1️⃣ شنو اسمك الكامل؟");
+    }
+
+    return confirmAddressResponse(existingSession.orderDetails ?? {});
   }
 
   if (phase === "awaiting_customer_name") {
@@ -963,13 +937,26 @@ async function handleButtonWorkflow(
     if (governorate.length < 2) {
       return textResponse("اكتب اسم المحافظة من فضلك.");
     }
+    const fullAddress = { ...existingSession.orderDetails, governorate };
     const details = [
-      `الاسم: ${existingSession.orderDetails?.name ?? "غير مذكور"}`,
-      `أقرب نقطة دالة: ${existingSession.orderDetails?.landmark ?? "غير مذكورة"}`,
+      `الاسم: ${fullAddress.name ?? "غير مذكور"}`,
+      `أقرب نقطة دالة: ${fullAddress.landmark ?? "غير مذكورة"}`,
       `المحافظة: ${governorate}`,
     ].join(" | ");
     const result = await sendPurchaseDetails(customerNumber, selected, details);
-    await writeCustomerSession(customerNumber, [], null, null, 3, null, "start");
+    // Persist the full address on the reset session — next order skips the
+    // three questions and just asks for confirmation.
+    await writeCustomerSession(
+      customerNumber,
+      [],
+      null,
+      null,
+      3,
+      null,
+      "awaiting_product_query",
+      undefined,
+      fullAddress,
+    );
     return buttonResponse(
       result.ok
         ? "تم استلام طلبك وإرساله للجهة المناسبة ✅\nرقم الواتساب مالتك راح يوصل للتاجر مع الطلب.\nتحب تبحث عن منتج ثاني؟"
@@ -1070,8 +1057,9 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               workflowResponse = startWorkflowResponse();
             }
 
-            {
+            if (workflowResponse.kind !== "none") {
               const replyText = workflowResponse.body;
+              const phoneNumberId = summary.phoneNumberId ?? undefined;
               try {
                 const duplicateWindowMinutes = workflowResponse.duplicateWindowMinutes ?? 10;
                 if (
@@ -1093,25 +1081,17 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                       incoming.from,
                       replyText,
                       workflowResponse.buttons,
-                      summary.phoneNumberId,
+                      phoneNumberId,
                     );
                     if (!sendResult.ok) {
                       console.warn(
                         "[Webhook] Button send failed, falling back to text:",
                         sendResult,
                       );
-                      sendResult = await sendWhatsAppText(
-                        incoming.from,
-                        replyText,
-                        summary.phoneNumberId,
-                      );
+                      sendResult = await sendWhatsAppText(incoming.from, replyText, phoneNumberId);
                     }
                   } else {
-                    sendResult = await sendWhatsAppText(
-                      incoming.from,
-                      replyText,
-                      summary.phoneNumberId,
-                    );
+                    sendResult = await sendWhatsAppText(incoming.from, replyText, phoneNumberId);
                   }
                 }
                 console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));

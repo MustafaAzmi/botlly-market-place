@@ -25,7 +25,9 @@ function getAnthropicApiKey() {
 }
 
 function getAnthropicModel() {
-  return process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+  // Haiku: fast enough for a waiting WhatsApp customer, smart enough for
+  // typo/dialect intent extraction. Opus was taking far longer per message.
+  return process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 }
 
 export interface SearchIntent {
@@ -84,10 +86,15 @@ const INTENT_PROMPT = `أنت مساعد ذكي تفهم قصد الزبون م�
 - مثال: لو الزبون كتب "نطلون جنز ازرق" → search_terms="بنطلون جينز ازرق"، keywords=["بنطلون","نطلون","جينز","جنز","ازرق","ازرك","ديم","jeans"].
 - نظّف الإيموجي والكلام الزائد.`;
 
+// Hard cap on AI latency: the customer is waiting on WhatsApp, so an
+// understanding that takes longer than this is worse than a plain-text search.
+const INTENT_TIMEOUT_MS = 6_000;
+
 // AI-driven intent understanding. Order of preference:
-//   1. Claude (opus 4.8) — primary brain, best at typo/dialect understanding.
-//   2. OpenAI — secondary.
+//   1. OpenAI (gpt-4.1-mini) — fast (~1s) and excellent at typo/dialect fixes.
+//   2. Claude — fallback when OpenAI is down or unconfigured.
 //   3. Normalized raw text — last-resort fallback so search never fully breaks.
+// Every provider call has a hard timeout so the customer never waits long.
 export async function extractSearchIntent(customerText: string): Promise<SearchIntent> {
   const normalized = normalizeArabicText(customerText);
   const fallback: SearchIntent = {
@@ -99,16 +106,16 @@ export async function extractSearchIntent(customerText: string): Promise<SearchI
     keywords: [],
   };
 
-  // 1. Claude (opus 4.8) first.
-  if (getAnthropicApiKey()) {
-    const viaClaude = await extractIntentWithClaude(customerText, normalized);
-    if (viaClaude) return viaClaude;
-  }
-
-  // 2. OpenAI fallback.
+  // 1. OpenAI first — the fast path.
   if (getOpenAIApiKey()) {
     const viaOpenAI = await extractIntentWithOpenAI(normalized);
     if (viaOpenAI) return viaOpenAI;
+  }
+
+  // 2. Claude fallback.
+  if (getAnthropicApiKey()) {
+    const viaClaude = await extractIntentWithClaude(customerText, normalized);
+    if (viaClaude) return viaClaude;
   }
 
   // 3. Raw normalized text.
@@ -140,7 +147,7 @@ function normalizeRawIntent(raw: RawIntent, normalized: string): SearchIntent {
   };
 }
 
-// Primary: Claude opus 4.8 understands the customer (typos, hamza, dialect).
+// Fallback: Claude understands the customer (typos, hamza, dialect).
 async function extractIntentWithClaude(
   customerText: string,
   normalized: string,
@@ -151,6 +158,7 @@ async function extractIntentWithClaude(
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(INTENT_TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
         "x-api-key": apiKey,
@@ -158,8 +166,8 @@ async function extractIntentWithClaude(
       },
       body: JSON.stringify({
         model: getAnthropicModel(),
-        max_tokens: 400,
-        temperature: 0.1,
+        max_tokens: 300,
+        temperature: 0,
         system: INTENT_PROMPT,
         messages: [{ role: "user", content: customerText }],
       }),
@@ -188,17 +196,17 @@ async function extractIntentWithClaude(
   }
 }
 
-// Secondary: OpenAI extraction with JSON mode.
+// Primary: OpenAI extraction with JSON mode (fast, ~1s with gpt-4.1-mini).
 async function extractIntentWithOpenAI(normalized: string): Promise<SearchIntent | null> {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) return null;
 
   try {
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({ apiKey, timeout: INTENT_TIMEOUT_MS, maxRetries: 0 });
     const response = await client.chat.completions.create({
       model: getOpenAIModel(),
-      max_tokens: 400,
-      temperature: 0.1,
+      max_tokens: 300,
+      temperature: 0,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: INTENT_PROMPT },
@@ -228,11 +236,17 @@ interface MerchantInfo {
   deliveryPhone?: string | null;
 }
 
+interface MerchantDirectory {
+  map: Map<string, MerchantInfo>;
+  hidden: Set<string>;
+}
+
 // Merchant contact details live on the `botly_merchant` event, NOT on the
-// product. Build a merchantId → latest-merchant map so search results can be
-// enriched (store name / phone).
-async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
+// product. One fetch builds BOTH the enrichment map (store name / phone) and
+// the hidden-merchant set, so search never reads the merchant log twice.
+async function loadMerchantDirectory(): Promise<MerchantDirectory> {
   const map = new Map<string, MerchantInfo>();
+  const hidden = new Set<string>();
   try {
     // listEvents returns newest-first, so the first row per merchantId wins.
     const rows = await listEvents("botly_merchant");
@@ -246,11 +260,23 @@ async function loadMerchantMap(): Promise<Map<string, MerchantInfo>> {
         whatsapp: getString(p.whatsapp) || getString(p.merchantWhatsapp) || getString(p.phone) || null,
         deliveryPhone: getString(p.deliveryPhone) || null,
       });
+      if (
+        (p.bannedFromBot === true || p.bannedFromBot === "true") ||
+        p.visibilityEnabled === "false" ||
+        p.isActive === "false" ||
+        (p.suspendedAt && String(p.suspendedAt).trim() !== "") ||
+        p.subscriptionStatus === "expired" ||
+        (p.packageExpiry &&
+          String(p.packageExpiry).trim() !== "" &&
+          new Date(String(p.packageExpiry)) < new Date())
+      ) {
+        hidden.add(id);
+      }
     }
   } catch (error) {
-    console.error("[Search] Failed to load merchant map", error);
+    console.error("[Search] Failed to load merchant directory", error);
   }
-  return map;
+  return { map, hidden };
 }
 
 // Run the actual database search via the pg_trgm RPC. Falls back gracefully to
@@ -267,14 +293,18 @@ export async function searchProducts(
 
   if (!query) return [];
 
+  // Kick off the merchant load in parallel with the search query — both the
+  // RPC path and the fallback need it, and neither should wait for the other.
+  const merchantsPromise = loadMerchantDirectory();
+
   // Try the RPC first (faster, with similarity scoring + merchant visibility filters).
-  let matches = await tryRpcSearch(query, maxResults);
+  let matches = await tryRpcSearch(query, maxResults, merchantsPromise);
 
   // RPC failed or returned nothing: fall back to direct database search.
   // Ensures we still return products even if the RPC isn't deployed. The AI's
   // corrected keywords drive tolerant matching here.
   if (matches.length === 0) {
-    matches = await fallbackDirectSearch(query, intent.keywords ?? [], maxResults);
+    matches = await fallbackDirectSearch(query, intent.keywords ?? [], maxResults, merchantsPromise);
   }
 
   // Apply price filter.
@@ -288,7 +318,11 @@ export async function searchProducts(
 }
 
 // Try the RPC search (fast, with similarity + filters).
-async function tryRpcSearch(query: string, maxResults: number): Promise<ProductMatch[]> {
+async function tryRpcSearch(
+  query: string,
+  maxResults: number,
+  merchantsPromise: Promise<MerchantDirectory>,
+): Promise<ProductMatch[]> {
   try {
     const { data, error } = await (
       supabaseAdmin.rpc as unknown as (
@@ -311,7 +345,7 @@ async function tryRpcSearch(query: string, maxResults: number): Promise<ProductM
       similarity: number;
     }>;
 
-    const merchants = await loadMerchantMap();
+    const { map: merchants } = await merchantsPromise;
     return rows.map((row) => {
       const p = row.payload ?? {};
       const merchantId = getString(p.merchantId);
@@ -348,30 +382,15 @@ async function fallbackDirectSearch(
   query: string,
   aiKeywords: string[],
   maxResults: number,
+  merchantsPromise: Promise<MerchantDirectory>,
 ): Promise<ProductMatch[]> {
   try {
-    const merchants = await loadMerchantMap();
-    const rows = await listEvents("botly_product");
-    const hiddenMerchants = new Set<string>();
-
-    // Build hidden merchant set (same logic as RPC).
-    const merchantRows = await listEvents("botly_merchant");
-    for (const row of merchantRows) {
-      const p = row.payload ?? {};
-      if (
-        (p.bannedFromBot === true || p.bannedFromBot === "true") ||
-        p.visibilityEnabled === "false" ||
-        p.isActive === "false" ||
-        (p.suspendedAt && String(p.suspendedAt).trim() !== "") ||
-        p.subscriptionStatus === "expired" ||
-        (p.packageExpiry &&
-          String(p.packageExpiry).trim() !== "" &&
-          new Date(String(p.packageExpiry)) < new Date())
-      ) {
-        const merchantId = getString(p.merchantId);
-        if (merchantId) hiddenMerchants.add(merchantId);
-      }
-    }
+    // Products and merchants load in parallel (single merchant fetch shared
+    // with the RPC path).
+    const [rows, { map: merchants, hidden: hiddenMerchants }] = await Promise.all([
+      listEvents("botly_product"),
+      merchantsPromise,
+    ]);
 
     const queryNormalized = normalizeArabicText(query).toLowerCase();
     // Token-based matching: a product matches if it shares ANY meaningful word

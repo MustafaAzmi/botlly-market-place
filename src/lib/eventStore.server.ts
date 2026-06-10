@@ -99,6 +99,31 @@ export async function listEvents(eventType: BotlyEventType, limit = 5000): Promi
   return (fallback.data ?? []) as unknown as EventRow[];
 }
 
+// Read events of a given type filtered by a payload field, server-side
+// (jsonb ->> filter). Critical for hot paths: avoids downloading thousands of
+// rows just to scan for one customer's data in memory.
+export async function listEventsByPayloadField(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  limit = 20,
+): Promise<EventRow[]> {
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,created_at")
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (!primary.error) return (primary.data ?? []) as EventRow[];
+
+  // Older schema / filter failure: fall back to the in-memory scan.
+  const rows = await listEvents(eventType, 1000);
+  return rows.filter((row) => getString(row.payload?.[field]) === value).slice(0, limit);
+}
+
 // Read the most recent event matching a payload field equality. Useful for
 // "current state" lookups in an append-only store (e.g. latest connection).
 export async function latestEventWhere(
@@ -106,8 +131,8 @@ export async function latestEventWhere(
   field: string,
   value: string,
 ): Promise<EventRow | null> {
-  const rows = await listEvents(eventType);
-  return rows.find((row) => getString(row.payload?.[field]) === value) ?? null;
+  const rows = await listEventsByPayloadField(eventType, field, value, 1);
+  return rows[0] ?? null;
 }
 
 async function findMerchantById(id: string): Promise<EventRow | null> {
