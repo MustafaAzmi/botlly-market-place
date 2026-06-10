@@ -38,7 +38,14 @@ function AdminDeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({ name: "", phone: "", cities: [] as string[] });
+
+  // Filter companies by name or phone in real-time
+  const filteredCompanies = companies.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.phone.includes(search)
+  );
 
   useEffect(() => {
     if (!session?.token) return;
@@ -134,8 +141,22 @@ function AdminDeliveryPage() {
           الاختيار في صفحة المتجر.
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {companies.map(c => (
+        <>
+          {companies.length > 3 && (
+            <div className="mb-6">
+              <Input
+                placeholder="ابحث عن شركة بالاسم أو الرقم..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-11"
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {filteredCompanies.length} من {companies.length} شركة
+              </p>
+            </div>
+          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            {filteredCompanies.map(c => (
             <div key={c.id} className="rounded-xl border border-border bg-card p-5 shadow-soft">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
@@ -171,7 +192,13 @@ function AdminDeliveryPage() {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+          {filteredCompanies.length === 0 && search && (
+            <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-muted-foreground">
+              لم يتم العثور على شركات توصيل تطابق البحث "{search}".
+            </div>
+          )}
+        </>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>

@@ -1051,7 +1051,11 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               const voice = await transcribeWhatsAppVoice(incoming.audioId);
               if (voice.ok) {
                 customerText = voice.text;
-                voicePrefix = `🎤 سمعتك تقول: «${voice.text}»\n\n`;
+                // Truncate echo-back for long transcripts to save bandwidth.
+                const displayText = voice.text.length > 50
+                  ? `${voice.text.slice(0, 50)}…`
+                  : voice.text;
+                voicePrefix = `🎤 سمعتك تقول: «${displayText}»\n\n`;
                 console.log("[Webhook] Voice transcript:", voice.text.slice(0, 80));
               } else {
                 voiceFailed = true;

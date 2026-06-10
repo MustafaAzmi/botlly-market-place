@@ -73,11 +73,16 @@ async function authorizeAdmin(token: string): Promise<string> {
 
 function readCities(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((c): c is string => typeof c === "string" && c.trim().length > 0);
+  return value.filter((c): c is string =>
+    typeof c === "string" && c.trim().length > 0 && c.length <= 60
+  );
 }
 
 async function loadDeliveryCompanies(): Promise<DeliveryCompanyRecord[]> {
-  const rows = await listEvents("botly_delivery_company");
+  // Load events with a reasonable limit (newest-first) to avoid scanning
+  // thousands of rows just to build company snapshot. 500 events is ~50 companies
+  // with 10 revisions each, more than enough for most platforms.
+  const rows = await listEvents("botly_delivery_company", 500);
   const byId = new Map<string, DeliveryCompanyRecord | null>();
 
   // listEvents returns newest-first, so the first row per companyId is the

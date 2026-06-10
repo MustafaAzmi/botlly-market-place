@@ -77,9 +77,34 @@ function StoreProfilePage() {
 
     // Load the admin-registered delivery companies for the dropdown
     // (best-effort: the manual phone field still works if this fails).
-    listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
-      .then(setDeliveryCompanies)
-      .catch(() => setDeliveryCompanies([]));
+    // Use a simple cache with 1-hour TTL to avoid redundant API calls.
+    const cacheKey = "botly.delivery_companies";
+    const cached = (() => {
+      try {
+        const data = localStorage?.getItem(cacheKey);
+        if (!data) return null;
+        const { companies, timestamp } = JSON.parse(data) as { companies: unknown; timestamp: number };
+        if (Date.now() - timestamp > 3600000) return null; // 1 hour TTL
+        return companies as DeliveryCompanyRecord[];
+      } catch {
+        return null;
+      }
+    })();
+
+    if (cached) {
+      setDeliveryCompanies(cached);
+    } else {
+      listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
+        .then((companies) => {
+          setDeliveryCompanies(companies);
+          try {
+            localStorage?.setItem(cacheKey, JSON.stringify({ companies, timestamp: Date.now() }));
+          } catch {
+            // Ignore storage quota errors
+          }
+        })
+        .catch(() => setDeliveryCompanies([]));
+    }
 
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
       .then((profile) => {

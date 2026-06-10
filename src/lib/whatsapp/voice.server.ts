@@ -94,15 +94,27 @@ export async function transcribeWhatsAppVoice(mediaId: string): Promise<VoiceTra
   }
 
   // Step 3: Whisper speech-to-text (Arabic — handles Iraqi dialect well).
+  // Set a 30-second timeout to prevent webhook hangs.
   try {
     const client = new OpenAI({ apiKey: openaiKey });
-    const transcription = await client.audio.transcriptions.create({
+    const transcriptionPromise = client.audio.transcriptions.create({
       file: await toFile(bytes, audioFileName(mimeType), { type: mimeType }),
       model: "whisper-1",
       language: "ar",
     });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Whisper timeout")), 30000)
+    );
+
+    const transcription = await Promise.race([
+      transcriptionPromise,
+      timeoutPromise,
+    ]) as Awaited<typeof transcriptionPromise>;
+
     const text = (transcription.text ?? "").trim();
-    if (!text) return { ok: false, reason: "transcribe_failed" };
+    // Reject transcriptions that are too short — likely silence or noise.
+    if (text.length < 3) return { ok: false, reason: "transcribe_failed" };
     return { ok: true, text };
   } catch (error) {
     console.error("[Voice] Transcription failed:", error);
