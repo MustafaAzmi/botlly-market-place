@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Package, Plus, Search, Edit2 } from "lucide-react";
+import { Loader2, Package, Plus, Search, Edit2, Video } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -58,12 +58,20 @@ function ProductsPage() {
       title={t("products.title")}
       subtitle={t("products.subtitle")}
       actions={
-        <Button asChild size="lg" className="gap-2 shadow-soft">
-          <Link to="/dashboard/products/new">
-            <Plus className="h-4 w-4" />
-            {t("products.add")}
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="lg" variant="outline" className="gap-2">
+            <Link to="/dashboard/products/from-video">
+              <Video className="h-4 w-4" />
+              إضافة بالفيديو
+            </Link>
+          </Button>
+          <Button asChild size="lg" className="gap-2 shadow-soft">
+            <Link to="/dashboard/products/new">
+              <Plus className="h-4 w-4" />
+              {t("products.add")}
+            </Link>
+          </Button>
+        </div>
       }
     >
       <div className="mb-6 flex items-center gap-3">

@@ -401,7 +401,7 @@ async function createSession(merchant: EventRow) {
   return token;
 }
 
-async function getAuthorizedMerchant(token: string) {
+export async function getAuthorizedMerchant(token: string) {
   const tokenHash = await sha256(token);
   const sessions = await listEvents(SESSION_PROVIDER);
   const session = sessions.find((row) => {
