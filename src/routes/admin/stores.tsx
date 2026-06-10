@@ -33,15 +33,6 @@ export const Route = createFileRoute("/admin/stores")({
   component: AdminStoresPage,
 });
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("ar", { day: "numeric", month: "short" });
-  } catch {
-    return "—";
-  }
-}
-
 function AdminStoresPage() {
   const listMerchantsFn = useServerFn(listMerchants);
   const setVisibilityFn = useServerFn(setMerchantVisibility);

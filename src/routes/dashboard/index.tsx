@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Loader2,
   Package,
+  Search,
   ShoppingBag,
   TrendingUp,
   Truck,

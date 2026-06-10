@@ -33,9 +33,7 @@ import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/pro
 import { Route as DashboardProductsFromVideoRouteImport } from './routes/dashboard/products/from-video'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
-import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
-import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -158,19 +156,9 @@ const ApiProductImageIdRoute = ApiProductImageIdRouteImport.update({
   path: '/api/product-image/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCronSyncSocialRoute = ApiCronSyncSocialRouteImport.update({
-  id: '/api/cron/sync-social',
-  path: '/api/cron/sync-social',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
   id: '/dashboard/products/$id/edit',
   path: '/dashboard/products/$id/edit',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthMetaCallbackRoute = ApiAuthMetaCallbackRouteImport.update({
-  id: '/api/auth/meta/callback',
-  path: '/api/auth/meta/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -190,7 +178,6 @@ export interface FileRoutesByFullPath {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
@@ -200,7 +187,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
   '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesByTo {
@@ -219,7 +205,6 @@ export interface FileRoutesByTo {
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
@@ -229,7 +214,6 @@ export interface FileRoutesByTo {
   '/dashboard/review': typeof DashboardReviewIndexRoute
   '/dashboard/store': typeof DashboardStoreIndexRoute
   '/dashboard/workflow': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
   '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesById {
@@ -249,7 +233,6 @@ export interface FileRoutesById {
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
@@ -259,7 +242,6 @@ export interface FileRoutesById {
   '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
   '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRouteTypes {
@@ -280,7 +262,6 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
-    | '/api/cron/sync-social'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/from-video'
@@ -290,7 +271,6 @@ export interface FileRouteTypes {
     | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
-    | '/api/auth/meta/callback'
     | '/dashboard/products/$id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -309,7 +289,6 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
-    | '/api/cron/sync-social'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/from-video'
@@ -319,7 +298,6 @@ export interface FileRouteTypes {
     | '/dashboard/review'
     | '/dashboard/store'
     | '/dashboard/workflow'
-    | '/api/auth/meta/callback'
     | '/dashboard/products/$id/edit'
   id:
     | '__root__'
@@ -338,7 +316,6 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin/'
     | '/dashboard/'
-    | '/api/cron/sync-social'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/from-video'
@@ -348,7 +325,6 @@ export interface FileRouteTypes {
     | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
-    | '/api/auth/meta/callback'
     | '/dashboard/products/$id/edit'
   fileRoutesById: FileRoutesById
 }
@@ -368,7 +344,6 @@ export interface RootRouteChildren {
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
-  ApiCronSyncSocialRoute: typeof ApiCronSyncSocialRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsFromVideoRoute: typeof DashboardProductsFromVideoRoute
@@ -378,7 +353,6 @@ export interface RootRouteChildren {
   DashboardReviewIndexRoute: typeof DashboardReviewIndexRoute
   DashboardStoreIndexRoute: typeof DashboardStoreIndexRoute
   DashboardWorkflowIndexRoute: typeof DashboardWorkflowIndexRoute
-  ApiAuthMetaCallbackRoute: typeof ApiAuthMetaCallbackRoute
   DashboardProductsIdEditRoute: typeof DashboardProductsIdEditRoute
 }
 
@@ -552,25 +526,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProductImageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cron/sync-social': {
-      id: '/api/cron/sync-social'
-      path: '/api/cron/sync-social'
-      fullPath: '/api/cron/sync-social'
-      preLoaderRoute: typeof ApiCronSyncSocialRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/dashboard/products/$id/edit': {
       id: '/dashboard/products/$id/edit'
       path: '/dashboard/products/$id/edit'
       fullPath: '/dashboard/products/$id/edit'
       preLoaderRoute: typeof DashboardProductsIdEditRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/meta/callback': {
-      id: '/api/auth/meta/callback'
-      path: '/api/auth/meta/callback'
-      fullPath: '/api/auth/meta/callback'
-      preLoaderRoute: typeof ApiAuthMetaCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -592,7 +552,6 @@ const rootRouteChildren: RootRouteChildren = {
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
-  ApiCronSyncSocialRoute: ApiCronSyncSocialRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsFromVideoRoute: DashboardProductsFromVideoRoute,
@@ -602,7 +561,6 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardReviewIndexRoute: DashboardReviewIndexRoute,
   DashboardStoreIndexRoute: DashboardStoreIndexRoute,
   DashboardWorkflowIndexRoute: DashboardWorkflowIndexRoute,
-  ApiAuthMetaCallbackRoute: ApiAuthMetaCallbackRoute,
   DashboardProductsIdEditRoute: DashboardProductsIdEditRoute,
 }
 export const routeTree = rootRouteImport
