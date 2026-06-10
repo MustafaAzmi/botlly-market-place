@@ -9,6 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  listActiveDeliveryCompanies,
+  type DeliveryCompanyRecord,
+} from "@/lib/delivery.functions";
 import { getCurrentMerchant, updateMerchantProfile } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
 
@@ -21,6 +32,7 @@ function StoreProfilePage() {
   const navigate = useNavigate();
   const getCurrentMerchantFn = useServerFn(getCurrentMerchant);
   const updateMerchantProfileFn = useServerFn(updateMerchantProfile);
+  const listDeliveryCompaniesFn = useServerFn(listActiveDeliveryCompanies);
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [bio, setBio] = useState("");
@@ -28,6 +40,9 @@ function StoreProfilePage() {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
+  // Platform delivery companies registered by the admin (/admin/delivery) —
+  // merchants without their own courier pick one from the dropdown.
+  const [deliveryCompanies, setDeliveryCompanies] = useState<DeliveryCompanyRecord[]>([]);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,6 +75,12 @@ function StoreProfilePage() {
     );
     setDeliveryPhone(merchantSession.deliveryPhone ?? "");
 
+    // Load the admin-registered delivery companies for the dropdown
+    // (best-effort: the manual phone field still works if this fails).
+    listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
+      .then(setDeliveryCompanies)
+      .catch(() => setDeliveryCompanies([]));
+
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
       .then((profile) => {
         setStoreName(profile.storeName);
@@ -88,7 +109,7 @@ function StoreProfilePage() {
         navigate({ to: "/auth" });
       })
       .finally(() => setLoading(false));
-  }, [getCurrentMerchantFn, navigate]);
+  }, [getCurrentMerchantFn, listDeliveryCompaniesFn, navigate]);
 
   const pickImage = (file: File | undefined, setter: (value: string) => void) => {
     if (!file) return;
@@ -376,6 +397,46 @@ function StoreProfilePage() {
               <p className="text-sm leading-6 text-muted-foreground">
                 هذا الرقم يستخدم لاحقاً لإشعار شركة التوصيل بالطلبات الجديدة.
               </p>
+
+              {deliveryCompanies.length > 0 && (
+                <div className="space-y-2 border-t border-border pt-4">
+                  <Label className="text-sm font-medium">
+                    ما عندك شركة توصيل؟ اختر شركة من المنصة
+                  </Label>
+                  <Select
+                    value={
+                      deliveryCompanies.find((c) => c.phone === deliveryPhone.trim())?.id ?? ""
+                    }
+                    onValueChange={(companyId) => {
+                      const company = deliveryCompanies.find((c) => c.id === companyId);
+                      if (company) setDeliveryPhone(company.phone);
+                    }}
+                  >
+                    <SelectTrigger className="h-11">
+                      <SelectValue placeholder="اختر شركة توصيل..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {deliveryCompanies.map((company) => (
+                        <SelectItem key={company.id} value={company.id}>
+                          <span className="flex flex-col items-start">
+                            <span>{company.name}</span>
+                            <span className="text-xs text-muted-foreground" dir="ltr">
+                              {company.phone}
+                              {company.cities.length > 0
+                                ? ` — ${company.cities.slice(0, 3).join("، ")}`
+                                : ""}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    عند الاختيار ينحفظ رقم الشركة تلقائياً بالحقل أعلاه، وتوصلها إشعارات طلباتك
+                    مباشرة.
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 

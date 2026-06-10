@@ -19,7 +19,8 @@ export type BotlyEventType =
   | "botly_order"
   | "botly_admin"
   | "botly_admin_session"
-  | "botly_admin_message";
+  | "botly_admin_message"
+  | "botly_delivery_company";
 
 export type EventRow = {
   id: string;
