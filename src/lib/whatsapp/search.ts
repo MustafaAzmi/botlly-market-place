@@ -229,6 +229,81 @@ export interface SearchOptions {
   limit?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Relevance gate
+//
+// A result must actually BE the product the customer asked for. Keyword
+// expansion (colors, dialect variants, synonyms) improves RANKING but must
+// never be sufficient for INCLUSION on its own — otherwise a blue watch
+// matches "بنطلون جينز ازرق" just because both mention "ازرق".
+// ---------------------------------------------------------------------------
+
+// Tokens of the corrected core search terms — the product noun itself.
+// Attribute values (color / brand / category) are stripped out so a shared
+// attribute alone can never qualify an unrelated product.
+function buildCoreTokens(intent: SearchIntent): string[] {
+  const attributes = new Set(
+    [intent.color, intent.brand, intent.category]
+      .filter((v): v is string => Boolean(v))
+      .flatMap((v) => normalizeArabicText(v).toLowerCase().split(/\s+/))
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2),
+  );
+
+  const tokens = Array.from(
+    new Set(
+      normalizeArabicText(intent.searchTerms)
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2 && !attributes.has(t)),
+    ),
+  );
+
+  // The whole query was attributes (customer typed just a color/brand):
+  // fall back to them so search still returns something sensible.
+  return tokens.length > 0 ? tokens : [...attributes];
+}
+
+// One-character-deletion variants for typo/dialect tolerance: a product the
+// merchant titled "جنز" still matches the corrected query word "جينز".
+function fuzzyVariants(token: string): string[] {
+  if (token.length < 4) return [token];
+  const variants = [token];
+  for (let i = 0; i < token.length; i += 1) {
+    const v = token.slice(0, i) + token.slice(i + 1);
+    if (v.length >= 3) variants.push(v);
+  }
+  return variants;
+}
+
+// How many core (product-noun) tokens the product text contains.
+function countCoreHits(searchable: string, coreTokens: string[]): number {
+  let hits = 0;
+  for (const token of coreTokens) {
+    if (fuzzyVariants(token).some((v) => searchable.includes(v))) hits += 1;
+  }
+  return hits;
+}
+
+// Same searchable-text shape the RPC indexes (botly_product_search_text).
+function payloadSearchText(p: Record<string, unknown>): string {
+  return normalizeArabicText(
+    [
+      getString(p.title),
+      getString(p.description),
+      getString(p.category),
+      getString(p.brand),
+      getString(p.color),
+      getString(p.size),
+      getString(p.searchText),
+      Array.isArray(p.keywords) ? (p.keywords as unknown[]).filter((k) => typeof k === "string").join(" ") : getString(p.keywords),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ).toLowerCase();
+}
+
 interface MerchantInfo {
   storeName?: string;
   address?: string | null;
@@ -293,18 +368,21 @@ export async function searchProducts(
 
   if (!query) return [];
 
+  // The product-noun tokens every result MUST contain (relevance gate).
+  const coreTokens = buildCoreTokens(intent);
+
   // Kick off the merchant load in parallel with the search query — both the
   // RPC path and the fallback need it, and neither should wait for the other.
   const merchantsPromise = loadMerchantDirectory();
 
   // Try the RPC first (faster, with similarity scoring + merchant visibility filters).
-  let matches = await tryRpcSearch(query, maxResults, merchantsPromise);
+  let matches = await tryRpcSearch(query, maxResults, merchantsPromise, coreTokens);
 
   // RPC failed or returned nothing: fall back to direct database search.
   // Ensures we still return products even if the RPC isn't deployed. The AI's
   // corrected keywords drive tolerant matching here.
   if (matches.length === 0) {
-    matches = await fallbackDirectSearch(query, intent.keywords ?? [], maxResults, merchantsPromise);
+    matches = await fallbackDirectSearch(query, intent.keywords ?? [], maxResults, merchantsPromise, coreTokens);
   }
 
   // Apply price filter.
@@ -322,6 +400,7 @@ async function tryRpcSearch(
   query: string,
   maxResults: number,
   merchantsPromise: Promise<MerchantDirectory>,
+  coreTokens: string[],
 ): Promise<ProductMatch[]> {
   try {
     const { data, error } = await (
@@ -346,7 +425,15 @@ async function tryRpcSearch(
     }>;
 
     const { map: merchants } = await merchantsPromise;
-    return rows.map((row) => {
+
+    // Relevance gate: trigram similarity on the long concatenated text can
+    // fire on side-hits (shared color word, generic keyword). Only keep rows
+    // whose text actually contains the product the customer asked for.
+    const relevant = rows.filter((row) =>
+      countCoreHits(payloadSearchText(row.payload ?? {}), coreTokens) > 0,
+    );
+
+    return relevant.map((row) => {
       const p = row.payload ?? {};
       const merchantId = getString(p.merchantId);
       const merchant = merchants.get(merchantId);
@@ -383,6 +470,7 @@ async function fallbackDirectSearch(
   aiKeywords: string[],
   maxResults: number,
   merchantsPromise: Promise<MerchantDirectory>,
+  coreTokens: string[],
 ): Promise<ProductMatch[]> {
   try {
     // Products and merchants load in parallel (single merchant fetch shared
@@ -445,31 +533,24 @@ async function fallbackDirectSearch(
       if (hiddenMerchants.has(merchantId)) continue;
 
       // Build + normalize the searchable text (same fields the RPC indexes).
-      const searchableRaw = [
-        getString(p.title),
-        getString(p.description),
-        getString(p.category),
-        getString(p.brand),
-        getString(p.color),
-        getString(p.size),
-        getString(p.searchText),
-        getString(p.keywords),
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const searchable = normalizeArabicText(searchableRaw).toLowerCase();
+      const searchable = payloadSearchText(p);
 
-      // Count matching query words. Also accept a full-phrase substring hit.
-      let score = 0;
+      // Relevance gate: the product text must contain the product noun the
+      // customer asked for (fuzzy). Expansion keywords (colors, synonyms)
+      // alone must NOT qualify a product — that's how a watch used to show
+      // up for "بنطلون جينز" via a shared generic word.
+      const coreHits = countCoreHits(searchable, coreTokens);
+      if (coreHits === 0) continue;
+
+      // Score: core (product-noun) hits dominate, expansion keywords refine
+      // the ranking, exact-phrase hits go straight to the top.
+      let score = coreHits * 3;
       for (const token of queryTokens) {
         if (searchable.includes(token)) score += 1;
       }
       if (queryNormalized.length >= 2 && searchable.includes(queryNormalized)) {
-        score += queryTokens.length; // boost exact-phrase hits to the top
+        score += queryTokens.length + coreTokens.length * 3; // boost exact-phrase hits to the top
       }
-
-      // No word matched at all → not a result.
-      if (score === 0) continue;
 
       seen.add(productId);
       const merchant = merchants.get(merchantId);
