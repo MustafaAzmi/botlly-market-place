@@ -128,7 +128,7 @@ function ProductCard({ product }: { product: MerchantProduct }) {
           )}
         </div>
         <Button asChild size="sm" variant="ghost" className="mt-3 w-full gap-2">
-          <Link to={`/dashboard/products/${product.id}/edit`}>
+          <Link to="/dashboard/products/$id/edit" params={{ id: product.id }}>
             <Edit2 className="h-3.5 w-3.5" />
             تعديل
           </Link>

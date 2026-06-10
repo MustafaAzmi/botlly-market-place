@@ -32,6 +32,7 @@ import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/ord
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
+import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id.edit'
 import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
 
 const TermsRoute = TermsRouteImport.update({
@@ -149,6 +150,11 @@ const ApiCronSyncSocialRoute = ApiCronSyncSocialRouteImport.update({
   path: '/api/cron/sync-social',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
+  id: '/dashboard/products/$id/edit',
+  path: '/dashboard/products/$id/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthMetaCallbackRoute = ApiAuthMetaCallbackRouteImport.update({
   id: '/api/auth/meta/callback',
   path: '/api/auth/meta/callback',
@@ -180,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -206,6 +213,7 @@ export interface FileRoutesByTo {
   '/dashboard/store': typeof DashboardStoreIndexRoute
   '/dashboard/workflow': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
   '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -261,6 +270,7 @@ export interface FileRouteTypes {
     | '/dashboard/store/'
     | '/dashboard/workflow/'
     | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -287,6 +297,7 @@ export interface FileRouteTypes {
     | '/dashboard/store'
     | '/dashboard/workflow'
     | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   id:
     | '__root__'
     | '/'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/dashboard/store/'
     | '/dashboard/workflow/'
     | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -340,6 +352,7 @@ export interface RootRouteChildren {
   DashboardStoreIndexRoute: typeof DashboardStoreIndexRoute
   DashboardWorkflowIndexRoute: typeof DashboardWorkflowIndexRoute
   ApiAuthMetaCallbackRoute: typeof ApiAuthMetaCallbackRoute
+  DashboardProductsIdEditRoute: typeof DashboardProductsIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -505,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronSyncSocialRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/products/$id/edit': {
+      id: '/dashboard/products/$id/edit'
+      path: '/dashboard/products/$id/edit'
+      fullPath: '/dashboard/products/$id/edit'
+      preLoaderRoute: typeof DashboardProductsIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/meta/callback': {
       id: '/api/auth/meta/callback'
       path: '/api/auth/meta/callback'
@@ -540,6 +560,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardStoreIndexRoute: DashboardStoreIndexRoute,
   DashboardWorkflowIndexRoute: DashboardWorkflowIndexRoute,
   ApiAuthMetaCallbackRoute: ApiAuthMetaCallbackRoute,
+  DashboardProductsIdEditRoute: DashboardProductsIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

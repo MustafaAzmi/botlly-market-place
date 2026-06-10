@@ -32,6 +32,10 @@ function EditProductPage() {
   const updateMerchantProductFn = useServerFn(updateMerchantProduct);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
+  // existingImage = the image saved on the product (kept when the merchant
+  // doesn't touch the image fields). imageFile/imagePreview = a newly uploaded
+  // file. imageUrl = a link typed by the merchant.
+  const [existingImage, setExistingImage] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -60,8 +64,10 @@ function EditProductPage() {
       .then((product) => {
         setTitle(product.title);
         setDescription(product.description);
-        setImageUrl(product.imageUrl);
-        setImagePreview(product.imageUrl);
+        setExistingImage(product.imageUrl);
+        // Uploaded images are stored as huge data: URLs — never put those in
+        // the link input; only show real links there.
+        if (/^https?:\/\//i.test(product.imageUrl)) setImageUrl(product.imageUrl);
         setCurrentPrice(String(product.currentPrice));
         setDiscountPrice(product.discountPrice ? String(product.discountPrice) : "");
         setCurrency(product.currency);
@@ -106,7 +112,7 @@ function EditProductPage() {
     const file = e.target.files?.[0];
     if (!file) {
       setImageFile(null);
-      setImagePreview(imageUrl);
+      setImagePreview("");
       return;
     }
 
@@ -137,8 +143,9 @@ function EditProductPage() {
       return;
     }
 
-    let finalImageUrl = imagePreview || imageUrl;
-    if (imagePreview && imagePreview.startsWith("data:")) {
+    // Image priority: newly uploaded file > typed link > current saved image.
+    let finalImageUrl = "";
+    if (imageFile && imagePreview.startsWith("data:")) {
       finalImageUrl = imagePreview;
     } else if (imageUrl.trim()) {
       try {
@@ -148,6 +155,8 @@ function EditProductPage() {
         toast.error("رابط الصورة غير صحيح");
         return;
       }
+    } else if (existingImage) {
+      finalImageUrl = existingImage;
     } else {
       toast.error("أضف صورة: إما رابط أو ارفع صورة من جهازك");
       return;
@@ -246,7 +255,12 @@ function EditProductPage() {
                 <Input
                   id="imageUrl"
                   value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
+                  onChange={(e) => {
+                    setImageUrl(e.target.value);
+                    // Typing a link replaces any uploaded file.
+                    setImageFile(null);
+                    setImagePreview("");
+                  }}
                   placeholder="https://example.com/product.jpg"
                   dir="ltr"
                   className="mt-2 h-11 text-start"
@@ -255,9 +269,9 @@ function EditProductPage() {
             </div>
 
             <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-              {imagePreview || (imageUrl.trim()) ? (
+              {imagePreview || imageUrl.trim() || existingImage ? (
                 <img
-                  src={imagePreview || imageUrl.trim()}
+                  src={imagePreview || imageUrl.trim() || existingImage}
                   alt="Product preview"
                   className="h-full w-full object-cover"
                   onError={() => imageUrl && toast.error("خطأ بتحميل الصورة من الرابط")}
