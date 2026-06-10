@@ -30,7 +30,6 @@ import {
   sendWhatsAppImage,
   sendWhatsAppText,
 } from "@/lib/whatsapp/send.server";
-import { transcribeWhatsAppVoice } from "@/lib/whatsapp/voice.server";
 import {
   appendEvent,
   getNumber,
@@ -229,7 +228,7 @@ function textResponse(body: string, guardReason = "workflow_text"): WorkflowResp
 
 function startWorkflowResponse(): WorkflowResponse {
   return textResponse(
-    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم أو وصف المنتج الي ادور عليه، أو دز رسالة صوتية 🎤 واحنا نفهمها. ممكن تذكر سعر بحدود كذا وي الوصف. مثلاً: تيشيرت أحمر، تيشيرت أقل من ٥٠ ألف، جاكيت شتوي، إلخ.",
+    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم أو وصف المنتج الي ادور عليه. ممكن تذكر سعر بحدود كذا وي الوصف. مثلاً: تيشيرت أحمر، تيشيرت أقل من ٥٠ ألف، جاكيت شتوي، إلخ.",
     "workflow_start",
   );
 }
@@ -1168,37 +1167,18 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               ).catch(() => {});
             }
           } else if (isCustomerMessage && incoming.from) {
-            // Voice search: transcribe the voice note first, then run the SAME
-            // workflow with the transcript as if the customer typed it.
-            let customerText = incoming.text;
-            let voicePrefix = "";
-            let voiceFailed = false;
+            // Search is text-only: voice notes get a polite redirect to typing
+            // instead of being transcribed.
             if (incoming.audioId) {
-              const voice = await transcribeWhatsAppVoice(incoming.audioId);
-              if (voice.ok) {
-                customerText = voice.text;
-                // Truncate echo-back for long transcripts to save bandwidth.
-                const displayText = voice.text.length > 50
-                  ? `${voice.text.slice(0, 50)}…`
-                  : voice.text;
-                voicePrefix = `🎤 سمعتك تقول: «${displayText}»\n\n`;
-                console.log("[Webhook] Voice transcript:", voice.text.slice(0, 80));
-              } else {
-                voiceFailed = true;
-                console.warn("[Webhook] Voice transcription failed:", voice.reason);
-              }
-            }
-
-            if (voiceFailed) {
               workflowResponse = textResponse(
-                "ما كدرت أسمع الرسالة الصوتية بوضوح 🎤\nجرب تسجلها مرة ثانية بمكان هادئ، أو اكتب اسم المنتج كتابة.",
-                "voice_failed",
+                "البحث يكون بالكتابة فقط ✍️\nاكتب اسم أو وصف المنتج الي تدور عليه.",
+                "voice_not_supported",
               );
             } else {
               try {
                 workflowResponse = await handleButtonWorkflow(
                   incoming.from,
-                  customerText,
+                  incoming.text,
                   incoming.actionId,
                 );
                 console.log("[Webhook] Workflow response:", workflowResponse.kind);
@@ -1219,15 +1199,6 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
 
             if (workflowResponse.kind === "none") {
               workflowResponse = startWorkflowResponse();
-            }
-
-            // Echo back what the bot understood from the voice note so the
-            // customer can correct it if Whisper misheard.
-            if (voicePrefix && workflowResponse.kind !== "none") {
-              workflowResponse = {
-                ...workflowResponse,
-                body: `${voicePrefix}${workflowResponse.body}`,
-              };
             }
 
             if (workflowResponse.kind !== "none") {

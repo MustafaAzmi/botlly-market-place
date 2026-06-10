@@ -30,7 +30,6 @@ import { Route as DashboardReviewIndexRouteImport } from './routes/dashboard/rev
 import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/products/index'
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
-import { Route as DashboardProductsFromVideoRouteImport } from './routes/dashboard/products/from-video'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
@@ -140,12 +139,6 @@ const DashboardProductsNewRoute = DashboardProductsNewRouteImport.update({
   path: '/dashboard/products/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardProductsFromVideoRoute =
-  DashboardProductsFromVideoRouteImport.update({
-    id: '/dashboard/products/from-video',
-    path: '/dashboard/products/from-video',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
   id: '/api/whatsapp/webhook',
   path: '/api/whatsapp/webhook',
@@ -180,7 +173,6 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
-  '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
@@ -207,7 +199,6 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardIndexRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
-  '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders': typeof DashboardOrdersIndexRoute
   '/dashboard/products': typeof DashboardProductsIndexRoute
@@ -235,7 +226,6 @@ export interface FileRoutesById {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
-  '/dashboard/products/from-video': typeof DashboardProductsFromVideoRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
   '/dashboard/products/': typeof DashboardProductsIndexRoute
@@ -264,7 +254,6 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
-    | '/dashboard/products/from-video'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
@@ -291,7 +280,6 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
-    | '/dashboard/products/from-video'
     | '/dashboard/products/new'
     | '/dashboard/orders'
     | '/dashboard/products'
@@ -318,7 +306,6 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
-    | '/dashboard/products/from-video'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
     | '/dashboard/products/'
@@ -346,7 +333,6 @@ export interface RootRouteChildren {
   DashboardIndexRoute: typeof DashboardIndexRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
-  DashboardProductsFromVideoRoute: typeof DashboardProductsFromVideoRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
   DashboardOrdersIndexRoute: typeof DashboardOrdersIndexRoute
   DashboardProductsIndexRoute: typeof DashboardProductsIndexRoute
@@ -505,13 +491,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardProductsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/products/from-video': {
-      id: '/dashboard/products/from-video'
-      path: '/dashboard/products/from-video'
-      fullPath: '/dashboard/products/from-video'
-      preLoaderRoute: typeof DashboardProductsFromVideoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/whatsapp/webhook': {
       id: '/api/whatsapp/webhook'
       path: '/api/whatsapp/webhook'
@@ -554,7 +533,6 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardIndexRoute: DashboardIndexRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
-  DashboardProductsFromVideoRoute: DashboardProductsFromVideoRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,
   DashboardOrdersIndexRoute: DashboardOrdersIndexRoute,
   DashboardProductsIndexRoute: DashboardProductsIndexRoute,
