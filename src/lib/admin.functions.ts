@@ -10,9 +10,11 @@ import {
   sha256,
   randomToken,
   normalizePhone,
+  deleteEventsByPayloadField,
   type EventRow,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -355,6 +357,52 @@ export const setMerchantSubscription = createServerFn({ method: "POST" })
       subscriptionStatus: data.status,
       packageExpiry: data.packageExpiry ?? "",
     });
+  });
+
+// Hard delete a merchant store and all its products from the database.
+export const deleteMerchantStore = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchants = await listEvents("botly_merchant");
+    const row = merchants.find((r) => merchantIdentity(r) === data.merchantId);
+    if (!row) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(row);
+
+    // Delete all products for this merchant
+    try {
+      await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", "botly_product")
+        .eq(`payload->>'merchantId'` as never, merchantId);
+    } catch (error) {
+      console.error("[Admin] Failed to delete products", error);
+    }
+
+    // Delete all orders for this merchant
+    try {
+      await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", "botly_order")
+        .eq(`payload->>'merchantId'` as never, merchantId);
+    } catch (error) {
+      console.error("[Admin] Failed to delete orders", error);
+    }
+
+    // Delete the merchant record itself
+    await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .delete()
+      .eq("source", "botly")
+      .eq("event_type", "botly_merchant")
+      .eq(`payload->>'merchantId'` as never, merchantId);
+
+    return { ok: true };
   });
 
 // ---------------------------------------------------------------------------

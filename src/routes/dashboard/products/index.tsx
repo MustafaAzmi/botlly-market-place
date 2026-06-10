@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Package, Plus, Search, Edit2, Video } from "lucide-react";
+import { Loader2, Package, Plus, Search, Edit2, Video, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/i18n/LanguageProvider";
-import { listMerchantProducts, type MerchantProduct } from "@/lib/merchant.functions";
+import { listMerchantProducts, deleteMerchantProduct, type MerchantProduct } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/")({
@@ -21,12 +21,14 @@ function ProductsPage() {
   const t = useT();
   const navigate = useNavigate();
   const listMerchantProductsFn = useServerFn(listMerchantProducts);
+  const deleteProductFn = useServerFn(deleteMerchantProduct);
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<MerchantProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  const merchantSession = readMerchantSession();
 
   useEffect(() => {
-    const merchantSession = readMerchantSession();
     if (!merchantSession?.token) {
       navigate({ to: "/auth" });
       return;
@@ -39,7 +41,7 @@ function ProductsPage() {
         navigate({ to: "/auth" });
       })
       .finally(() => setLoading(false));
-  }, [listMerchantProductsFn, navigate]);
+  }, [listMerchantProductsFn, navigate, merchantSession?.token]);
 
   const filtered = useMemo(
     () =>
@@ -96,15 +98,57 @@ function ProductsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((product) => (
-            <ProductCard key={product.id} product={product} />
+            <ProductCard
+              key={product.id}
+              product={product}
+              onDelete={() => setDeleteConfirm({ id: product.id, title: product.title })}
+            />
           ))}
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
+            <h2 className="text-lg font-semibold">تأكيد حذف المنتج</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              هل أنت متأكد من حذف "{deleteConfirm.title}"؟ لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1"
+              >
+                إلغاء
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!merchantSession?.token) return;
+                  deleteProductFn({ data: { token: merchantSession.token, productId: deleteConfirm.id } })
+                    .then(() => {
+                      toast.success("تم حذف المنتج");
+                      setDeleteConfirm(null);
+                      setProducts((prev) => prev.filter((p) => p.id !== deleteConfirm.id));
+                    })
+                    .catch((err) => {
+                      toast.error(err instanceof Error ? err.message : "فشل حذف المنتج");
+                    });
+                }}
+                className="flex-1"
+              >
+                حذف نهائياً
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </DashboardLayout>
   );
 }
 
-function ProductCard({ product }: { product: MerchantProduct }) {
+function ProductCard({ product, onDelete }: { product: MerchantProduct; onDelete: () => void }) {
   return (
     <div className="group overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
       <div
@@ -135,12 +179,22 @@ function ProductCard({ product }: { product: MerchantProduct }) {
             </span>
           )}
         </div>
-        <Button asChild size="sm" variant="ghost" className="mt-3 w-full gap-2">
-          <Link to="/dashboard/products/$id/edit" params={{ id: product.id }}>
-            <Edit2 className="h-3.5 w-3.5" />
-            تعديل
-          </Link>
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button asChild size="sm" variant="ghost" className="flex-1 gap-2">
+            <Link to="/dashboard/products/$id/edit" params={{ id: product.id }}>
+              <Edit2 className="h-3.5 w-3.5" />
+              تعديل
+            </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -136,6 +136,25 @@ export async function latestEventWhere(
   return rows[0] ?? null;
 }
 
+// Delete all events of a specific type matching a payload field (hard delete from DB).
+export async function deleteEventsByPayloadField(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+): Promise<number> {
+  const result = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .delete()
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value);
+
+  if (result.error) {
+    throw new Error(`Failed to delete ${eventType}: ${result.error.message ?? "unknown error"}`);
+  }
+  return result.count ?? 0;
+}
+
 async function findMerchantById(id: string): Promise<EventRow | null> {
   if (!id || !id.trim()) return null;
   const rows = await listEvents("botly_merchant");

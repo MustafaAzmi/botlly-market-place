@@ -723,6 +723,44 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     return toProduct(updated);
   });
 
+const deleteProductInput = tokenInput.extend({
+  productId: z.string().min(1),
+});
+
+// Hard delete a product from the database (merchant-initiated).
+export const deleteMerchantProduct = createServerFn({ method: "POST" })
+  .inputValidator((d) => deleteProductInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchant = await getAuthorizedMerchant(data.token);
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents(PRODUCT_PROVIDER);
+    const row = rows.find(
+      (row) =>
+        getString(row.payload?.merchantId) === merchantId &&
+        (getString(row.payload?.productId) === data.productId || row.id === data.productId),
+    );
+    if (!row) throw new Error("لم يتم العثور على المنتج.");
+
+    const store = await getEventStore();
+    if (store === "broadcasts") {
+      const result = await supabaseAdmin
+        .from("broadcasts")
+        .delete()
+        .eq("id", row.id);
+      if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+    } else {
+      const result = await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", PRODUCT_PROVIDER)
+        .eq("id", row.id);
+      if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+    }
+
+    return { ok: true };
+  });
+
 export const getMerchantDashboard = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }) => {
