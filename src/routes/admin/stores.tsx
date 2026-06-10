@@ -125,10 +125,8 @@ function AdminStoresPage() {
                 <tr>
                   <th className="px-4 py-3 text-right font-medium">المتجر</th>
                   <th className="px-4 py-3 text-right font-medium">الواتساب</th>
-                  <th className="px-4 py-3 text-right font-medium">المنصة</th>
                   <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
-                  <th className="px-4 py-3 text-right font-medium">آخر مزامنة</th>
                   <th className="px-4 py-3 text-center font-medium">الظهور</th>
                   <th className="px-4 py-3 text-center font-medium">إجراءات</th>
                 </tr>
@@ -136,7 +134,7 @@ function AdminStoresPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -147,12 +145,10 @@ function AdminStoresPage() {
                       <td className="px-4 py-3" dir="ltr">
                         {m.whatsapp || "—"}
                       </td>
-                      <td className="px-4 py-3">{m.platform}</td>
                       <td className="px-4 py-3">
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>
                       <td className="px-4 py-3 text-center">{m.productCount}</td>
-                      <td className="px-4 py-3">{formatDate(m.lastSyncedAt)}</td>
                       <td className="px-4 py-3 text-center">
                         {m.visibleInSearch ? (
                           <Badge className="bg-green-100 text-green-800">ظاهر</Badge>

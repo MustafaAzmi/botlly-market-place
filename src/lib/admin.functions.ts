@@ -28,7 +28,6 @@ export interface MerchantAdminView {
   storeName: string;
   whatsapp: string;
   email?: string;
-  platform: string; // instagram | facebook | "—"
   subscriptionStatus: string; // active | expired | trial | none
   packageExpiry: string | null;
   isActive: boolean;
@@ -38,7 +37,6 @@ export interface MerchantAdminView {
   // Effective customer-facing visibility (false = hidden from search/bot).
   visibleInSearch: boolean;
   productCount: number;
-  lastSyncedAt: string | null;
   createdAt: string;
 }
 
@@ -260,15 +258,11 @@ function isVisibleInSearch(p: Record<string, unknown>): boolean {
   return true;
 }
 
-// Load product counts (active, latest-per-productId) and last sync per merchant.
+// Load product counts (active, latest-per-productId).
 async function loadMerchantMetrics(): Promise<{
   productCounts: Map<string, number>;
-  lastSync: Map<string, string>;
-  platform: Map<string, string>;
 }> {
   const productCounts = new Map<string, number>();
-  const lastSync = new Map<string, string>();
-  const platform = new Map<string, string>();
 
   // Products: count latest-per-productId, non-rejected.
   const productRows = await listEvents("botly_product");
@@ -284,21 +278,7 @@ async function loadMerchantMetrics(): Promise<{
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
   }
 
-  // Connections: latest sync + platform per merchant.
-  const connRows = await listEvents("botly_meta_connection");
-  for (const row of connRows) {
-    const p = row.payload ?? {};
-    if (p.kind !== "connection") continue;
-    const mId = getString(p.merchantId);
-    if (!mId) continue;
-    if (!lastSync.has(mId)) {
-      const synced = getString(p.lastSyncedAt);
-      if (synced) lastSync.set(mId, synced);
-      platform.set(mId, getString(p.instagramBusinessAccountId) ? "instagram" : "facebook");
-    }
-  }
-
-  return { productCounts, lastSync, platform };
+  return { productCounts };
 }
 
 export const listMerchants = createServerFn({ method: "POST" })
@@ -306,7 +286,7 @@ export const listMerchants = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<MerchantAdminView[]> => {
     await authorizeAdmin(data.token);
     const merchants = await latestMerchants();
-    const { productCounts, lastSync, platform } = await loadMerchantMetrics();
+    const { productCounts } = await loadMerchantMetrics();
 
     return merchants
       .map((row) => {
@@ -317,7 +297,6 @@ export const listMerchants = createServerFn({ method: "POST" })
           storeName: getString(p.storeName) || "متجر",
           whatsapp: getString(p.whatsapp),
           email: getString(p.email) || undefined,
-          platform: platform.get(mId) || "—",
           subscriptionStatus: getString(p.subscriptionStatus) || "none",
           packageExpiry: getString(p.packageExpiry) || null,
           isActive: p.isActive !== false,
@@ -326,7 +305,6 @@ export const listMerchants = createServerFn({ method: "POST" })
           bannedFromBot: p.bannedFromBot === true,
           visibleInSearch: isVisibleInSearch(p),
           productCount: productCounts.get(mId) ?? 0,
-          lastSyncedAt: lastSync.get(mId) ?? null,
           createdAt: getString(p.createdAt) || eventTime(row),
         } satisfies MerchantAdminView;
       })

@@ -13,8 +13,6 @@ export type BotlyEventType =
   | "botly_merchant"
   | "botly_product"
   | "botly_session"
-  | "botly_meta_connection"
-  | "botly_social_post"
   | "botly_lead"
   | "botly_customer_session"
   | "botly_outbound_guard"

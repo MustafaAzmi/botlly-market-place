@@ -49,7 +49,7 @@ function getVerifyToken() {
 }
 
 function getAppSecret() {
-  return process.env.WHATSAPP_APP_SECRET ?? process.env.META_OAUTH_APP_SECRET;
+  return process.env.WHATSAPP_APP_SECRET;
 }
 
 function timingSafeEqual(a: string, b: string) {
