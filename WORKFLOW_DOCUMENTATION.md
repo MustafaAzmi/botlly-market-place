@@ -1,57 +1,72 @@
 # Botly WhatsApp Workflow Documentation
 
-## Customer Flow Overview (الفلو المُبسّط — بدون موقع)
+## Customer Flow Overview (الفلو المُبسّط الجديد)
 
-### Phase 1: Entry & Welcome
-**Trigger**: New customer (no active session)
+### Phase 1: Product Search (Immediate)
+**Trigger**: Customer sends ANY message
 
-**Response**: "هلا بيك في Botly. شنو تحب تسوي؟" + Button: "أريد منتج معين"
+**Response** (Instant, no buttons):
+```
+اهلا عيني شلون الصحة 👋
+
+اكتب اسم أو وصف المنتج الي ادور عليه. 
+ممكن تكتب سعر بحدود كذا وي الوصف. 
+
+مثلاً: تيشيرت أحمر
+       تيشيرت أقل من ٥٠ ألف
+       جاكيت شتوي
+       إلخ
+```
+
+**Key Changes (June 2026)**:
+- ✅ **NO greeting with button** — any message triggers search directly
+- ✅ **AI understands everything** — typos, "ة" vs "ه", Iraqi dialect, prices
+  - Example: "تيشيرت احمر" or "تيشيرد احمر" → both understand as "تيشيرت أحمر"
+  - Example: "تحت ٥٠" → AI extracts `maxPrice: 50000`
 
 ---
 
-### Phase 2: Product Query (`awaiting_product_query`)
-**Trigger**: Customer presses "أريد منتج معين"، OR `ACTION_NEW_SEARCH`, OR session phase = start
-
-**Response**: "شنو المنتج الي تدور عليه؟ اكتب الاسم أو اللون أو السعر التقريبي."
-
-**What Changed (June 2026)**:
-- 🗑️ **REMOVED**: the entire location step (`awaiting_location`) and the
-  WhatsApp location-request message. The bot never asks for the customer's
-  location anymore.
-- ✅ Search is **open nationwide** — no 15km radius (or any radius). Most
-  sales are delivery, so distance is irrelevant.
-
----
-
-### Phase 3: Search & Results (`awaiting_selection`)
-**Trigger**: Customer types product name (min 2 chars) in `awaiting_product_query`
+### Phase 2: Search & Results (`awaiting_selection`)
+**Trigger**: Customer types product description
 
 **Process**:
-1. Parse intent from customer text (AI: typo/dialect correction + synonyms)
-2. Search ALL products from ALL visible merchants (no geographic filter)
-3. Show top 3 results with **images & price**
-4. Buttons: 1️⃣ 2️⃣ 3️⃣ [More Results]
-
-**Buttons**:
-- `ACTION_MORE_RESULTS`: Show next 3 products
-- Product selection (1, 2, 3 or text parsing)
+1. Claude/OpenAI parses: product name, color, size, price range
+2. Search **all visible merchants** (nationwide, no radius)
+3. Show top 3 results with images + price + store name
+4. Buttons: `1️⃣ 2️⃣ 3️⃣ [More Results]`
 
 ---
 
-### Phase 4: Product Selection & Order (`awaiting_after_selection`)
-**Trigger**: Customer selects a product
+### Phase 3a: Confirm Saved Address (`awaiting_address_confirmation`)
+**Trigger**: Customer selected product → clicks "اكمال الشراء"
 
-**Response**:
-- Product details (title, price, merchant)
-- Buttons:
-  - "اكمال الشراء" → three-step order form (name → landmark → governorate)
-  - "رسالة للتاجر" → `ACTION_MESSAGE_MERCHANT` (notify merchant)
+**If customer has saved address from previous order:**
+```
+عنوانك الحالي:
+الاسم: محمد | النقطة الدالة: جامع الكفاية | المحافظة: بغداد
 
-**Order Flow**:
-- Asks customer name
-- Asks landmark (جامع، شارع معروف) — typed text, NOT a GPS location
-- Asks governorate
-- Confirms order → notifies delivery company (if configured) + merchant
+هذا الحنين بتاع الطلب؟
+```
+**Buttons**: `[نعم، نفسه] [لا، بدل العنوان]`
+
+- **"نعم، نفسه"** → Complete order immediately (skip the 3-step form)
+- **"لا، بدل العنوان"** → Start 3-step form from scratch
+
+---
+
+### Phase 3b: Order Details (`awaiting_customer_name` → `landmark` → `governorate`)
+**Trigger**: 
+- First order (no saved address), OR
+- Customer chooses "change address"
+
+**Three-step form** (asks one field at a time):
+1. "شنو اسمك الكامل؟"
+2. "شنو أقرب نقطة دالة على موقعك؟ (جامع، مدرسة، شارع)"
+3. "شنو المحافظة؟"
+
+**After completion**:
+- ✅ **Save address to database** (linked to customer phone number)
+- Next order from same customer: show confirmation screen directly (Phase 3a)
 
 ---
 
@@ -59,121 +74,157 @@
 
 ```
 ┌─────────────────────────────────────────────┐
-│         Customer Sends Message              │
+│  Customer Sends ANY Text Message            │
 └──────────────┬──────────────────────────────┘
                │
-        ┌──────▼──────────────┐
-        │  Existing Session?  │
-        └─────┬──────────┬────┘
-             YES         NO
-              │           │
-              │      ┌────▼──────────┐
-              │      │  Start Phase  │
-              │      │ "شنو تحب تسوي؟"│
-              │      └────┬──────────┘
-              │           │ (button)
-        ┌─────▼───────────▼─────────┐
-        │  awaiting_product_query   │
-        │  Request: اسم المنتج؟     │
-        └─────┬─────────────────────┘
-              │ (customer types name)
-        ┌─────▼──────────────────────┐
-        │ Search & Show 3 Results    │
-        │ awaiting_selection         │
-        │ (nationwide, no radius)    │
-        └─────┬────────────────────┬─┘
+        ┌──────▼──────────────────────┐
+        │  awaiting_product_query     │
+        │  "اهلا عيني، اكتب منتج؟"    │
+        │  (AI parses product/price)  │
+        └─────┬────────────────────┬──┘
               │                    │
-        ┌─────▼──┐         ┌──────▼─────┐
-        │Selected│         │More Results│
-        │Product │         └──────┬─────┘
-        └─────┬──┘                │
-              │      ┌────────────┘
+        ┌─────▼──────────────────┐ │
+        │ Search & Show Results  │ │
+        │ awaiting_selection     │ │
+        │ (3 matches + images)   │ │
+        └─────┬────────────────┬─┘ │
+              │ (select 1-3)   │   │
+        ┌─────▼──┐      ┌──────▼──────┐
+        │Selected│      │More Results │
+        │Product │      └──────┬──────┘
+        └─────┬──┘             │
+              │   ┌────────────┘
         ┌─────▼──────▼────────────┐
-        │ awaiting_after_selection│
-        │ Order Form / Message    │
-        └─────────────────────────┘
+        │                         │
+        │ Has saved address? ─────┼────────────┐
+        │                    Yes / No           │
+        │                         │             │
+        │ ┌──────────────────┐    │             │
+        │ │Address          │    │             │
+        │ │Confirmation     │    │             │
+        │ │awaiting_address │    │             │
+        │ │_confirmation    │    │             │
+        │ └────────┬────────┘    │             │
+        │          │             │             │
+        │   [Yes] [Change]       │             │
+        │     │       │          │             │
+        │     │   ┌───┴──────────┘             │
+        │     │   │                           │
+        │     │   │ ┌───────────────────────┐ │
+        │     │   └─► awaitingcustomer_name │ │
+        │     │      input name       │      │ │
+        │     │      ↓                 │      │ │
+        │     │      awaitingcustomer_│      │ │
+        │     │      landmark         │      │ │
+        │     │      ↓                 │      │ │
+        │     │      awaitingcustomer │      │ │
+        │     │      _governorate     │      │ │
+        │     │                       │      │ │
+        │     └───────────────────────┤──────┘ │
+        │                             │         │
+        │ ┌──────────────────────────▼────────┐│
+        │ │ Save Order + Address               ││
+        │ │ Send to merchant/delivery          ││
+        │ └───────────────────────────────────┘│
+        │                                       │
+        │ "تم الطلب! تحب تبحث عن منتج ثاني؟"    │
+        │ [بحث جديد]                           │
+        │ ↓ (loops back to Phase 1)            │
+        └───────────────────────────────────────┘
 ```
 
 ---
 
-## Key Changes (June 2026)
+## AI Understanding (Critical)
 
-### Location step removed entirely
-❌ **REMOVED**:
-- `awaiting_location` phase
-- WhatsApp `location_request_message` (sendWhatsAppLocationRequest)
-- `CustomerLocation` type, haversine distance math, `distanceKm`
-- `findLastKnownLocation` session lookup
-- 15km radius filter in product search
+The bot must use Claude (Anthropic API) or OpenAI to parse customer intent:
 
-✅ **Search is now open**: every visible merchant's products are searchable
-from anywhere — ranked by match quality only.
+### Examples AI must handle:
+- "تيشيرت احمر" → "تيشيرت أحمر" (typo fix)
+- "تيشيرد احمر" → "تيشيرت أحمر" (hamza/diacritics)
+- "بنطرون جينز" → detects "بنطلون" + "جينز"
+- "ما تتجاوز ٥٠" → extracts `maxPrice: 50000`
+- "تحت ١٠٠ الف" → extracts `maxPrice: 100000`
+- Iraqi dialect: "تاي الشنطة" → recognizes as "شنطة" (bag)
 
-### Why?
-- Most sales are **delivery** and can be cross-city/cross-governorate.
-- The location request was an extra step that stalled customers.
-- The order form already collects landmark + governorate as typed text.
-
-### Migration
-- Old sessions parked in `awaiting_location` are transparently mapped to
-  `awaiting_product_query` when read — no broken sessions.
-- Old session payloads containing `customerLocation` are simply ignored.
+### Prompt handles:
+- Spelling corrections
+- Hamza/Alef normalization ("أ" = "ا" = "إ")
+- Singular/plural detection
+- Brand names + synonyms
+- Price parsing (written Arabic numbers → digits)
 
 ---
 
-## Debug: How to Test
+## Database: Saved Addresses
 
-### Test Case 1: New Customer
-```
-1. Send any message
-→ Bot: "هلا بيك في Botly. شنو تحب تسوي؟" [أريد منتج معين]
-2. Tap button
-→ Bot: "شنو المنتج الي تدور عليه؟"
-3. Type "تيشيرت أحمر"
-→ Bot: 3 results + prices + merchant names (no distance shown)
+### Table: `botly_customer_session` (orderDetails field)
+
+When customer completes an order, store:
+```json
+{
+  "orderDetails": {
+    "name": "محمد علي",
+    "landmark": "جامع الكفاية",
+    "governorate": "بغداد"
+  }
+}
 ```
 
-### Test Case 2: Returning Customer
-```
-1. Send message (active session in awaiting_product_query)
-2. Type "جاكيت"
-→ Bot: 3 results with images
-```
+### Lookup Flow
+1. Customer selects product → clicks "اكمال الشراء"
+2. Bot searches `botly_customer_session` for last `orderDetails` with name + landmark + governorate
+3. If found → show `confirmAddressResponse()` (Phase 3a)
+4. If not found → start 3-step form (Phase 3b)
 
 ---
 
-## Common Issues & Fixes
+## Test Cases
 
-### Issue: Workflow stuck in "awaiting_product_query"
-**Cause**: Empty message, or <2 character search
-**Fix**:
-- Bot responds: "اكتب اسم المنتج بشكل أوضح"
-- Stays in same phase, re-prompts
+### Test 1: Brand New Customer
+```
+1. Send: "جاكيت احمر"
+→ Instant: "اهلا عيني... اكتب منتج؟"
+   Wait, they already sent product! Search results:
+→ 3 products with images [1️⃣ 2️⃣ 3️⃣ More]
+2. Tap: 1️⃣
+→ "اختيرت: جاكيت احمر حريمي..."
+   [اكمال الشراء] [رسالة للتاجر]
+3. Tap: اكمال الشراء
+→ "شنو اسمك الكامل؟"
+4. Send: "فاطمة"
+→ "شكراً فاطمة! أقرب نقطة دالة؟"
+5. Send: "جامع الشهداء"
+→ "ممتاز! المحافظة؟"
+6. Send: "كربلاء"
+→ "تم! طلبك أُرسل 🎉"
+   [بحث جديد]
+```
 
-### Issue: Search returns 0 results
-**Cause**: No matching products anywhere
-**Fix**:
-- Bot: "ما لكيت نفس الطلب، تحب أبحثلك عن بديل؟"
-- Buttons: "بحث عن بديل" OR "بحث جديد"
+### Test 2: Returning Customer (Saved Address)
+```
+1. Send: "تيشيرت"
+→ "اهلا عيني... اكتب منتج؟"
+→ [Search] 3 results
+2. Tap: 2️⃣
+→ "اختيرت: تيشيرت أحمر..."
+   [اكمال الشراء] [رسالة للتاجر]
+3. Tap: اكمال الشراء
+→ "عنوانك الحالي:
+    الاسم: فاطمة | النقطة: جامع الشهداء | المحافظة: كربلاء
+    هذا الحنين؟"
+   [نعم، نفسه] [لا، بدل العنوان]
+4. Tap: [نعم، نفسه]
+→ "تم! طلبك أُرسل 🎉" (order sent immediately)
+   [بحث جديد]
+```
 
----
-
-## Performance Notes
-
-### Database Access
-- **Session Storage**: `botly_customer_session` — stores phase + search context
-- **Outbound Guard**: `botly_outbound_guard` — prevents duplicate message spam (10 min window)
-- **Product Search**: `botly_product` — event-sourced product list
-
-### Message Guard
-- Messages are deduplicated by `wa_message_id` (WhatsApp message ID)
-- Prevents double-processing webhook retries
-- Silent 200 response if duplicate
-
-### Search
-- Nationwide: all visible merchants, no geographic filter
-- Limit: 10 products in memory, show 3 at a time
-- Ranking: AI-corrected keyword match score (pg_trgm RPC or direct fallback)
+### Test 3: Change Address
+```
+(Same as Test 2, but at step 4 tap [لا، بدل العنوان])
+4. Tap: [لا، بدل العنوان]
+→ "شنو اسمك الكامل؟" (restart 3-step form)
+```
 
 ---
 
@@ -182,8 +233,14 @@ from anywhere — ranked by match quality only.
 **Main Handler**: `src/routes/api/whatsapp/webhook.ts:handleButtonWorkflow()`
 
 **Key Functions**:
-- `readCustomerSession()` — Load session state (maps legacy awaiting_location)
-- `writeCustomerSession()` — Update phase & context
-- `searchProducts()` — Open nationwide search
-- `extractSearchIntent()` — Parse customer query
-- `sendWhatsAppText/Buttons/Image()` — Send messages
+- `startWorkflowResponse()` → Greeting + product search prompt
+- `findLastSavedAddress(customerNumber)` → Load saved address from DB
+- `confirmAddressResponse(savedAddress)` → Show confirmation screen
+- `searchProducts(intent)` → Search nationwide (Claude/OpenAI parsing)
+- `writeCustomerSession()` → Store phase + matches + address
+
+**Phases**:
+- `awaiting_product_query` → Waiting for product description
+- `awaiting_selection` → Showing 3 results
+- `awaiting_address_confirmation` → Confirm or change saved address
+- `awaiting_customer_name/landmark/governorate` → 3-step form
