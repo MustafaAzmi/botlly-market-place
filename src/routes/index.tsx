@@ -14,6 +14,7 @@ import {
   Package,
   CheckCircle2,
   Truck,
+  User,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -59,6 +60,17 @@ function LandingPage() {
               {t("hero.subtitle")}
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="gap-2 border-primary/40 text-primary hover:bg-primary-soft"
+              >
+                <Link to="/customer/auth">
+                  <User className="h-4 w-4" />
+                  {t("hero.cta.customer")}
+                </Link>
+              </Button>
               <Button asChild size="lg" className="gap-2 shadow-elevated">
                 <Link to="/auth">
                   {t("hero.cta.primary")}
