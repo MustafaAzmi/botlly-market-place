@@ -15,8 +15,12 @@ import { Route as DataDeletionRouteImport } from './routes/data-deletion'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
+import { Route as CustomerIndexRouteImport } from './routes/customer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
+import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
+import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
+import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
@@ -64,6 +68,11 @@ const DashboardIndexRoute = DashboardIndexRouteImport.update({
   path: '/dashboard/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CustomerIndexRoute = CustomerIndexRouteImport.update({
+  id: '/customer/',
+  path: '/customer/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
@@ -72,6 +81,21 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const StoreSlugRoute = StoreSlugRouteImport.update({
   id: '/store/$slug',
   path: '/store/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerDashboardRoute = CustomerDashboardRouteImport.update({
+  id: '/customer/dashboard',
+  path: '/customer/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerAuthRoute = CustomerAuthRouteImport.update({
+  id: '/customer/auth',
+  path: '/customer/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Customer_layoutRoute = Customer_layoutRouteImport.update({
+  id: '/customer/__layout',
+  path: '/customer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStoresRoute = AdminStoresRouteImport.update({
@@ -168,8 +192,12 @@ export interface FileRoutesByFullPath {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer': typeof Customer_layoutRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
+  '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -194,6 +222,9 @@ export interface FileRoutesByTo {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer': typeof CustomerIndexRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
@@ -221,8 +252,12 @@ export interface FileRoutesById {
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer/__layout': typeof Customer_layoutRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
+  '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -249,8 +284,12 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin/'
+    | '/customer/'
     | '/dashboard/'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
@@ -275,6 +314,9 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
@@ -301,8 +343,12 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer/__layout'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin/'
+    | '/customer/'
     | '/dashboard/'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
@@ -328,8 +374,12 @@ export interface RootRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
+  Customer_layoutRoute: typeof Customer_layoutRoute
+  CustomerAuthRoute: typeof CustomerAuthRoute
+  CustomerDashboardRoute: typeof CustomerDashboardRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  CustomerIndexRoute: typeof CustomerIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
@@ -386,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/customer/': {
+      id: '/customer/'
+      path: '/customer'
+      fullPath: '/customer/'
+      preLoaderRoute: typeof CustomerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/': {
       id: '/admin/'
       path: '/admin'
@@ -398,6 +455,27 @@ declare module '@tanstack/react-router' {
       path: '/store/$slug'
       fullPath: '/store/$slug'
       preLoaderRoute: typeof StoreSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/dashboard': {
+      id: '/customer/dashboard'
+      path: '/customer/dashboard'
+      fullPath: '/customer/dashboard'
+      preLoaderRoute: typeof CustomerDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/auth': {
+      id: '/customer/auth'
+      path: '/customer/auth'
+      fullPath: '/customer/auth'
+      preLoaderRoute: typeof CustomerAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/__layout': {
+      id: '/customer/__layout'
+      path: '/customer'
+      fullPath: '/customer'
+      preLoaderRoute: typeof Customer_layoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stores': {
@@ -528,8 +606,12 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,
+  Customer_layoutRoute: Customer_layoutRoute,
+  CustomerAuthRoute: CustomerAuthRoute,
+  CustomerDashboardRoute: CustomerDashboardRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
+  CustomerIndexRoute: CustomerIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
