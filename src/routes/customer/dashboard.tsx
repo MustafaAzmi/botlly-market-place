@@ -7,11 +7,12 @@ import {
   Loader2,
   LogOut,
   MessageCircle,
+  Package,
   Save,
   Search,
   User,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
