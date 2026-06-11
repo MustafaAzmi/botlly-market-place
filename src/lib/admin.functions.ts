@@ -360,55 +360,54 @@ export const setMerchantSubscription = createServerFn({ method: "POST" })
     });
   });
 
-// Hard delete a merchant store and all its products from the database.
+// Hard delete a merchant store and all its data (products, orders, sessions).
+//
+// Deletes by row id rather than a payload->>merchantId filter: merchants
+// created before the merchantId payload field existed are identified by their
+// row id (see merchantIdentity), so a JSON-path filter matches nothing for
+// them and the store silently survives. Collecting ids via listEvents also
+// works on both the source/event_type and legacy provider column schemas.
 export const deleteMerchantStore = createServerFn({ method: "POST" })
   .inputValidator((d) => merchantActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
     const merchants = await listEvents("botly_merchant");
-    const row = merchants.find((r) => merchantIdentity(r) === data.merchantId);
-    if (!row) throw new Error("لم يتم العثور على المتجر.");
+    const target = merchants.find(
+      (r) => merchantIdentity(r) === data.merchantId || r.id === data.merchantId,
+    );
+    if (!target) throw new Error("لم يتم العثور على المتجر.");
 
-    const merchantId = merchantIdentity(row);
+    const merchantId = merchantIdentity(target);
 
-    // PostgREST JSON-path filter syntax is payload->>field (no quotes).
-    // supabase-js returns errors in the result instead of throwing, so each
-    // step checks result.error explicitly.
+    const [products, orders, sessions] = await Promise.all([
+      listEvents("botly_product"),
+      listEvents("botly_order"),
+      listEvents("botly_session"),
+    ]);
 
-    // Delete all products for this merchant
-    const productsResult = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .delete()
-      .eq("source", "botly")
-      .eq("event_type", "botly_product")
-      .eq("payload->>merchantId" as never, merchantId);
-    if (productsResult.error) {
-      console.error("[Admin] Failed to delete products", productsResult.error);
+    const ids = new Set<string>();
+    // Every profile event in the merchant's append-only history.
+    for (const r of merchants) {
+      if (merchantIdentity(r) === merchantId || r.id === data.merchantId) ids.add(r.id);
+    }
+    const belongsToMerchant = (r: EventRow) => getString(r.payload?.merchantId) === merchantId;
+    for (const r of products) if (belongsToMerchant(r)) ids.add(r.id);
+    for (const r of orders) if (belongsToMerchant(r)) ids.add(r.id);
+    for (const r of sessions) if (belongsToMerchant(r)) ids.add(r.id);
+
+    const all = [...ids];
+    for (let i = 0; i < all.length; i += 200) {
+      const chunk = all.slice(i, i + 200);
+      const result = await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .in("id", chunk as never[]);
+      if (result.error) {
+        throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
+      }
     }
 
-    // Delete all orders for this merchant
-    const ordersResult = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .delete()
-      .eq("source", "botly")
-      .eq("event_type", "botly_order")
-      .eq("payload->>merchantId" as never, merchantId);
-    if (ordersResult.error) {
-      console.error("[Admin] Failed to delete orders", ordersResult.error);
-    }
-
-    // Delete the merchant record itself
-    const merchantResult = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .delete()
-      .eq("source", "botly")
-      .eq("event_type", "botly_merchant")
-      .eq("payload->>merchantId" as never, merchantId);
-    if (merchantResult.error) {
-      throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${merchantResult.error.message}`);
-    }
-
-    return { ok: true };
+    return { ok: true, deleted: all.length };
   });
 
 // ---------------------------------------------------------------------------
