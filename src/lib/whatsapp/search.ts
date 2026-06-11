@@ -122,7 +122,7 @@ export async function extractSearchIntent(customerText: string): Promise<SearchI
   return fallback;
 }
 
-interface RawIntent {
+export interface RawIntent {
   search_terms?: string;
   keywords?: string[];
   category?: string | null;
@@ -131,7 +131,7 @@ interface RawIntent {
   max_price?: number | null;
 }
 
-function normalizeRawIntent(raw: RawIntent, normalized: string): SearchIntent {
+export function normalizeRawIntent(raw: RawIntent, normalized: string): SearchIntent {
   const keywords = Array.isArray(raw.keywords)
     ? raw.keywords
         .map((k) => (typeof k === "string" ? k.trim() : ""))

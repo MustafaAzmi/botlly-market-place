@@ -26,6 +26,10 @@ import {
   type SearchIntent,
 } from "@/lib/whatsapp/search";
 import {
+  downloadWhatsAppImage,
+  extractImageSearchIntent,
+} from "@/lib/whatsapp/image-search.server";
+import {
   sendWhatsAppButtons,
   sendWhatsAppImage,
   sendWhatsAppText,
@@ -138,6 +142,7 @@ function readIncomingMessage(payload: unknown) {
             button?: { text?: string };
             interactive?: { button_reply?: { id?: string; title?: string } };
             audio?: { id?: string; voice?: boolean };
+            image?: { id?: string; caption?: string };
           }>;
         };
       }>;
@@ -154,6 +159,10 @@ function readIncomingMessage(payload: unknown) {
     actionId: message?.interactive?.button_reply?.id ?? null,
     // Voice notes and audio files both arrive as type "audio" with a media id.
     audioId: message?.type === "audio" ? (message.audio?.id ?? null) : null,
+    // Product photos: the media id plus the customer's optional caption
+    // ("لايت جارجر 2017") drive the image search flow.
+    imageId: message?.type === "image" ? (message.image?.id ?? null) : null,
+    imageCaption: message?.type === "image" ? (message.image?.caption ?? "").trim() : "",
     text: text.trim(),
   };
 }
@@ -228,7 +237,7 @@ function textResponse(body: string, guardReason = "workflow_text"): WorkflowResp
 
 function startWorkflowResponse(): WorkflowResponse {
   return textResponse(
-    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم أو وصف المنتج الي ادور عليه. ممكن تذكر سعر بحدود كذا وي الوصف. مثلاً: تيشيرت أحمر، تيشيرت أقل من ٥٠ ألف، جاكيت شتوي، إلخ.",
+    "اهلا عيني شلون الصحة 👋\n\nاكتب اسم المنتج الي تدور عليه، أو دز صورته 📷 وأدورلك عليه.\nمثلاً: لايت أمامي مرسيدس، بمبر دوج تشارجر، مراية بي ام دبليو.\nوإذا دزيت صورة تكدر تضيف وياها شرح (مثلاً: لايت جارجر 2017).",
     "workflow_start",
   );
 }
@@ -577,8 +586,17 @@ function selectionFromAction(actionId: string | null, matches: ProductMatch[]) {
 }
 
 function afterSelectionResponse(match: ProductMatch): WorkflowResponse {
+  const description = match.description?.trim();
   return buttonResponse(
-    `اختيرت: ${match.title}\nالسعر: ${formatPrice(match)}\nالمتجر: ${match.storeName}\nشنو تحب تسوي؟`,
+    [
+      `اختيرت: ${match.title}`,
+      description && description !== match.title ? `الوصف: ${description}` : null,
+      `السعر: ${formatPrice(match)}`,
+      `المتجر: ${match.storeName}`,
+      "شنو تحب تسوي؟",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     [
       { id: ACTION_COMPLETE_PURCHASE, title: "اكمال الشراء" },
       { id: ACTION_MESSAGE_MERCHANT, title: "رسالة للتاجر" },
@@ -699,12 +717,15 @@ async function resetToProductQuery(customerNumber: string) {
   await writeCustomerSession(customerNumber, [], null, null, 3, null, "awaiting_product_query");
 }
 
-// Run the search and reply with results (shared by first message and re-search).
-async function runProductSearch(
+// Search the catalogue for an already-extracted intent and reply with results
+// (shared by the text flow and the image flow).
+async function respondWithSearchResults(
   customerNumber: string,
+  intent: SearchIntent,
   query: string,
+  intro = "",
+  guardReason = "search_results",
 ): Promise<WorkflowResponse> {
-  const intent = await extractSearchIntent(query);
   // Open nationwide search — most sales are delivery, so no radius filter.
   const matches = await searchProducts(intent, 10, { limit: 10 });
   const visible = matches.slice(0, 3);
@@ -723,9 +744,67 @@ async function runProductSearch(
   }
   await sendResultImages(customerNumber, visible, 0);
   return buttonResponse(
-    formatWorkflowSearchResults(visible, matches.length > visible.length),
+    `${intro}${formatWorkflowSearchResults(visible, matches.length > visible.length)}`,
     selectionButtons(visible, 0, matches.length > visible.length),
-    "search_results",
+    guardReason,
+  );
+}
+
+// Run the search and reply with results (shared by first message and re-search).
+async function runProductSearch(
+  customerNumber: string,
+  query: string,
+): Promise<WorkflowResponse> {
+  const intent = await extractSearchIntent(query);
+  return respondWithSearchResults(customerNumber, intent, query);
+}
+
+// Image search: the customer sent a product photo (optionally with a caption
+// like "لايت جارجر 2017"). A vision model identifies the part, then the photo
+// goes through the exact same catalogue search as a typed query.
+async function runImageProductSearch(
+  customerNumber: string,
+  imageId: string,
+  caption: string,
+): Promise<WorkflowResponse> {
+  // Don't let a stray photo blow away an order form in progress.
+  const existingSession = await readCustomerSession(customerNumber);
+  const phase = existingSession?.phase ?? "awaiting_product_query";
+  if (
+    phase === "awaiting_address_confirmation" ||
+    phase === "awaiting_customer_name" ||
+    phase === "awaiting_customer_landmark" ||
+    phase === "awaiting_customer_governorate"
+  ) {
+    return textResponse(
+      "خلينا نكمل معلومات الطلب الحالي أولاً ✍️\n0️⃣ أو اضغط 0 لإلغاء الطلب والبدء ببحث جديد.",
+      "image_during_order",
+    );
+  }
+
+  const image = await downloadWhatsAppImage(imageId);
+  if (!image) {
+    return textResponse(
+      "ما كدرت أحمل الصورة 😕\nجرب تدزها مرة ثانية، أو اكتب اسم القطعة الي تدور عليها.",
+      "image_download_failed",
+    );
+  }
+
+  const intent = await extractImageSearchIntent(image, caption);
+  if (!intent) {
+    return textResponse(
+      "ما كدرت أميز قطعة واضحة بالصورة 😕\nجرب صورة أوضح للقطعة، أو اكتب اسمها مع نوع السيارة (مثلاً: لايت أمامي مرسيدس).",
+      "image_not_recognized",
+    );
+  }
+
+  const query = [intent.searchTerms, caption].filter(Boolean).join(" — ");
+  return respondWithSearchResults(
+    customerNumber,
+    intent,
+    query,
+    `شفت الصورة 📷 يبين ${intent.searchTerms}.\n\n`,
+    "image_search_results",
   );
 }
 
@@ -1167,11 +1246,26 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               ).catch(() => {});
             }
           } else if (isCustomerMessage && incoming.from) {
-            // Search is text-only: voice notes get a polite redirect to typing
-            // instead of being transcribed.
-            if (incoming.audioId) {
+            // Product photos go through the vision → catalogue-search flow.
+            if (incoming.imageId) {
+              try {
+                workflowResponse = await runImageProductSearch(
+                  incoming.from,
+                  incoming.imageId,
+                  incoming.imageCaption,
+                );
+                console.log("[Webhook] Image search response:", workflowResponse.kind);
+              } catch (err) {
+                console.error("[Webhook] runImageProductSearch threw:", err);
+                workflowResponse = textResponse(
+                  "صار خلل وأني أحلل الصورة 😕 جرب مرة ثانية أو اكتب اسم القطعة.",
+                  "image_search_failed",
+                );
+              }
+            } else if (incoming.audioId) {
+              // Search is by text or photo: voice notes get a polite redirect.
               workflowResponse = textResponse(
-                "البحث يكون بالكتابة فقط ✍️\nاكتب اسم أو وصف المنتج الي تدور عليه.",
+                "البحث يكون بالكتابة أو بالصورة ✍️📷\nاكتب اسم القطعة الي تدور عليها أو دز صورتها.",
                 "voice_not_supported",
               );
             } else {
