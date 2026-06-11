@@ -11,12 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   listCustomers,
-  listOrdersReport,
   getPlatformSettings,
   setMediatorPhone,
   purgeAllProducts,
   type CustomerAdminView,
-  type OrderReportRow,
 } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
@@ -27,29 +25,9 @@ export const Route = createFileRoute("/admin/customers")({
   component: AdminCustomersPage,
 });
 
-// Human-readable order status. "received_by_customer" is the customer's own
-// "تم الاستلام" confirmation — the signal the admin report is built around.
-function statusBadge(status: string) {
-  switch (status) {
-    case "received_by_customer":
-      return <Badge className="border-success/30 bg-success/15 text-success">تم الاستلام ✅</Badge>;
-    case "confirmed_by_merchant":
-      return <Badge className="border-primary/30 bg-primary/10 text-primary">أكده التاجر</Badge>;
-    case "out_of_stock":
-      return <Badge variant="destructive">منتهي</Badge>;
-    case "pending_merchant":
-      return <Badge variant="secondary">بانتظار التاجر</Badge>;
-    case "sent_to_delivery":
-      return <Badge variant="secondary">عند التوصيل</Badge>;
-    default:
-      return <Badge variant="outline">{status}</Badge>;
-  }
-}
-
 function AdminCustomersPage() {
   const session = readAdminSession();
   const listCustomersFn = useServerFn(listCustomers);
-  const listOrdersFn = useServerFn(listOrdersReport);
   const getSettingsFn = useServerFn(getPlatformSettings);
   const setMediatorFn = useServerFn(setMediatorPhone);
   const purgeProductsFn = useServerFn(purgeAllProducts);
@@ -64,18 +42,6 @@ function AdminCustomersPage() {
     queryKey: ["admin-customers"],
     queryFn: async () =>
       session?.token ? await listCustomersFn({ data: { token: session.token } }) : [],
-    enabled: !!session?.token,
-    retry: 1,
-  });
-
-  const {
-    data: orders = [],
-    isLoading: loadingOrders,
-    refetch: refetchOrders,
-  } = useQuery({
-    queryKey: ["admin-orders-report"],
-    queryFn: async () =>
-      session?.token ? await listOrdersFn({ data: { token: session.token } }) : [],
     enabled: !!session?.token,
     retry: 1,
   });
@@ -126,7 +92,7 @@ function AdminCustomersPage() {
   });
 
   return (
-    <AdminLayout title="الزبائن" subtitle="حسابات الزبائن المسجلة وتقرير حالة الشراء لكل تاجر.">
+    <AdminLayout title="الزبائن" subtitle="حسابات الزبائن المسجلة.">
       <div className="space-y-8">
         {/* Mediator phone */}
         <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
@@ -181,8 +147,6 @@ function AdminCustomersPage() {
                     <Th>رقم الواتساب</Th>
                     <Th>المحافظة</Th>
                     <Th>أقرب نقطة دالة</Th>
-                    <Th>الطلبات</Th>
-                    <Th>المستلمة</Th>
                     <Th>تاريخ التسجيل</Th>
                   </tr>
                 </thead>
@@ -193,71 +157,8 @@ function AdminCustomersPage() {
                       <Td dir="ltr">{c.whatsapp}</Td>
                       <Td>{c.governorate}</Td>
                       <Td>{c.landmark}</Td>
-                      <Td>{c.orderCount}</Td>
-                      <Td>
-                        {c.receivedCount > 0 ? (
-                          <span className="font-medium text-success">{c.receivedCount} ✅</span>
-                        ) : (
-                          "0"
-                        )}
-                      </Td>
                       <Td className="text-xs text-muted-foreground">
                         {new Date(c.createdAt).toLocaleDateString("ar-IQ")}
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {/* Purchase report */}
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">تقرير الشراء ({orders.length})</h2>
-            <Button variant="outline" size="sm" onClick={() => refetchOrders()}>
-              تحديث
-            </Button>
-          </div>
-          <p className="mb-3 text-xs text-muted-foreground">
-            يبين شنو باع كل تاجر، وحالة كل طلب — «تم الاستلام» تعني الزبون ضغط «تم» وأكد
-            استلام المنتج.
-          </p>
-
-          {loadingOrders ? (
-            <LoadingCard text="جاري تحميل التقرير..." />
-          ) : orders.length === 0 ? (
-            <EmptyCard text="لا توجد طلبات بعد." />
-          ) : (
-            <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
-              <table className="w-full text-sm">
-                <thead className="border-b border-border bg-secondary/50 text-right">
-                  <tr>
-                    <Th>المتجر</Th>
-                    <Th>المنتج</Th>
-                    <Th>السعر</Th>
-                    <Th>الزبون</Th>
-                    <Th>المصدر</Th>
-                    <Th>الحالة</Th>
-                    <Th>التاريخ</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((o: OrderReportRow) => (
-                    <tr key={o.orderId} className="border-b border-border/60 last:border-0">
-                      <Td className="font-medium">{o.storeName}</Td>
-                      <Td>{o.productTitle}</Td>
-                      <Td>
-                        {o.productPrice ? `${o.productPrice.toLocaleString()} ${o.currency}` : "—"}
-                      </Td>
-                      <Td>{o.customerName}</Td>
-                      <Td>
-                        <Badge variant="outline">{o.source === "web" ? "الموقع" : "واتساب"}</Badge>
-                      </Td>
-                      <Td>{statusBadge(o.status)}</Td>
-                      <Td className="text-xs text-muted-foreground">
-                        {new Date(o.createdAt).toLocaleDateString("ar-IQ")}
                       </Td>
                     </tr>
                   ))}

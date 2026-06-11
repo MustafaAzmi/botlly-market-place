@@ -15,14 +15,12 @@ import { z } from "zod";
 import {
   appendEvent,
   listEvents,
-  listEventsByPayloadField,
   getString,
   getNumber,
   eventTime,
   phoneKey,
   type EventRow,
 } from "@/lib/eventStore.server";
-import { sendWhatsAppButtons, sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -50,16 +48,6 @@ export type CustomerProduct = {
   carMake?: string;
   carModel?: string;
   quantity?: number;
-};
-
-export type CustomerOrder = {
-  orderId: string;
-  productTitle: string;
-  productPrice: number;
-  currency: string;
-  status: string;
-  createdAt: string;
-  receivedAt?: string;
 };
 
 const phoneInput = z.object({
@@ -270,168 +258,3 @@ export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async
   return { phone: "" };
 });
 
-// ---------------------------------------------------------------------------
-// Web orders
-// ---------------------------------------------------------------------------
-
-const orderInput = phoneInput.extend({
-  productId: z.string().trim().min(1).max(100),
-});
-
-const orderActionInput = phoneInput.extend({
-  orderId: z.string().trim().min(1).max(100),
-});
-
-// Place an order from the customer dashboard. The merchant is notified on
-// WhatsApp WITHOUT the customer's phone — name/address only; the mediator gets
-// the full details (including the phone) and brokers the contact.
-export const createWebOrder = createServerFn({ method: "POST" })
-  .inputValidator((d) => orderInput.parse(d))
-  .handler(async ({ data }) => {
-    const customerRow = await findCustomerByPhone(data.whatsapp);
-    if (!customerRow) throw new Error("سجل دخول أولاً حتى تكدر تطلب.");
-    const customer = toCustomer(customerRow);
-
-    // Latest product event.
-    const productRows = await listEvents("botly_product");
-    const productRow = productRows.find(
-      (row) => (getString(row.payload?.productId) || row.id) === data.productId,
-    );
-    if (!productRow || getString(productRow.payload?.status) !== "active") {
-      throw new Error("المنتج لم يعد متوفراً.");
-    }
-    const p = productRow.payload ?? {};
-    const merchantId = getString(p.merchantId);
-
-    // Merchant contact (for OUR notification only — never returned to client).
-    const merchantRows = await listEventsByPayloadField(
-      "botly_merchant",
-      "merchantId",
-      merchantId,
-      1,
-    );
-    const merchant = merchantRows[0]?.payload ?? {};
-    const merchantWhatsapp = getString(merchant.whatsapp) || getString(merchant.phone);
-    const storeName = getString(merchant.storeName) || "متجر";
-
-    const title = getString(p.title) || "منتج";
-    const price = getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0;
-    const currency = getString(p.currency) || "IQD";
-    const orderId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    await appendEvent("botly_order", {
-      orderId,
-      source: "web",
-      merchantId,
-      productId: data.productId,
-      productTitle: title,
-      productPrice: price,
-      currency,
-      storeName,
-      customerId: customer.id,
-      customerNumber: customer.whatsapp,
-      customerName: customer.name,
-      customerLandmark: customer.landmark,
-      customerGovernorate: customer.governorate,
-      merchantWhatsapp,
-      status: "pending_merchant",
-      createdAt: now,
-    });
-
-    // Notify the merchant — order details + delivery address, NO phone number.
-    if (merchantWhatsapp) {
-      await sendWhatsAppButtons(
-        merchantWhatsapp,
-        [
-          "🎉 طلب جديد من المنصة!",
-          `المنتج: ${title}`,
-          `السعر: ${price} ${currency}`,
-          `الزبون: ${customer.name}`,
-          `العنوان: ${customer.governorate} — ${customer.landmark}`,
-          "",
-          "التواصل يتم عن طريق الوسيط.",
-          "حالة الطلب:",
-        ].join("\n"),
-        [
-          { id: "merchant_confirm_order", title: "✅ تم تأكيد الطلب" },
-          { id: "merchant_product_out_of_stock", title: "❌ المنتج منتهي" },
-        ],
-      ).catch((error) => console.error("[WebOrder] Failed to notify merchant", error));
-    }
-
-    // Notify the mediator with the FULL details (they broker the contact).
-    const settings = await listEvents("botly_settings").catch(() => [] as EventRow[]);
-    const mediatorPhone = settings
-      .map((row) => getString(row.payload?.mediatorPhone))
-      .find(Boolean);
-    if (mediatorPhone) {
-      await sendWhatsAppText(
-        mediatorPhone,
-        [
-          "Botly: طلب جديد من الموقع 🛒",
-          `المنتج: ${title}`,
-          `السعر: ${price} ${currency}`,
-          `المتجر: ${storeName}`,
-          `الزبون: ${customer.name}`,
-          `رقم الزبون: ${customer.whatsapp}`,
-          `العنوان: ${customer.governorate} — ${customer.landmark}`,
-        ].join("\n"),
-      ).catch((error) => console.error("[WebOrder] Failed to notify mediator", error));
-    }
-
-    return { orderId, ok: true };
-  });
-
-// Latest event per orderId for this customer's phone (format-independent).
-async function latestOrdersForPhone(whatsapp: string): Promise<Map<string, EventRow>> {
-  const key = phoneKey(whatsapp);
-  const rows = await listEvents("botly_order");
-  const latest = new Map<string, EventRow>();
-  for (const row of rows) {
-    const p = row.payload ?? {};
-    if (phoneKey(getString(p.customerNumber)) !== key) continue;
-    const orderId = getString(p.orderId) || row.id;
-    if (!latest.has(orderId)) latest.set(orderId, row); // newest-first
-  }
-  return latest;
-}
-
-export const listCustomerOrders = createServerFn({ method: "POST" })
-  .inputValidator((d) => phoneInput.parse(d))
-  .handler(async ({ data }): Promise<CustomerOrder[]> => {
-    const latest = await latestOrdersForPhone(data.whatsapp);
-    return [...latest.values()].map((row) => {
-      const p = row.payload ?? {};
-      return {
-        orderId: getString(p.orderId) || row.id,
-        productTitle: getString(p.productTitle) || "منتج",
-        productPrice: getNumber(p.productPrice) ?? 0,
-        currency: getString(p.currency) || "IQD",
-        status: getString(p.status) || "pending_merchant",
-        createdAt: getString(p.createdAt) || eventTime(row),
-        receivedAt: getString(p.receivedAt) || undefined,
-      };
-    });
-  });
-
-// The customer presses "تم الاستلام": records delivery so the admin report
-// shows which merchant sold what and that the customer actually received it.
-export const markOrderReceived = createServerFn({ method: "POST" })
-  .inputValidator((d) => orderActionInput.parse(d))
-  .handler(async ({ data }) => {
-    const latest = await latestOrdersForPhone(data.whatsapp);
-    const row = latest.get(data.orderId);
-    if (!row) throw new Error("الطلب غير موجود.");
-
-    const p = row.payload ?? {};
-    if (getString(p.status) === "received_by_customer") return { ok: true };
-
-    await appendEvent("botly_order", {
-      ...p,
-      orderId: data.orderId,
-      status: "received_by_customer",
-      receivedAt: new Date().toISOString(),
-    });
-    return { ok: true };
-  });

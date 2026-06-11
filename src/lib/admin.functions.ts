@@ -512,38 +512,11 @@ export interface CustomerAdminView {
   whatsapp: string;
   landmark: string;
   governorate: string;
-  orderCount: number;
-  receivedCount: number;
   createdAt: string;
-}
-
-export interface OrderReportRow {
-  orderId: string;
-  storeName: string;
-  productTitle: string;
-  productPrice: number;
-  currency: string;
-  customerName: string;
-  customerNumber: string;
-  status: string;
-  source: string;
-  createdAt: string;
-  receivedAt?: string;
 }
 
 function customerIdentity(row: EventRow) {
   return getString(row.payload?.customerId) || row.id;
-}
-
-// Latest event per orderId (newest-first log → first occurrence wins).
-async function latestOrders(): Promise<EventRow[]> {
-  const rows = await listEvents("botly_order");
-  const seen = new Map<string, EventRow>();
-  for (const row of rows) {
-    const id = getString(row.payload?.orderId) || row.id;
-    if (!seen.has(id)) seen.set(id, row);
-  }
-  return [...seen.values()];
 }
 
 export const listCustomers = createServerFn({ method: "POST" })
@@ -551,10 +524,7 @@ export const listCustomers = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<CustomerAdminView[]> => {
     await authorizeAdmin(data.token);
 
-    const [customerRows, orders] = await Promise.all([
-      listEvents("botly_customer"),
-      latestOrders(),
-    ]);
+    const customerRows = await listEvents("botly_customer");
 
     // Latest profile per customer.
     const seen = new Map<string, EventRow>();
@@ -563,55 +533,15 @@ export const listCustomers = createServerFn({ method: "POST" })
       if (!seen.has(id)) seen.set(id, row);
     }
 
-    // Order stats keyed by format-independent phone.
-    const orderCount = new Map<string, number>();
-    const receivedCount = new Map<string, number>();
-    for (const row of orders) {
-      const key = phoneKey(getString(row.payload?.customerNumber));
-      if (!key) continue;
-      orderCount.set(key, (orderCount.get(key) ?? 0) + 1);
-      if (getString(row.payload?.status) === "received_by_customer") {
-        receivedCount.set(key, (receivedCount.get(key) ?? 0) + 1);
-      }
-    }
-
     return [...seen.values()].map((row) => {
       const p = row.payload ?? {};
-      const key = phoneKey(getString(p.whatsapp));
       return {
         customerId: customerIdentity(row),
         name: getString(p.name) || "زبون",
         whatsapp: getString(p.whatsapp),
         landmark: getString(p.landmark),
         governorate: getString(p.governorate),
-        orderCount: orderCount.get(key) ?? 0,
-        receivedCount: receivedCount.get(key) ?? 0,
         createdAt: getString(p.createdAt) || eventTime(row),
-      };
-    });
-  });
-
-// Purchase report: every order with its merchant, product and live status —
-// including whether the customer pressed "تم الاستلام".
-export const listOrdersReport = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<OrderReportRow[]> => {
-    await authorizeAdmin(data.token);
-    const orders = await latestOrders();
-    return orders.map((row) => {
-      const p = row.payload ?? {};
-      return {
-        orderId: getString(p.orderId) || row.id,
-        storeName: getString(p.storeName) || "متجر",
-        productTitle: getString(p.productTitle) || "منتج",
-        productPrice: getNumber(p.productPrice) ?? 0,
-        currency: getString(p.currency) || "IQD",
-        customerName: getString(p.customerName) || "—",
-        customerNumber: getString(p.customerNumber),
-        status: getString(p.status) || "pending",
-        source: getString(p.source) || "whatsapp",
-        createdAt: getString(p.createdAt) || eventTime(row),
-        receivedAt: getString(p.receivedAt) || undefined,
       };
     });
   });

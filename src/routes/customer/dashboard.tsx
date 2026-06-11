@@ -7,13 +7,11 @@ import {
   Loader2,
   LogOut,
   MessageCircle,
-  Package,
   Save,
   Search,
-  ShoppingCart,
   User,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
@@ -32,12 +30,8 @@ import {
 import { CAR_MAKES, CAR_COLORS, findMakeByLabel } from "@/lib/car-data";
 import {
   browseCarProducts,
-  createWebOrder,
   getMediatorPhone,
-  listCustomerOrders,
-  markOrderReceived,
   updateCustomerProfile,
-  type CustomerOrder,
   type CustomerProduct,
 } from "@/lib/customer.functions";
 import {
@@ -51,25 +45,12 @@ export const Route = createFileRoute("/customer/dashboard")({
   component: CustomerDashboard,
 });
 
-type TabKey = "shop" | "orders" | "profile";
+type TabKey = "shop" | "profile";
 
 // wa.me links need digits only (international format, no +).
 function toWhatsAppLink(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^0/, "964");
   return `https://wa.me/${digits}`;
-}
-
-function orderStatusLabel(status: string) {
-  switch (status) {
-    case "received_by_customer":
-      return { text: "تم الاستلام ✅", variant: "success" as const };
-    case "confirmed_by_merchant":
-      return { text: "تم تأكيد الطلب", variant: "primary" as const };
-    case "out_of_stock":
-      return { text: "المنتج منتهي", variant: "destructive" as const };
-    default:
-      return { text: "قيد المعالجة", variant: "secondary" as const };
-  }
 }
 
 function CustomerDashboard() {
@@ -116,7 +97,6 @@ function CustomerDashboard() {
           {(
             [
               { key: "shop", icon: Search, label: "تسوق القطع" },
-              { key: "orders", icon: Package, label: "طلباتي" },
               { key: "profile", icon: User, label: "حسابي" },
             ] as Array<{ key: TabKey; icon: typeof Search; label: string }>
           ).map((item) => (
@@ -137,8 +117,7 @@ function CustomerDashboard() {
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
-        {tab === "shop" && <ShopTab customerWhatsapp={customer.whatsapp} />}
-        {tab === "orders" && <OrdersTab customerWhatsapp={customer.whatsapp} />}
+        {tab === "shop" && <ShopTab customerWhatsapp={customer.whatsapp} mediatorPhone={mediatorPhone} />}
         {tab === "profile" && (
           <ProfileTab
             session={session}
@@ -167,17 +146,14 @@ function CustomerDashboard() {
 // Shop: car filters → products (specs + final price only, no merchant info)
 // ---------------------------------------------------------------------------
 
-function ShopTab({ customerWhatsapp }: { customerWhatsapp: string }) {
+function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string; mediatorPhone: string }) {
   const browseFn = useServerFn(browseCarProducts);
-  const orderFn = useServerFn(createWebOrder);
   const [carMake, setCarMake] = useState("");
   const [carModel, setCarModel] = useState("");
   const [color, setColor] = useState("");
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [orderingId, setOrderingId] = useState<string | null>(null);
-  const [orderConfirm, setOrderConfirm] = useState<CustomerProduct | null>(null);
 
   const selectedMake = findMakeByLabel(carMake);
 
@@ -195,19 +171,6 @@ function ShopTab({ customerWhatsapp }: { customerWhatsapp: string }) {
       setLoading(false);
     }
   }, [browseFn, carMake, carModel, color]);
-
-  const placeOrder = async (product: CustomerProduct) => {
-    setOrderingId(product.id);
-    try {
-      await orderFn({ data: { whatsapp: customerWhatsapp, productId: product.id } });
-      toast.success("تم إرسال طلبك ✅ راح يوصلك على عنوانك المحفوظ، وتكدر تتابع حالته من «طلباتي».");
-      setOrderConfirm(null);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
-    } finally {
-      setOrderingId(null);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -299,48 +262,10 @@ function ShopTab({ customerWhatsapp }: { customerWhatsapp: string }) {
           <p className="text-sm text-muted-foreground">النتائج: {products.length} قطعة</p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                ordering={orderingId === product.id}
-                onOrder={() => setOrderConfirm(product)}
-              />
+              <ProductCard key={product.id} product={product} mediatorPhone={mediatorPhone} />
             ))}
           </div>
         </>
-      )}
-
-      {/* Order confirmation dialog */}
-      {orderConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-2xl border bg-background p-6 shadow-elevated">
-            <h2 className="text-lg font-semibold">تأكيد الطلب</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              تريد تطلب «{orderConfirm.title}» بسعر{" "}
-              <span className="font-bold text-foreground">
-                {orderConfirm.price.toLocaleString()} {orderConfirm.currency}
-              </span>
-              ؟ الطلب راح يرتبط بعنوانك المحفوظ.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setOrderConfirm(null)}>
-                إلغاء
-              </Button>
-              <Button
-                className="flex-1 gap-2"
-                disabled={orderingId === orderConfirm.id}
-                onClick={() => placeOrder(orderConfirm)}
-              >
-                {orderingId === orderConfirm.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ShoppingCart className="h-4 w-4" />
-                )}
-                اطلب الآن
-              </Button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -350,12 +275,10 @@ function ShopTab({ customerWhatsapp }: { customerWhatsapp: string }) {
 // deliberately no merchant name, address or phone.
 function ProductCard({
   product,
-  ordering,
-  onOrder,
+  mediatorPhone,
 }: {
   product: CustomerProduct;
-  ordering: boolean;
-  onOrder: () => void;
+  mediatorPhone: string;
 }) {
   const [imageIndex, setImageIndex] = useState(0);
   const images = product.imageUrls;
@@ -416,118 +339,18 @@ function ProductCard({
           <span className="text-lg font-bold">{product.price.toLocaleString()}</span>
           <span className="text-xs text-muted-foreground">{product.currency}</span>
         </div>
-        <Button className="mt-3 w-full gap-2" size="sm" disabled={ordering} onClick={onOrder}>
-          {ordering ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-          اطلب الآن
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Orders: track status + confirm receipt ("تم")
-// ---------------------------------------------------------------------------
-
-function OrdersTab({ customerWhatsapp }: { customerWhatsapp: string }) {
-  const listOrdersFn = useServerFn(listCustomerOrders);
-  const markReceivedFn = useServerFn(markOrderReceived);
-  const [orders, setOrders] = useState<CustomerOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    listOrdersFn({ data: { whatsapp: customerWhatsapp } })
-      .then(setOrders)
-      .catch(() => toast.error("تعذر تحميل الطلبات"))
-      .finally(() => setLoading(false));
-  }, [listOrdersFn, customerWhatsapp]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const confirmReceived = async (orderId: string) => {
-    setConfirmingId(orderId);
-    try {
-      await markReceivedFn({ data: { whatsapp: customerWhatsapp, orderId } });
-      toast.success("تم تأكيد الاستلام ✅ شكراً إلك!");
-      load();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر التأكيد");
-    } finally {
-      setConfirmingId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
-        <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-        <p className="mt-3 text-sm">جاري تحميل طلباتك...</p>
-      </div>
-    );
-  }
-
-  if (orders.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center text-muted-foreground">
-        <Package className="mx-auto h-10 w-10" />
-        <p className="mt-3 text-sm">ما عندك طلبات بعد. دور على قطع سيارتك من «تسوق القطع».</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {orders.map((order) => {
-        const status = orderStatusLabel(order.status);
-        const received = order.status === "received_by_customer";
-        return (
-          <div
-            key={order.orderId}
-            className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft sm:flex-row sm:items-center sm:justify-between"
+        {mediatorPhone && (
+          <a
+            href={toWhatsAppLink(mediatorPhone)}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
-            <div className="min-w-0">
-              <h3 className="font-semibold">{order.productTitle}</h3>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {order.productPrice ? `${order.productPrice.toLocaleString()} ${order.currency} · ` : ""}
-                {new Date(order.createdAt).toLocaleDateString("ar-IQ")}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Badge
-                variant={status.variant === "destructive" ? "destructive" : "secondary"}
-                className={
-                  status.variant === "success"
-                    ? "border-success/30 bg-success/15 text-success"
-                    : status.variant === "primary"
-                      ? "border-primary/30 bg-primary/10 text-primary"
-                      : undefined
-                }
-              >
-                {status.text}
-              </Badge>
-              {!received && order.status !== "out_of_stock" && (
-                <Button
-                  size="sm"
-                  className="gap-2"
-                  disabled={confirmingId === order.orderId}
-                  onClick={() => confirmReceived(order.orderId)}
-                >
-                  {confirmingId === order.orderId ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "✅"
-                  )}
-                  تم الاستلام
-                </Button>
-              )}
-            </div>
-          </div>
-        );
-      })}
+            <MessageCircle className="h-4 w-4" />
+            استفسر عن المنتج
+          </a>
+        )}
+      </div>
     </div>
   );
 }
