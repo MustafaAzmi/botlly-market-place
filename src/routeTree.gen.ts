@@ -25,6 +25,7 @@ import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminDeliveryRouteImport } from './routes/admin/delivery'
+import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
 import { Route as AdminCurrenciesRouteImport } from './routes/admin/currencies'
 import { Route as AdminBroadcastsRouteImport } from './routes/admin/broadcasts'
 import { Route as AdminBotRouteImport } from './routes/admin/bot'
@@ -118,6 +119,11 @@ const AdminDeliveryRoute = AdminDeliveryRouteImport.update({
   path: '/admin/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCustomersRoute = AdminCustomersRouteImport.update({
+  id: '/admin/customers',
+  path: '/admin/customers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminCurrenciesRoute = AdminCurrenciesRouteImport.update({
   id: '/admin/currencies',
   path: '/admin/currencies',
@@ -188,6 +194,7 @@ export interface FileRoutesByFullPath {
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -218,6 +225,7 @@ export interface FileRoutesByTo {
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -248,6 +256,7 @@ export interface FileRoutesById {
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -280,6 +289,7 @@ export interface FileRouteTypes {
     | '/admin/bot'
     | '/admin/broadcasts'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
@@ -310,6 +320,7 @@ export interface FileRouteTypes {
     | '/admin/bot'
     | '/admin/broadcasts'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
@@ -339,6 +350,7 @@ export interface FileRouteTypes {
     | '/admin/bot'
     | '/admin/broadcasts'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
@@ -370,6 +382,7 @@ export interface RootRouteChildren {
   AdminBotRoute: typeof AdminBotRoute
   AdminBroadcastsRoute: typeof AdminBroadcastsRoute
   AdminCurrenciesRoute: typeof AdminCurrenciesRoute
+  AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDeliveryRoute: typeof AdminDeliveryRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
@@ -506,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/customers': {
+      id: '/admin/customers'
+      path: '/admin/customers'
+      fullPath: '/admin/customers'
+      preLoaderRoute: typeof AdminCustomersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/currencies': {
       id: '/admin/currencies'
       path: '/admin/currencies'
@@ -602,6 +622,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminBotRoute: AdminBotRoute,
   AdminBroadcastsRoute: AdminBroadcastsRoute,
   AdminCurrenciesRoute: AdminCurrenciesRoute,
+  AdminCustomersRoute: AdminCustomersRoute,
   AdminDeliveryRoute: AdminDeliveryRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminPackagesRoute: AdminPackagesRoute,

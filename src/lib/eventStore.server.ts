@@ -14,12 +14,14 @@ export type BotlyEventType =
   | "botly_product"
   | "botly_session"
   | "botly_lead"
+  | "botly_customer"
   | "botly_customer_session"
   | "botly_outbound_guard"
   | "botly_order"
   | "botly_admin"
   | "botly_admin_session"
   | "botly_admin_message"
+  | "botly_settings"
   | "botly_delivery_company";
 
 export type EventRow = {

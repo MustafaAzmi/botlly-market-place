@@ -42,12 +42,18 @@ export type MerchantProduct = {
   title: string;
   description: string;
   imageUrl: string;
+  // All product photos (first one == imageUrl). Older products have only one.
+  imageUrls: string[];
   currentPrice: number;
+  // "السعر النهائي" — the only price customers ever see.
   discountPrice?: number;
   currency: string;
   size?: string;
   color?: string;
   quantity?: number;
+  // Which car this part/accessory fits (from the fixed car catalogue).
+  carMake?: string;
+  carModel?: string;
   createdAt: string;
 };
 
@@ -88,31 +94,37 @@ const profileInput = tokenInput.extend({
   coverUrl: z.string().max(2_500_000).optional().or(z.literal("")),
 });
 
+// Either a normal http(s) link, or an inline base64 image (data:image/...)
+// produced by the dashboard's file-upload path (client-side compressed).
+const imageUrlSchema = z
+  .string()
+  .min(1, "رابط الصورة مطلوب")
+  .max(3_000_000)
+  .refine((value) => {
+    if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return true;
+    if (value.length > 2_000) return false;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "رابط الصورة غير صحيح");
+
 const productInput = tokenInput.extend({
   title: z.string().trim().min(1).max(140),
   description: z.string().trim().min(1).max(280),
-  // Either a normal http(s) link, or an inline base64 image (data:image/...)
-  // produced by the dashboard's file-upload path (client-side compressed).
-  imageUrl: z
-    .string()
-    .min(1, "رابط الصورة مطلوب")
-    .max(3_000_000)
-    .refine((value) => {
-      if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return true;
-      if (value.length > 2_000) return false;
-      try {
-        const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:";
-      } catch {
-        return false;
-      }
-    }, "رابط الصورة غير صحيح"),
+  imageUrl: imageUrlSchema,
+  // Additional photos beyond the primary one (up to 6 total).
+  imageUrls: z.array(imageUrlSchema).max(6).optional(),
   currentPrice: z.number().min(0).max(999_999_999),
   discountPrice: z.number().min(0).max(999_999_999).optional(),
   currency: z.string().trim().min(1).max(8),
   size: z.string().trim().max(80).optional().or(z.literal("")),
   color: z.string().trim().max(80).optional().or(z.literal("")),
   quantity: z.number().int().min(0).max(999_999).optional(),
+  carMake: z.string().trim().max(60).optional().or(z.literal("")),
+  carModel: z.string().trim().max(60).optional().or(z.literal("")),
 });
 
 let resolvedEventStore: EventStore | null = null;
@@ -223,17 +235,25 @@ function toProfile(row: EventRow): MerchantProfile {
 
 function toProduct(row: EventRow): MerchantProduct {
   const payload = row.payload ?? {};
+  const primaryImage = getString(payload.imageUrl);
+  const extraImages = Array.isArray(payload.imageUrls)
+    ? (payload.imageUrls as unknown[]).filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  const imageUrls = extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [];
   return {
     id: getString(payload.productId) || row.id,
     title: getString(payload.title) || getString(payload.description) || "منتج",
     description: getString(payload.description),
-    imageUrl: getString(payload.imageUrl),
+    imageUrl: primaryImage || imageUrls[0] || "",
+    imageUrls,
     currentPrice: getNumber(payload.currentPrice) ?? 0,
     discountPrice: getNumber(payload.discountPrice),
     currency: getString(payload.currency) || "IQD",
     size: getString(payload.size) || undefined,
     color: getString(payload.color) || undefined,
     quantity: getNumber(payload.quantity),
+    carMake: getString(payload.carMake) || undefined,
+    carModel: getString(payload.carModel) || undefined,
     createdAt: getString(payload.createdAt) || eventTime(row),
   };
 }
@@ -583,9 +603,21 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
     const merchant = await getAuthorizedMerchant(data.token);
     const now = new Date().toISOString();
     const keywords = buildManualProductKeywords(data);
-    const searchText = [data.title, data.description, data.color, data.size, ...keywords]
+    // Car make/model are part of the searchable text so WhatsApp queries like
+    // "لايت مرسيدس" match parts tagged through the dashboard dropdowns.
+    const searchText = [
+      data.title,
+      data.description,
+      data.color,
+      data.size,
+      data.carMake,
+      data.carModel,
+      ...keywords,
+    ]
       .filter(Boolean)
       .join(" ");
+
+    const imageUrls = data.imageUrls?.length ? data.imageUrls : [data.imageUrl];
 
     const row = await insertEvent(PRODUCT_PROVIDER, {
       productId: crypto.randomUUID(),
@@ -594,13 +626,16 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       platform: "manual",
       title: data.title,
       description: data.description,
-      imageUrl: data.imageUrl,
+      imageUrl: imageUrls[0],
+      imageUrls,
       currentPrice: data.currentPrice,
       discountPrice: data.discountPrice,
       currency: data.currency,
       size: data.size || "",
       color: data.color || "",
       quantity: data.quantity,
+      carMake: data.carMake || "",
+      carModel: data.carModel || "",
       keywords,
       searchText,
       status: "active",
@@ -643,27 +678,16 @@ const updateProductInput = tokenInput.extend({
   productId: z.string().min(1),
   title: z.string().trim().min(1).max(140).optional(),
   description: z.string().trim().min(1).max(280).optional(),
-  imageUrl: z
-    .string()
-    .min(1, "رابط الصورة مطلوب")
-    .max(3_000_000)
-    .refine((value) => {
-      if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return true;
-      if (value.length > 2_000) return false;
-      try {
-        const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:";
-      } catch {
-        return false;
-      }
-    }, "رابط الصورة غير صحيح")
-    .optional(),
+  imageUrl: imageUrlSchema.optional(),
+  imageUrls: z.array(imageUrlSchema).max(6).optional(),
   currentPrice: z.number().min(0).max(999_999_999).optional(),
   discountPrice: z.number().min(0).max(999_999_999).optional(),
   currency: z.string().trim().min(1).max(8).optional(),
   size: z.string().trim().max(80).optional().or(z.literal("")),
   color: z.string().trim().max(80).optional().or(z.literal("")),
   quantity: z.number().int().min(0).max(999_999).optional(),
+  carMake: z.string().trim().max(60).optional().or(z.literal("")),
+  carModel: z.string().trim().max(60).optional().or(z.literal("")),
 });
 
 export const updateMerchantProduct = createServerFn({ method: "POST" })
@@ -687,17 +711,30 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       color: data.color || getString(currentPayload.color),
     });
 
+    const carMake = data.carMake !== undefined ? data.carMake : getString(currentPayload.carMake);
+    const carModel = data.carModel !== undefined ? data.carModel : getString(currentPayload.carModel);
+
     const searchText = [
       data.title || getString(currentPayload.title),
       data.description || getString(currentPayload.description),
       data.color || getString(currentPayload.color),
       data.size || getString(currentPayload.size),
+      carMake,
+      carModel,
       ...keywords,
     ]
       .filter(Boolean)
       .join(" ");
 
     const quantity = data.quantity !== undefined ? data.quantity : getNumber(currentPayload.quantity);
+    const existingImages = Array.isArray(currentPayload.imageUrls)
+      ? (currentPayload.imageUrls as unknown[]).filter((v): v is string => typeof v === "string")
+      : [];
+    const imageUrls = data.imageUrls?.length
+      ? data.imageUrls
+      : existingImages.length > 0
+        ? existingImages
+        : [data.imageUrl || getString(currentPayload.imageUrl)].filter(Boolean);
 
     const payload = {
       ...currentPayload,
@@ -705,13 +742,16 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       merchantId,
       title: data.title || getString(currentPayload.title),
       description: data.description || getString(currentPayload.description),
-      imageUrl: data.imageUrl || getString(currentPayload.imageUrl),
+      imageUrl: imageUrls[0] || data.imageUrl || getString(currentPayload.imageUrl),
+      imageUrls,
       currentPrice: data.currentPrice ?? getNumber(currentPayload.currentPrice),
       discountPrice: data.discountPrice ?? getNumber(currentPayload.discountPrice),
       currency: data.currency || getString(currentPayload.currency),
       size: data.size !== undefined ? data.size : getString(currentPayload.size),
       color: data.color !== undefined ? data.color : getString(currentPayload.color),
       quantity,
+      carMake,
+      carModel,
       keywords,
       searchText,
       availability: quantity === 0 ? "out_of_stock" : "in_stock",

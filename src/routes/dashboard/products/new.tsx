@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Camera, ImagePlus, Images } from "lucide-react";
+import { ArrowLeft, Camera, ImagePlus, Images, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CAR_MAKES, CAR_COLORS, findMakeByLabel } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
 import { createMerchantProduct } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
@@ -25,26 +26,33 @@ export const Route = createFileRoute("/dashboard/products/new")({
   component: NewProductPage,
 });
 
+const MAX_IMAGES = 6;
+
 function NewProductPage() {
   const navigate = useNavigate();
   const createMerchantProductFn = useServerFn(createMerchantProduct);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
-  const [imagePreview, setImagePreview] = useState("");
+  // Multiple product photos: first one is the primary image.
+  const [images, setImages] = useState<string[]>([]);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
+  const [carMake, setCarMake] = useState("");
+  const [carModel, setCarModel] = useState("");
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
-  const [discountPrice, setDiscountPrice] = useState("");
+  const [finalPrice, setFinalPrice] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
+
+  const selectedMake = findMakeByLabel(carMake);
 
   // Resize + recompress the uploaded image to a small JPEG data URL. Raw
   // camera photos are megabytes; the server caps the stored image, and big
@@ -75,27 +83,37 @@ function NewProductPage() {
       reader.readAsDataURL(file);
     });
 
-  // Handle camera capture / gallery pick: compress then keep as data URL.
+  // Handle camera capture / gallery pick (multiple files supported).
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-picking the same file
+    if (files.length === 0) return;
 
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن لا يزيد على 8MB");
+    if (images.length + files.length > MAX_IMAGES) {
+      toast.error(`الحد الأقصى ${MAX_IMAGES} صور للمنتج`);
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("اختر صورة فقط");
-      return;
+    for (const file of files) {
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error("حجم الصورة يجب أن لا يزيد على 8MB");
+        continue;
+      }
+      if (!file.type.startsWith("image/")) {
+        toast.error("اختر صورة فقط");
+        continue;
+      }
+      try {
+        const dataUrl = await compressImageFile(file);
+        setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, dataUrl] : prev));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "تعذر معالجة الصورة");
+      }
     }
+  };
 
-    try {
-      const dataUrl = await compressImageFile(file);
-      setImagePreview(dataUrl);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر معالجة الصورة");
-    }
+  const removeImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -106,21 +124,20 @@ function NewProductPage() {
       return;
     }
 
-    if (!imagePreview) {
-      toast.error("أضف صورة المنتج: التقطها بالكاميرا أو اخترها من الاستديو");
+    if (images.length === 0) {
+      toast.error("أضف صورة واحدة على الأقل للمنتج");
       return;
     }
-    const finalImageUrl = imagePreview;
 
     const price = Number(currentPrice);
-    const salePrice = discountPrice.trim() ? Number(discountPrice) : undefined;
+    const customerPrice = finalPrice.trim() ? Number(finalPrice) : undefined;
     const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
     if (!title.trim() || !description.trim() || !Number.isFinite(price)) {
-      toast.error("اسم المنتج والوصف والسعر الحالي مطلوبة");
+      toast.error("اسم المنتج والوصف والسعر مطلوبة");
       return;
     }
-    if (salePrice !== undefined && !Number.isFinite(salePrice)) {
-      toast.error("سعر الخصم غير صحيح");
+    if (customerPrice !== undefined && !Number.isFinite(customerPrice)) {
+      toast.error("السعر النهائي غير صحيح");
       return;
     }
     if (availableQuantity !== undefined && !Number.isInteger(availableQuantity)) {
@@ -135,13 +152,16 @@ function NewProductPage() {
           token: merchantSession.token,
           title: title.trim(),
           description: description.trim(),
-          imageUrl: finalImageUrl,
+          imageUrl: images[0],
+          imageUrls: images,
           currentPrice: price,
-          discountPrice: salePrice,
+          discountPrice: customerPrice,
           currency,
           size: size.trim(),
           color: color.trim(),
           quantity: availableQuantity,
+          carMake: carMake.trim(),
+          carModel: carModel.trim(),
         },
       });
       toast.success("تم حفظ المنتج");
@@ -156,7 +176,7 @@ function NewProductPage() {
   return (
     <DashboardLayout
       title="إضافة منتج"
-      subtitle="أضف اسم المنتج والسعر والوصف، والتقط صورة المنتج بالكاميرا أو اخترها من الاستديو."
+      subtitle="أضف اسم القطعة والسعر والوصف وحدد السيارة المناسبة، وأضف حتى 6 صور."
     >
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
@@ -170,7 +190,9 @@ function NewProductPage() {
       <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
-            <Label className="text-sm font-medium">صورة المنتج</Label>
+            <Label className="text-sm font-medium">
+              صور المنتج ({images.length}/{MAX_IMAGES})
+            </Label>
             {/* Hidden inputs: capture="environment" opens the camera directly
                 on mobile; the plain one opens the photo gallery / file picker. */}
             <input
@@ -185,6 +207,7 @@ function NewProductPage() {
               ref={galleryInputRef}
               type="file"
               accept="image/*"
+              multiple
               onChange={handleImageFileChange}
               className="hidden"
             />
@@ -193,6 +216,7 @@ function NewProductPage() {
                 type="button"
                 variant="outline"
                 className="h-12 gap-2"
+                disabled={images.length >= MAX_IMAGES}
                 onClick={() => cameraInputRef.current?.click()}
               >
                 <Camera className="h-5 w-5" />
@@ -202,6 +226,7 @@ function NewProductPage() {
                 type="button"
                 variant="outline"
                 className="h-12 gap-2"
+                disabled={images.length >= MAX_IMAGES}
                 onClick={() => galleryInputRef.current?.click()}
               >
                 <Images className="h-5 w-5" />
@@ -209,23 +234,43 @@ function NewProductPage() {
               </Button>
             </div>
 
-            <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-              {imagePreview ? (
-                <img
-                  src={imagePreview}
-                  alt="Product preview"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
+            {images.length === 0 ? (
+              <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
                 <div className="flex h-full items-center justify-center text-center text-muted-foreground">
                   <span>
                     <ImagePlus className="mx-auto h-8 w-8 text-primary" />
-                    <span className="mt-3 block text-sm font-medium">معاينة الصورة</span>
-                    <span className="mt-1 block text-xs">التقط صورة أو اختر من الاستديو</span>
+                    <span className="mt-3 block text-sm font-medium">معاينة الصور</span>
+                    <span className="mt-1 block text-xs">
+                      التقط صورة أو اختر من الاستديو — حتى {MAX_IMAGES} صور
+                    </span>
                   </span>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                {images.map((img, index) => (
+                  <div
+                    key={index}
+                    className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-secondary"
+                  >
+                    <img src={img} alt={`صورة ${index + 1}`} className="h-full w-full object-cover" />
+                    {index === 0 && (
+                      <span className="absolute bottom-1 start-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                        الرئيسية
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className="absolute end-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-90 transition hover:bg-destructive"
+                      aria-label="حذف الصورة"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
@@ -234,7 +279,7 @@ function NewProductPage() {
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="مثال: تيشيرت قطن أسود"
+                placeholder="مثال: لايت أمامي مرسيدس E-Class"
                 className="h-11"
                 maxLength={140}
                 required
@@ -247,28 +292,71 @@ function NewProductPage() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
-                placeholder="مثال: تيشيرت قطن مريح، مناسب للاستخدام اليومي"
+                placeholder="مثال: لايت أمامي أصلي، حالة ممتازة، يناسب موديلات 2016-2020"
                 maxLength={280}
                 required
               />
             </Field>
 
+            {/* Which car does this part fit? Drives the customer filters. */}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field id="size" label="المقاس (اختياري)">
+              <Field id="carMake" label="نوع السيارة">
+                <Select
+                  value={carMake}
+                  onValueChange={(value) => {
+                    setCarMake(value);
+                    setCarModel("");
+                  }}
+                >
+                  <SelectTrigger id="carMake" className="h-11">
+                    <SelectValue placeholder="اختر نوع السيارة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CAR_MAKES.map((make) => (
+                      <SelectItem key={make.key} value={make.label}>
+                        {make.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id="carModel" label="الموديل">
+                <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
+                  <SelectTrigger id="carModel" className="h-11">
+                    <SelectValue placeholder={selectedMake ? "اختر الموديل" : "اختر النوع أولاً"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(selectedMake?.models ?? []).map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field id="color" label="اللون (اختياري)">
+                <Select value={color} onValueChange={setColor}>
+                  <SelectTrigger id="color" className="h-11">
+                    <SelectValue placeholder="اختر اللون" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CAR_COLORS.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id="size" label="المقاس / القياس (اختياري)">
                 <Input
                   id="size"
                   value={size}
                   onChange={(e) => setSize(e.target.value)}
-                  placeholder="S / M / L أو 42"
-                  className="h-11"
-                />
-              </Field>
-              <Field id="color" label="اللون (اختياري)">
-                <Input
-                  id="color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  placeholder="أسود، أبيض..."
+                  placeholder="مثال: 18 إنج"
                   className="h-11"
                 />
               </Field>
@@ -304,17 +392,20 @@ function NewProductPage() {
                 required
               />
             </Field>
-            <Field id="discountPrice" label="السعر بعد الخصم (اختياري)">
+            <Field id="finalPrice" label="السعر النهائي (يظهر للزبون)">
               <Input
-                id="discountPrice"
-                value={discountPrice}
-                onChange={(e) => setDiscountPrice(e.target.value)}
+                id="finalPrice"
+                value={finalPrice}
+                onChange={(e) => setFinalPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"
               />
+              <p className="text-xs text-muted-foreground">
+                هذا هو السعر الوحيد الذي يشاهده الزبون. إذا تركته فارغاً يظهر السعر الحالي.
+              </p>
             </Field>
             <Field id="currency" label="العملة">
               <Select value={currency} onValueChange={setCurrency}>

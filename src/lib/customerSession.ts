@@ -1,5 +1,9 @@
 // Client-side customer session state (localStorage).
 // Similar to merchantSession, but for WhatsApp-first customers.
+//
+// Sessions are PERMANENT: the customer registers once and stays logged in on
+// this device until they explicitly log out. The profile itself lives in the
+// database (botly_customer events) keyed by WhatsApp number.
 
 import type { CustomerProfile } from "@/lib/customer.functions";
 
@@ -8,12 +12,10 @@ const SESSION_KEY = "botly_customer_session";
 export interface CustomerSessionData {
   customer: CustomerProfile;
   token: string;
-  expiresAt: number; // Timestamp when session expires (7 days)
 }
 
 export function writeCustomerSession(customer: CustomerProfile, token: string) {
-  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-  const session: CustomerSessionData = { customer, token, expiresAt };
+  const session: CustomerSessionData = { customer, token };
   if (typeof window !== "undefined") {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   }
@@ -25,10 +27,7 @@ export function readCustomerSession(): CustomerSessionData | null {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const session = JSON.parse(raw) as CustomerSessionData;
-    if (Date.now() > session.expiresAt) {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
+    if (!session?.customer?.whatsapp) return null;
     return session;
   } catch {
     return null;

@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, Store, Package, Truck, Send, LogOut, ShieldCheck, Bot, Coins } from "lucide-react";
+import { LayoutDashboard, Store, Package, Truck, Send, LogOut, ShieldCheck, Bot, Coins, Users } from "lucide-react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { ADMIN_SESSION_KEY } from "@/lib/adminMockData";
 const items = [
   { to: "/admin", icon: LayoutDashboard, label: "نظرة عامة" },
   { to: "/admin/stores", icon: Store, label: "المتاجر" },
+  { to: "/admin/customers", icon: Users, label: "الزبائن" },
   { to: "/admin/packages", icon: Package, label: "باقات الدفع" },
   { to: "/admin/currencies", icon: Coins, label: "العملات" },
   { to: "/admin/delivery", icon: Truck, label: "شركات التوصيل" },
