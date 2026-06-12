@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Package, Store, ShoppingBag, Workflow, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, Store, ShoppingBag, LogOut } from "lucide-react";
 import { useEffect } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -12,7 +12,6 @@ const items = [
   { to: "/dashboard/products", icon: Package, key: "nav.products" as const },
   { to: "/dashboard/orders", icon: ShoppingBag, key: "nav.orders" as const },
   { to: "/dashboard/store", icon: Store, key: "nav.store" as const },
-  { to: "/dashboard/workflow", icon: Workflow, key: "nav.workflowPage" as const },
 ];
 
 export function DashboardLayout({

@@ -746,9 +746,11 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
         ? existingImages
         : [data.imageUrl || getString(currentPayload.imageUrl)].filter(Boolean);
 
+    const productId = getString(currentPayload.productId) || data.productId;
+
     const payload = {
       ...currentPayload,
-      productId: getString(currentPayload.productId) || data.productId,
+      productId,
       merchantId,
       title: data.title || getString(currentPayload.title),
       description: data.description || getString(currentPayload.description),
@@ -769,6 +771,24 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       createdAt: getString(currentPayload.createdAt) || eventTime(row),
       updatedAt: new Date().toISOString(),
     };
+
+    // Delete all old events for this product before inserting the new one
+    const store = await getEventStore();
+    if (store === "broadcasts") {
+      await supabaseAdmin
+        .from("broadcasts")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", PRODUCT_PROVIDER)
+        .eq("payload->>productId" as never, productId);
+    } else {
+      await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", PRODUCT_PROVIDER)
+        .eq("payload->>productId" as never, productId);
+    }
 
     const updated = await insertEvent(PRODUCT_PROVIDER, payload);
     return toProduct(updated);
