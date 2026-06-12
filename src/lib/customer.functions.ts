@@ -21,6 +21,7 @@ import {
   phoneKey,
   type EventRow,
 } from "@/lib/eventStore.server";
+import { filterByEnabledConfig, type CarMake } from "@/lib/car-data";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -47,6 +48,7 @@ export type CustomerProduct = {
   size?: string;
   carMake?: string;
   carModel?: string;
+  carYear?: string;
   quantity?: number;
 };
 
@@ -148,8 +150,24 @@ export const updateCustomerProfile = createServerFn({ method: "POST" })
 const browseInput = z.object({
   carMake: z.string().trim().max(60).optional().or(z.literal("")),
   carModel: z.string().trim().max(60).optional().or(z.literal("")),
+  carYear: z.string().trim().max(10).optional().or(z.literal("")),
   color: z.string().trim().max(60).optional().or(z.literal("")),
 });
+
+// Does this product fit the requested manufacture year?
+// - carYear field set → must match exactly.
+// - No carYear but the title/description mention a year (older products like
+//   "لايت كورولا موديل 2016") → that year must match.
+// - No year info at all → universal part, fits every year.
+function matchesYear(payload: Record<string, unknown>, wantYear: string): boolean {
+  if (!wantYear) return true;
+  const carYear = getString(payload.carYear);
+  if (carYear) return carYear === wantYear;
+  const text = `${getString(payload.title)} ${getString(payload.description)}`;
+  const mentionedYears = text.match(/\b(19|20)\d{2}\b/g);
+  if (mentionedYears && mentionedYears.length > 0) return mentionedYears.includes(wantYear);
+  return true;
+}
 
 // Merchants hidden from customers (banned / suspended / expired) — same rules
 // as the WhatsApp search path.
@@ -191,6 +209,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
 
     const wantMake = (data.carMake ?? "").trim();
     const wantModel = (data.carModel ?? "").trim();
+    const wantYear = (data.carYear ?? "").trim();
     const wantColor = (data.color ?? "").trim();
 
     const results: CustomerProduct[] = [];
@@ -219,6 +238,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       )
         continue;
       if (wantColor && wantColor !== "أخرى" && !color.includes(wantColor)) continue;
+      if (!matchesYear(p, wantYear)) continue;
 
       const primaryImage = getString(p.imageUrl);
       const extraImages = Array.isArray(p.imageUrls)
@@ -238,6 +258,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         size: getString(p.size) || undefined,
         carMake: carMake || undefined,
         carModel: carModel || undefined,
+        carYear: getString(p.carYear) || undefined,
         quantity: getNumber(p.quantity),
       });
     }
@@ -257,4 +278,45 @@ export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async
   }
   return { phone: "" };
 });
+
+// Customer-facing car catalogue: only enabled items show in dropdowns.
+export type CustomerCarCatalogue = {
+  makes: CarMake[];
+  colors: string[];
+  years: string[];
+};
+
+export const getEnabledCarCatalogue = createServerFn({ method: "POST" }).handler(
+  async (): Promise<CustomerCarCatalogue> => {
+    const configRows = await listEvents("botly_catalogue_config").catch(
+      () => [] as EventRow[],
+    );
+
+    if (configRows.length === 0) {
+      return { makes: [], colors: [], years: [] };
+    }
+
+    const latest = configRows[configRows.length - 1];
+    const p = latest.payload ?? {};
+    const config = {
+      enabledMakes: Array.isArray(p.enabledMakes)
+        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      modelsByMake:
+        typeof p.modelsByMake === "object" && p.modelsByMake !== null
+          ? (p.modelsByMake as Record<string, unknown>)
+          : {},
+      enabledColors: Array.isArray(p.enabledColors)
+        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      enabledYears: Array.isArray(p.enabledYears)
+        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+    };
+
+    // Filter the hardcoded car data by what's enabled
+    const filtered = filterByEnabledConfig(config);
+    return filtered;
+  },
+);
 

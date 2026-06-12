@@ -170,6 +170,46 @@ export const CAR_COLORS = [
   "أخرى",
 ];
 
+// Manufacture years for the year filter/selector, newest first.
+export const ALL_YEARS = "كل السنوات";
+export const CAR_YEARS: string[] = (() => {
+  const current = new Date().getFullYear() + 1;
+  const years: string[] = [];
+  for (let y = current; y >= 1990; y--) years.push(String(y));
+  return years;
+})();
+
 export function findMakeByLabel(label: string): CarMake | undefined {
   return CAR_MAKES.find((make) => make.label === label || make.key === label);
+}
+
+// Filters cars by admin-enabled configuration. Returns only enabled makes with
+// only enabled models, and only enabled colors/years.
+export function filterByEnabledConfig(config: {
+  enabledMakes: string[];
+  modelsByMake: Record<string, string[]>;
+  enabledColors: string[];
+  enabledYears: string[];
+}): {
+  makes: CarMake[];
+  colors: string[];
+  years: string[];
+} {
+  const enabledMakeSet = new Set(config.enabledMakes);
+  const colorSet = new Set(config.enabledColors);
+  const yearSet = new Set(config.enabledYears);
+
+  const makes = CAR_MAKES.filter((make) => enabledMakeSet.has(make.key)).map((make) => ({
+    ...make,
+    models: make.models.filter((m) => {
+      const enabled = config.modelsByMake[make.key];
+      return enabled && enabled.includes(m);
+    }),
+  }));
+
+  return {
+    makes,
+    colors: CAR_COLORS.filter((c) => colorSet.has(c)),
+    years: CAR_YEARS.filter((y) => yearSet.has(y)),
+  };
 }

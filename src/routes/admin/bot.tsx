@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
@@ -7,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bot } from "lucide-react";
+import { Bot, Phone, Save } from "lucide-react";
+import { getPlatformSettings, setMediatorPhone } from "@/lib/admin.functions";
+import { readAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 
 export const Route = createFileRoute("/admin/bot")({
@@ -21,6 +24,32 @@ export const Route = createFileRoute("/admin/bot")({
 function AdminBotPage() {
   const t = useT();
   const [active, setActive] = useState(true);
+  const session = readAdminSession();
+  const getSettingsFn = useServerFn(getPlatformSettings);
+  const setMediatorFn = useServerFn(setMediatorPhone);
+  const [mediator, setMediator] = useState("");
+  const [savingMediator, setSavingMediator] = useState(false);
+
+  useEffect(() => {
+    if (!session?.token) return;
+    getSettingsFn({ data: { token: session.token } })
+      .then((settings) => setMediator(settings.mediatorPhone))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveMediator = async () => {
+    if (!session?.token) return;
+    setSavingMediator(true);
+    try {
+      await setMediatorFn({ data: { token: session.token, mediatorPhone: mediator.trim() } });
+      toast.success("تم حفظ رقم الوسيط ✅");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "فشل الحفظ");
+    } finally {
+      setSavingMediator(false);
+    }
+  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +59,31 @@ function AdminBotPage() {
 
   return (
     <AdminLayout title="إعدادات البوت العامة" subtitle="هذه الإعدادات تُطبَّق على جميع المتاجر المسجَّلة في المنصة.">
+      {/* Mediator phone: shown to every customer as the only way to order */}
+      <div className="mb-6 rounded-2xl border border-primary/30 bg-primary-soft/40 p-6 shadow-soft">
+        <div className="flex items-center gap-2 font-semibold">
+          <Phone className="h-4 w-4 text-primary" />
+          رقم الوسيط (واتساب)
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          كل طلبات واستفسارات الزبائن توصل على هذا الرقم — يظهر للزبون بزر «التواصل مع الوسيط»
+          وزر «استفسر عن المنتج» على كل قطعة. بدون رقم محفوظ هنا الأزرار ما تظهر.
+        </p>
+        <div className="mt-3 flex max-w-md gap-2">
+          <Input
+            dir="ltr"
+            placeholder="07XX XXX XXXX"
+            value={mediator}
+            onChange={(e) => setMediator(e.target.value)}
+            className="h-11"
+          />
+          <Button onClick={saveMediator} disabled={savingMediator} className="gap-2">
+            <Save className="h-4 w-4" />
+            {savingMediator ? "جاري..." : "حفظ"}
+          </Button>
+        </div>
+      </div>
+
       <form onSubmit={onSubmit} className="space-y-6">
         <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-6 shadow-soft">
           <div className="flex items-center gap-4">

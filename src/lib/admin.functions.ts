@@ -576,6 +576,65 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
+// Car catalogue configuration (admin-managed, visible to customers only if
+// checked/enabled in this configuration)
+// ---------------------------------------------------------------------------
+
+export interface CarCatalogueConfig {
+  enabledMakes: string[]; // Car make keys (e.g., "toyota", "bmw")
+  modelsByMake: Record<string, string[]>; // Models per make
+  enabledColors: string[]; // Arabic color names
+  enabledYears: string[]; // Years as strings
+}
+
+const catalogInput = tokenInput.extend({
+  config: z.object({
+    enabledMakes: z.array(z.string()),
+    modelsByMake: z.record(z.array(z.string())),
+    enabledColors: z.array(z.string()),
+    enabledYears: z.array(z.string()),
+  }),
+});
+
+export const getCarCatalogueConfig = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<CarCatalogueConfig> => {
+    await authorizeAdmin(data.token);
+    const rows = await listEvents("botly_catalogue_config");
+    if (rows.length === 0) {
+      return { enabledMakes: [], modelsByMake: {}, enabledColors: [], enabledYears: [] };
+    }
+    const latest = rows[rows.length - 1];
+    const p = latest.payload ?? {};
+    return {
+      enabledMakes: Array.isArray(p.enabledMakes)
+        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      modelsByMake:
+        typeof p.modelsByMake === "object" && p.modelsByMake !== null
+          ? (p.modelsByMake as Record<string, unknown>)
+          : {},
+      enabledColors: Array.isArray(p.enabledColors)
+        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      enabledYears: Array.isArray(p.enabledYears)
+        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+    };
+  });
+
+export const saveCarCatalogueConfig = createServerFn({ method: "POST" })
+  .inputValidator((d) => catalogInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    await appendEvent("botly_catalogue_config", {
+      ...data.config,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  });
+
+// ---------------------------------------------------------------------------
 // Maintenance: purge ALL products (old demo data cleanup)
 // ---------------------------------------------------------------------------
 

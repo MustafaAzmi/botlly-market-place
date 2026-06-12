@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, ImagePlus, Loader2, MapPin, Store, Truck } from "lucide-react";
+import { ExternalLink, ImagePlus, Loader2, MapPin, Store } from "lucide-react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -9,17 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  listActiveDeliveryCompanies,
-  type DeliveryCompanyRecord,
-} from "@/lib/delivery.functions";
 import { getCurrentMerchant, updateMerchantProfile } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
 
@@ -32,7 +21,6 @@ function StoreProfilePage() {
   const navigate = useNavigate();
   const getCurrentMerchantFn = useServerFn(getCurrentMerchant);
   const updateMerchantProfileFn = useServerFn(updateMerchantProfile);
-  const listDeliveryCompaniesFn = useServerFn(listActiveDeliveryCompanies);
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [bio, setBio] = useState("");
@@ -41,9 +29,6 @@ function StoreProfilePage() {
   const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
   const [storeSlug, setStoreSlug] = useState("");
-  // Platform delivery companies registered by the admin (/admin/delivery) —
-  // merchants without their own courier pick one from the dropdown.
-  const [deliveryCompanies, setDeliveryCompanies] = useState<DeliveryCompanyRecord[]>([]);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,15 +62,6 @@ function StoreProfilePage() {
     setDeliveryPhone(merchantSession.deliveryPhone ?? "");
     setStoreSlug(merchantSession.storeSlug ?? "");
 
-    // Load the admin-registered delivery companies for the dropdown
-    // (best-effort: the manual phone field still works if this fails).
-    // Always fetch fresh — caching here made newly admin-added companies
-    // invisible to merchants for up to an hour (stale/empty cached lists).
-    localStorage.removeItem("botly.delivery_companies");
-    listDeliveryCompaniesFn({ data: { token: merchantSession.token } })
-      .then(setDeliveryCompanies)
-      .catch(() => setDeliveryCompanies([]));
-
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
       .then((profile) => {
         setStoreName(profile.storeName);
@@ -116,7 +92,7 @@ function StoreProfilePage() {
         navigate({ to: "/auth" });
       })
       .finally(() => setLoading(false));
-  }, [getCurrentMerchantFn, listDeliveryCompaniesFn, navigate]);
+  }, [getCurrentMerchantFn, navigate]);
 
   const pickImage = (file: File | undefined, setter: (value: string) => void) => {
     if (!file) return;
@@ -386,65 +362,9 @@ function StoreProfilePage() {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
-              <div className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-primary" />
-                <h2 className="font-semibold">شركة التوصيل</h2>
-              </div>
-              <Field id="deliveryPhone" label="رقم واتساب شركة التوصيل (اختياري)">
-                <Input
-                  id="deliveryPhone"
-                  value={deliveryPhone}
-                  onChange={(e) => setDeliveryPhone(e.target.value)}
-                  placeholder="07XX XXX XXXX"
-                  dir="ltr"
-                  className="h-11 text-start"
-                />
-              </Field>
-              <p className="text-sm leading-6 text-muted-foreground">
-                هذا الرقم يستخدم لاحقاً لإشعار شركة التوصيل بالطلبات الجديدة.
-              </p>
-
-              {deliveryCompanies.length > 0 && (
-                <div className="space-y-2 border-t border-border pt-4">
-                  <Label className="text-sm font-medium">
-                    ما عندك شركة توصيل؟ اختر شركة من المنصة
-                  </Label>
-                  <Select
-                    value={
-                      deliveryCompanies.find((c) => c.phone === deliveryPhone.trim())?.id ?? ""
-                    }
-                    onValueChange={(companyId) => {
-                      const company = deliveryCompanies.find((c) => c.id === companyId);
-                      if (company) setDeliveryPhone(company.phone);
-                    }}
-                  >
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="اختر شركة توصيل..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {deliveryCompanies.map((company) => (
-                        <SelectItem key={company.id} value={company.id}>
-                          <span className="flex flex-col items-start">
-                            <span>{company.name}</span>
-                            <span className="text-xs text-muted-foreground" dir="ltr">
-                              {company.phone}
-                              {company.cities.length > 0
-                                ? ` — ${company.cities.slice(0, 3).join("، ")}`
-                                : ""}
-                            </span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    عند الاختيار ينحفظ رقم الشركة تلقائياً بالحقل أعلاه، وتوصلها إشعارات طلباتك
-                    مباشرة.
-                  </p>
-                </div>
-              )}
-            </div>
+            {/* Delivery company section hidden from merchants for now —
+                delivery companies are managed by the admin (/admin/delivery).
+                The saved deliveryPhone value is preserved through profile saves. */}
           </section>
 
           <div className="flex justify-end">

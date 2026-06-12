@@ -28,10 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CAR_MAKES, CAR_COLORS, findMakeByLabel } from "@/lib/car-data";
+import { ALL_YEARS, CAR_YEARS, findMakeByLabel, type CarMake } from "@/lib/car-data";
 import {
   browseCarProducts,
   getMediatorPhone,
+  getEnabledCarCatalogue,
   updateCustomerProfile,
   type CustomerProduct,
 } from "@/lib/customer.functions";
@@ -149,21 +150,37 @@ function CustomerDashboard() {
 
 function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string; mediatorPhone: string }) {
   const browseFn = useServerFn(browseCarProducts);
+  const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [carMake, setCarMake] = useState("");
   const [carModel, setCarModel] = useState("");
+  const [carYear, setCarYear] = useState("");
   const [color, setColor] = useState("");
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [makes, setMakes] = useState<CarMake[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [years, setYears] = useState<string[]>([]);
 
-  const selectedMake = findMakeByLabel(carMake);
+  useEffect(() => {
+    getCatalogFn({})
+      .then((catalog) => {
+        setMakes(catalog.makes);
+        setColors(catalog.colors);
+        setYears(catalog.years);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
   const search = useCallback(async () => {
     setLoading(true);
     setSearched(true);
     try {
       const results = await browseFn({
-        data: { carMake, carModel, color },
+        data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color },
       });
       setProducts(results);
     } catch (error) {
@@ -171,7 +188,7 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
     } finally {
       setLoading(false);
     }
-  }, [browseFn, carMake, carModel, color]);
+  }, [browseFn, carMake, carModel, carYear, color]);
 
   return (
     <div className="space-y-6">
@@ -181,7 +198,7 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
           <Car className="h-5 w-5 text-primary" />
           دور على قطع سيارتك
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-2">
             <Label>نوع السيارة</Label>
             <Select
@@ -195,7 +212,7 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
                 <SelectValue placeholder="اختر النوع" />
               </SelectTrigger>
               <SelectContent>
-                {CAR_MAKES.map((make) => (
+                {makes.map((make) => (
                   <SelectItem key={make.key} value={make.label}>
                     {make.label}
                   </SelectItem>
@@ -225,9 +242,25 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
                 <SelectValue placeholder="كل الألوان" />
               </SelectTrigger>
               <SelectContent>
-                {CAR_COLORS.map((c) => (
+                {colors.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>سنة الصنع (الموديل)</Label>
+            <Select value={carYear} onValueChange={setCarYear}>
+              <SelectTrigger className="h-11">
+                <SelectValue placeholder={ALL_YEARS} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_YEARS}>{ALL_YEARS}</SelectItem>
+                {years.map((y) => (
+                  <SelectItem key={y} value={y}>
+                    {y}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -283,7 +316,13 @@ function ProductCard({
 }) {
   const [imageIndex, setImageIndex] = useState(0);
   const images = product.imageUrls;
-  const specs = [product.carMake, product.carModel, product.color, product.size].filter(Boolean);
+  const specs = [
+    product.carMake,
+    product.carModel,
+    product.carYear ? `موديل ${product.carYear}` : undefined,
+    product.color,
+    product.size,
+  ].filter(Boolean);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">

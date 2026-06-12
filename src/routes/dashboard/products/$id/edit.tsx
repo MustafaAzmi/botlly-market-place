@@ -16,9 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CAR_MAKES, CAR_COLORS, findMakeByLabel } from "@/lib/car-data";
+import { ALL_YEARS, findMakeByLabel, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
-import { getMerchantProduct, updateMerchantProduct } from "@/lib/merchant.functions";
+import { getMerchantProduct, updateMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/$id/edit")({
@@ -33,6 +33,7 @@ function EditProductPage() {
   const navigate = useNavigate();
   const getMerchantProductFn = useServerFn(getMerchantProduct);
   const updateMerchantProductFn = useServerFn(updateMerchantProduct);
+  const getCatalogFn = useServerFn(getEnabledCarCatalogueForMerchant);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   // All product photos (saved + newly added). First one is the primary image.
@@ -48,14 +49,31 @@ function EditProductPage() {
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
   const [finalPrice, setFinalPrice] = useState("");
+  const [carYear, setCarYear] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [makes, setMakes] = useState<CarMake[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [years, setYears] = useState<string[]>([]);
 
   useEffect(() => {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
   }, [currencies, currency]);
 
-  const selectedMake = findMakeByLabel(carMake);
+  useEffect(() => {
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) return;
+    getCatalogFn({ data: { token: merchantSession.token } })
+      .then((catalog) => {
+        setMakes(catalog.makes);
+        setColors(catalog.colors);
+        setYears(catalog.years);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getCatalogFn]);
+
+  const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -76,6 +94,7 @@ function EditProductPage() {
         setColor(product.color || "");
         setCarMake(product.carMake || "");
         setCarModel(product.carModel || "");
+        setCarYear(product.carYear || "");
         setQuantity(product.quantity ? String(product.quantity) : "");
       })
       .catch((error) => {
@@ -347,7 +366,7 @@ function EditProductPage() {
                     <SelectValue placeholder="اختر نوع السيارة" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CAR_MAKES.map((make) => (
+                    {makes.map((make) => (
                       <SelectItem key={make.key} value={make.label}>
                         {make.label}
                       </SelectItem>
@@ -369,6 +388,21 @@ function EditProductPage() {
                   </SelectContent>
                 </Select>
               </Field>
+              <Field id="carYear" label="سنة الصنع (اختياري)">
+                <Select value={carYear} onValueChange={setCarYear}>
+                  <SelectTrigger id="carYear" className="h-11">
+                    <SelectValue placeholder={ALL_YEARS} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_YEARS}>{ALL_YEARS}</SelectItem>
+                    {years.map((y) => (
+                      <SelectItem key={y} value={y}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -378,7 +412,7 @@ function EditProductPage() {
                     <SelectValue placeholder="اختر اللون" />
                   </SelectTrigger>
                   <SelectContent>
-                    {CAR_COLORS.map((c) => (
+                    {colors.map((c) => (
                       <SelectItem key={c} value={c}>
                         {c}
                       </SelectItem>

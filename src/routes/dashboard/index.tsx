@@ -8,21 +8,15 @@ import {
   Search,
   ShoppingBag,
   TrendingUp,
-  Truck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useT } from "@/i18n/LanguageProvider";
-import {
-  getMerchantDashboard,
-  updateMerchantProfile,
-  type MerchantDashboard,
-} from "@/lib/merchant.functions";
+import { getMerchantDashboard, type MerchantDashboard } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/")({
@@ -34,9 +28,7 @@ function DashboardHome() {
   const t = useT();
   const navigate = useNavigate();
   const getMerchantDashboardFn = useServerFn(getMerchantDashboard);
-  const updateMerchantProfileFn = useServerFn(updateMerchantProfile);
   const [dashboard, setDashboard] = useState<MerchantDashboard | null>(null);
-  const [deliveryWhatsapp, setDeliveryWhatsapp] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -49,7 +41,6 @@ function DashboardHome() {
     getMerchantDashboardFn({ data: { token: merchantSession.token } })
       .then((nextDashboard) => {
         setDashboard(nextDashboard);
-        setDeliveryWhatsapp(nextDashboard.profile.deliveryPhone ?? "");
         writeMerchantSession({
           merchantId: nextDashboard.profile.id,
           storeName: nextDashboard.profile.storeName,
@@ -65,33 +56,6 @@ function DashboardHome() {
       })
       .finally(() => setLoading(false));
   }, [getMerchantDashboardFn, navigate]);
-
-  const saveDeliveryWhatsapp = async () => {
-    const merchantSession = readMerchantSession();
-    if (!merchantSession?.token || !dashboard) {
-      navigate({ to: "/auth" });
-      return;
-    }
-
-    try {
-      const profile = await updateMerchantProfileFn({
-        data: {
-          token: merchantSession.token,
-          storeName: dashboard.profile.storeName,
-          whatsapp: dashboard.profile.whatsapp,
-          bio: dashboard.profile.bio ?? "",
-          deliveryPhone: deliveryWhatsapp.trim(),
-          logoUrl: dashboard.profile.logoUrl ?? "",
-          coverUrl: dashboard.profile.coverUrl ?? "",
-        },
-      });
-      setDashboard({ ...dashboard, profile });
-      writeMerchantSession({ deliveryPhone: profile.deliveryPhone });
-      toast.success("تم حفظ رقم واتساب شركة التوصيل");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر حفظ رقم التوصيل");
-    }
-  };
 
   const stats = dashboard?.stats ?? { products: 0, searches: 0, orders: 0, completion: 0 };
   const recentProducts = dashboard?.products.slice(0, 4) ?? [];
@@ -158,28 +122,8 @@ function DashboardHome() {
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-                <div className="mb-3 flex items-center gap-2">
-                  <Truck className="h-5 w-5 text-primary" />
-                  <div className="font-semibold">واتساب شركة التوصيل</div>
-                </div>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  اختياري، ويستخدم لاحقاً لإرسال الطلبات لشركة التوصيل.
-                </p>
-                <div className="space-y-3">
-                  <Input
-                    value={deliveryWhatsapp}
-                    onChange={(e) => setDeliveryWhatsapp(e.target.value)}
-                    placeholder="07XX XXX XXXX"
-                    dir="ltr"
-                    className="h-11 text-start"
-                  />
-                  <Button type="button" className="w-full" onClick={saveDeliveryWhatsapp}>
-                    ربط رقم التوصيل
-                  </Button>
-                </div>
-              </div>
-
+              {/* Delivery company linking hidden from merchants for now —
+                  delivery companies are managed by the admin (/admin/delivery). */}
               <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
                 <div className="mb-3 flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />

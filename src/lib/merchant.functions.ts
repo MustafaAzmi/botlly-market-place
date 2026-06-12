@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { filterByEnabledConfig, type CarMake } from "@/lib/car-data";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
@@ -54,6 +55,8 @@ export type MerchantProduct = {
   // Which car this part/accessory fits (from the fixed car catalogue).
   carMake?: string;
   carModel?: string;
+  // Manufacture year the part fits (e.g. "2016"). Empty = fits all years.
+  carYear?: string;
   createdAt: string;
 };
 
@@ -125,6 +128,7 @@ const productInput = tokenInput.extend({
   quantity: z.number().int().min(0).max(999_999).optional(),
   carMake: z.string().trim().max(60).optional().or(z.literal("")),
   carModel: z.string().trim().max(60).optional().or(z.literal("")),
+  carYear: z.string().trim().max(10).optional().or(z.literal("")),
 });
 
 let resolvedEventStore: EventStore | null = null;
@@ -254,6 +258,7 @@ function toProduct(row: EventRow): MerchantProduct {
     quantity: getNumber(payload.quantity),
     carMake: getString(payload.carMake) || undefined,
     carModel: getString(payload.carModel) || undefined,
+    carYear: getString(payload.carYear) || undefined,
     createdAt: getString(payload.createdAt) || eventTime(row),
   };
 }
@@ -612,6 +617,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       data.size,
       data.carMake,
       data.carModel,
+      data.carYear,
       ...keywords,
     ]
       .filter(Boolean)
@@ -636,6 +642,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       quantity: data.quantity,
       carMake: data.carMake || "",
       carModel: data.carModel || "",
+      carYear: data.carYear || "",
       keywords,
       searchText,
       status: "active",
@@ -688,6 +695,7 @@ const updateProductInput = tokenInput.extend({
   quantity: z.number().int().min(0).max(999_999).optional(),
   carMake: z.string().trim().max(60).optional().or(z.literal("")),
   carModel: z.string().trim().max(60).optional().or(z.literal("")),
+  carYear: z.string().trim().max(10).optional().or(z.literal("")),
 });
 
 export const updateMerchantProduct = createServerFn({ method: "POST" })
@@ -713,6 +721,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
 
     const carMake = data.carMake !== undefined ? data.carMake : getString(currentPayload.carMake);
     const carModel = data.carModel !== undefined ? data.carModel : getString(currentPayload.carModel);
+    const carYear = data.carYear !== undefined ? data.carYear : getString(currentPayload.carYear);
 
     const searchText = [
       data.title || getString(currentPayload.title),
@@ -721,6 +730,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       data.size || getString(currentPayload.size),
       carMake,
       carModel,
+      carYear,
       ...keywords,
     ]
       .filter(Boolean)
@@ -752,6 +762,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       quantity,
       carMake,
       carModel,
+      carYear,
       keywords,
       searchText,
       availability: quantity === 0 ? "out_of_stock" : "in_stock",
@@ -889,4 +900,43 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
           createdAt: getString(p.createdAt) || getString(row.created_at) || "",
         } satisfies MerchantOrder;
       });
+  });
+
+// Merchant-facing car catalogue: only enabled items show in product forms.
+export type MerchantCarCatalogue = {
+  makes: CarMake[];
+  colors: string[];
+  years: string[];
+};
+
+export const getEnabledCarCatalogueForMerchant = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<MerchantCarCatalogue> => {
+    await getAuthorizedMerchant(data.token);
+    const configRows = await listEvents("botly_catalogue_config");
+
+    if (configRows.length === 0) {
+      return { makes: [], colors: [], years: [] };
+    }
+
+    const latest = configRows[configRows.length - 1];
+    const p = latest.payload ?? {};
+    const config = {
+      enabledMakes: Array.isArray(p.enabledMakes)
+        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      modelsByMake:
+        typeof p.modelsByMake === "object" && p.modelsByMake !== null
+          ? (p.modelsByMake as Record<string, unknown>)
+          : {},
+      enabledColors: Array.isArray(p.enabledColors)
+        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+      enabledYears: Array.isArray(p.enabledYears)
+        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
+    };
+
+    const filtered = filterByEnabledConfig(config);
+    return filtered;
   });
