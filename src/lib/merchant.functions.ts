@@ -628,6 +628,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
     const row = await insertEvent(PRODUCT_PROVIDER, {
       productId: crypto.randomUUID(),
       merchantId: merchantIdentity(merchant),
+      whatsapp: getString(merchant.payload?.whatsapp),
       source: "manual",
       platform: "manual",
       title: data.title,
@@ -763,6 +764,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       ...currentPayload,
       productId,
       merchantId,
+      whatsapp: getString(merchant.payload?.whatsapp) || getString(currentPayload.whatsapp),
       title: data.title || getString(currentPayload.title),
       description: data.description || getString(currentPayload.description),
       imageUrl: imageUrls[0] || data.imageUrl || getString(currentPayload.imageUrl),
