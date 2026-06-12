@@ -351,19 +351,17 @@ function ProductCard({
   ].filter(Boolean);
 
   const handleSubmitOrder = async () => {
-    if (!product.merchantWhatsapp) {
-      toast.error("معلومات التاجر غير متوفرة");
-      return;
-    }
-
     setSubmitting(true);
     try {
+      // The merchant's phone is resolved on the SERVER from the product id —
+      // it is never exposed to the customer's browser.
       const result = await submitOrderFn({
         data: {
+          productId: product.id,
+          merchantId: product.merchantId ?? "",
           productTitle: product.title,
           price: product.price,
           currency: product.currency,
-          merchantWhatsapp: product.merchantWhatsapp,
           customerName,
           customerPhone,
           customerGovernorate,

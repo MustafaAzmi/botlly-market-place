@@ -54,8 +54,9 @@ export type CustomerProduct = {
   carModel?: string;
   carYear?: string;
   quantity?: number;
-  // Merchant WhatsApp (sent to mediator only, never shown to customer).
-  merchantWhatsapp?: string;
+  // Merchant identity only — the merchant's phone is resolved SERVER-SIDE at
+  // order time and never sent to the customer's browser.
+  merchantId?: string;
 };
 
 const phoneInput = z.object({
@@ -267,7 +268,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         carModel: carModel || undefined,
         carYear: getString(p.carYear) || undefined,
         quantity: getNumber(p.quantity),
-        merchantWhatsapp: getString(p.whatsapp) || undefined,
+        merchantId: getString(p.merchantId) || undefined,
       });
     }
 
@@ -294,15 +295,54 @@ export type CustomerCarCatalogue = {
   years: string[];
 };
 
+// Resolve the merchant's WhatsApp + store name server-side at order time.
+// The number NEVER touches the customer's browser: the client only sends the
+// productId, and we look the merchant up here before messaging the mediator.
+// Lookup order:
+//   1. product event (new products carry the merchant's number directly)
+//   2. merchant profile (source of truth — covers legacy products saved
+//      before the number was copied into product events)
+async function resolveMerchantContact(
+  productId: string,
+  merchantIdHint: string,
+): Promise<{ whatsapp: string; storeName: string; merchantId: string }> {
+  let whatsapp = "";
+  let merchantId = merchantIdHint;
+
+  const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
+  for (const row of products) {
+    const p = row.payload ?? {};
+    if ((getString(p.productId) || row.id) !== productId) continue;
+    whatsapp = getString(p.whatsapp);
+    merchantId = merchantId || getString(p.merchantId);
+    break; // rows come newest first → first match is the latest version
+  }
+
+  let storeName = "";
+  if (merchantId) {
+    const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+    for (const row of merchants) {
+      const p = row.payload ?? {};
+      if ((getString(p.merchantId) || row.id) !== merchantId) continue;
+      whatsapp = getString(p.whatsapp) || getString(p.whatsappNormalized) || whatsapp;
+      storeName = getString(p.storeName);
+      break;
+    }
+  }
+
+  return { whatsapp, storeName, merchantId };
+}
+
 // Product order: customer requests, mediator receives (server-side, no UI opening).
 export const submitProductOrder = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z
       .object({
+        productId: z.string().trim().min(1),
+        merchantId: z.string().trim().optional().or(z.literal("")),
         productTitle: z.string().trim().min(1),
         price: z.number().min(0),
         currency: z.string().trim().min(1),
-        merchantWhatsapp: z.string().trim().min(6),
         customerName: z.string().trim().min(2),
         customerPhone: z.string().trim().min(6),
         customerGovernorate: z.string().trim().min(1),
@@ -311,33 +351,50 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const [mediatorResult] = await Promise.all([getMediatorPhone({})]);
+    const [mediatorResult, merchant] = await Promise.all([
+      getMediatorPhone({}),
+      resolveMerchantContact(data.productId, data.merchantId ?? ""),
+    ]);
     const mediatorPhone = mediatorResult.phone;
 
     if (!mediatorPhone) {
       throw new Error("رقم الوسيط غير مسجل حالياً. حاول لاحقاً.");
     }
 
+    // The order must never fail just because the merchant's number is missing
+    // from old data — the mediator can still identify the merchant by store
+    // name / id from the admin dashboard.
+    const merchantLine = merchant.whatsapp
+      ? `📞 واتس اب التاجر: ${merchant.whatsapp}`
+      : `📞 واتس اب التاجر: غير متوفر (راجع لوحة الادمن)`;
+
     // Build the message for the mediator.
-    const message = [
+    const lines = [
       "📋 طلب منتج جديد:",
       `📦 المنتج: ${data.productTitle}`,
       `💰 السعر: ${data.price.toLocaleString()} ${data.currency}`,
-      `📞 واتس اب التاجر: ${data.merchantWhatsapp}`,
+    ];
+    if (merchant.storeName) lines.push(`🏪 المتجر: ${merchant.storeName}`);
+    lines.push(
+      merchantLine,
       "",
       "👤 بيانات الزبون:",
       `الاسم: ${data.customerName}`,
       `الهاتف: ${data.customerPhone}`,
       `المحافظة: ${data.customerGovernorate}`,
       `أقرب نقطة دالة: ${data.customerLandmark}`,
-    ].join("\n");
+    );
+    const message = lines.join("\n");
 
     // Store the order in the event store for history/admin view (optional).
     await appendEvent("botly_order", {
+      productId: data.productId,
       productTitle: data.productTitle,
       price: data.price,
       currency: data.currency,
-      merchantWhatsapp: data.merchantWhatsapp,
+      merchantId: merchant.merchantId,
+      merchantStoreName: merchant.storeName,
+      merchantWhatsapp: merchant.whatsapp,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerGovernorate: data.customerGovernorate,
