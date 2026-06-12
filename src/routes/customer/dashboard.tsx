@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
+import { useLanguage } from "@/i18n/LanguageProvider";
 import {
   browseCarProducts,
   getMediatorPhone,
@@ -58,6 +59,7 @@ function toWhatsAppLink(phone: string) {
 
 function CustomerDashboard() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [session, setSession] = useState(() => readCustomerSession());
   const [tab, setTab] = useState<TabKey>("shop");
   const [mediatorPhone, setMediatorPhone] = useState("");
@@ -91,7 +93,7 @@ function CustomerDashboard() {
             <LanguageSwitcher />
             <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
-              خروج
+              {t("customer.logout")}
             </Button>
           </div>
         </div>
@@ -99,8 +101,8 @@ function CustomerDashboard() {
         <nav className="container mx-auto flex max-w-6xl gap-1 px-4 pb-2">
           {(
             [
-              { key: "shop", icon: Search, label: "تسوق القطع" },
-              { key: "profile", icon: User, label: "حسابي" },
+              { key: "shop" as const, icon: Search, label: t("customer.tab.shop") },
+              { key: "profile" as const, icon: User, label: t("customer.tab.profile") },
             ] as Array<{ key: TabKey; icon: typeof Search; label: string }>
           ).map((item) => (
             <button
@@ -138,7 +140,7 @@ function CustomerDashboard() {
           className="fixed bottom-6 left-6 z-50 flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-medium text-primary-foreground shadow-elevated transition hover:scale-105"
         >
           <MessageCircle className="h-5 w-5" />
-          التواصل مع الوسيط
+          {t("customer.mediator.contact")}
         </a>
       )}
     </div>
@@ -156,6 +158,7 @@ function ShopTab({
   customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
   mediatorPhone: string;
 }) {
+  const { t } = useLanguage();
   const browseFn = useServerFn(browseCarProducts);
   const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [carMake, setCarMake] = useState("");
@@ -191,11 +194,11 @@ function ShopTab({
       });
       setProducts(results);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تحميل المنتجات");
+      toast.error(error instanceof Error ? error.message : t("common.loading"));
     } finally {
       setLoading(false);
     }
-  }, [browseFn, carMake, carModel, carYear, color]);
+  }, [browseFn, carMake, carModel, carYear, color, t]);
 
   return (
     <div className="space-y-6">
@@ -203,11 +206,11 @@ function ShopTab({
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center gap-2 font-semibold">
           <Car className="h-5 w-5 text-primary" />
-          دور على قطع سيارتك
+          {t("customer.shop.title")}
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-2">
-            <Label>نوع السيارة</Label>
+            <Label>{t("customer.shop.carType")}</Label>
             <Select
               value={carMake}
               onValueChange={(value) => {
@@ -216,7 +219,7 @@ function ShopTab({
               }}
             >
               <SelectTrigger className="h-11">
-                <SelectValue placeholder="اختر النوع" />
+                <SelectValue placeholder={t("customer.shop.carType.placeholder")} />
               </SelectTrigger>
               <SelectContent>
                 {makes.map((make) => (
@@ -228,10 +231,10 @@ function ShopTab({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>الموديل</Label>
+            <Label>{t("customer.shop.model")}</Label>
             <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
               <SelectTrigger className="h-11">
-                <SelectValue placeholder={selectedMake ? "اختر الموديل" : "اختر النوع أولاً"} />
+                <SelectValue placeholder={selectedMake ? t("customer.shop.model.placeholder") : t("customer.shop.model.choose_first")} />
               </SelectTrigger>
               <SelectContent>
                 {(selectedMake?.models ?? []).map((model) => (
@@ -243,10 +246,10 @@ function ShopTab({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>اللون</Label>
+            <Label>{t("customer.shop.color")}</Label>
             <Select value={color} onValueChange={setColor}>
               <SelectTrigger className="h-11">
-                <SelectValue placeholder="كل الألوان" />
+                <SelectValue placeholder={t("customer.shop.color.placeholder")} />
               </SelectTrigger>
               <SelectContent>
                 {colors.map((c) => (
@@ -258,7 +261,7 @@ function ShopTab({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>سنة الصنع (الموديل)</Label>
+            <Label>{t("customer.shop.year")}</Label>
             <Select value={carYear} onValueChange={setCarYear}>
               <SelectTrigger className="h-11">
                 <SelectValue placeholder={ALL_YEARS} />
@@ -276,7 +279,7 @@ function ShopTab({
         </div>
         <Button onClick={search} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          عرض القطع
+          {t("customer.shop.search")}
         </Button>
       </div>
 
@@ -284,23 +287,23 @@ function ShopTab({
       {loading ? (
         <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
           <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-          <p className="mt-3 text-sm">جاري البحث عن القطع...</p>
+          <p className="mt-3 text-sm">{t("customer.shop.loading")}</p>
         </div>
       ) : !searched ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center text-muted-foreground">
           <Car className="mx-auto h-10 w-10 text-primary" />
-          <p className="mt-3 text-sm">اختر نوع سيارتك والموديل واللون، وراح نعرضلك كل القطع المتوفرة لها.</p>
+          <p className="mt-3 text-sm">{t("customer.shop.empty.desc")}</p>
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center text-muted-foreground">
           <Package className="mx-auto h-10 w-10" />
           <p className="mt-3 text-sm">
-            ما لكينا قطع مطابقة حالياً. جرب فلاتر أوسع، أو اضغط «التواصل مع الوسيط» ونساعدك ندورها.
+            {t("customer.shop.no_results")}
           </p>
         </div>
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">النتائج: {products.length} قطعة</p>
+          <p className="text-sm text-muted-foreground">{t("customer.shop.results", { count: products.length })}</p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((product) => (
               <ProductCard
@@ -337,6 +340,7 @@ function ProductCard({
   customerGovernorate: string;
   customerLandmark: string;
 }) {
+  const { t } = useLanguage();
   const submitOrderFn = useServerFn(submitProductOrder);
   const [imageIndex, setImageIndex] = useState(0);
   const [showOrderForm, setShowOrderForm] = useState(false);
@@ -345,7 +349,7 @@ function ProductCard({
   const specs = [
     product.carMake,
     product.carModel,
-    product.carYear ? `موديل ${product.carYear}` : undefined,
+    product.carYear ? `${t("customer.shop.model")} ${product.carYear}` : undefined,
     product.color,
     product.size,
   ].filter(Boolean);
@@ -371,7 +375,7 @@ function ProductCard({
       toast.success(result.message);
       setShowOrderForm(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "فشل إرسال الطلب");
+      toast.error(error instanceof Error ? error.message : t("common.loading"));
     } finally {
       setSubmitting(false);
     }
@@ -440,28 +444,28 @@ function ProductCard({
           className="mt-3 w-full gap-2"
         >
           <MessageCircle className="h-4 w-4" />
-          طلب المنتج
+          {t("customer.product.request")}
         </Button>
 
         {showOrderForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
-              <h2 className="text-lg font-semibold">تأكيد الطلب</h2>
-              <p className="mt-2 text-sm text-muted-foreground">سيتم إرسال طلبك للوسيط</p>
+              <h2 className="text-lg font-semibold">{t("customer.order.confirm")}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{t("customer.order.subtitle")}</p>
 
               <div className="mt-4 space-y-3 rounded-lg bg-secondary/50 p-3 text-sm">
                 <div>
-                  <div className="text-xs text-muted-foreground">المنتج</div>
+                  <div className="text-xs text-muted-foreground">{t("customer.order.product")}</div>
                   <div className="font-medium">{product.title}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">السعر</div>
+                  <div className="text-xs text-muted-foreground">{t("customer.order.price")}</div>
                   <div className="font-medium">
                     {product.price.toLocaleString()} {product.currency}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">بيانات الزبون</div>
+                  <div className="text-xs text-muted-foreground">{t("customer.order.customer_data")}</div>
                   <div className="font-medium">{customerName}</div>
                   <div className="text-xs text-muted-foreground">{customerPhone}</div>
                   <div className="text-xs text-muted-foreground">{customerGovernorate}</div>
@@ -475,14 +479,14 @@ function ProductCard({
                   onClick={() => setShowOrderForm(false)}
                   className="flex-1"
                 >
-                  إلغاء
+                  {t("customer.order.cancel")}
                 </Button>
                 <Button
                   onClick={handleSubmitOrder}
                   disabled={submitting}
                   className="flex-1 gap-2"
                 >
-                  {submitting ? "جاري الإرسال..." : "تأكيد الطلب"}
+                  {submitting ? t("customer.order.submitting") : t("customer.order.submit")}
                 </Button>
               </div>
             </div>
@@ -504,6 +508,7 @@ function ProfileTab({
   session: NonNullable<ReturnType<typeof readCustomerSession>>;
   onUpdated: (session: NonNullable<ReturnType<typeof readCustomerSession>>) => void;
 }) {
+  const { t } = useLanguage();
   const updateFn = useServerFn(updateCustomerProfile);
   const { customer } = session;
   const [name, setName] = useState(customer.name);
@@ -525,9 +530,9 @@ function ProfileTab({
       });
       writeCustomerSession(result.customer, session.token);
       onUpdated({ customer: result.customer, token: session.token });
-      toast.success("تم حفظ بياناتك ✅");
+      toast.success(t("customer.profile.save") + " ✅");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر الحفظ");
+      toast.error(error instanceof Error ? error.message : t("common.loading"));
     } finally {
       setSaving(false);
     }
@@ -535,17 +540,17 @@ function ProfileTab({
 
   return (
     <form onSubmit={save} className="max-w-lg space-y-4 rounded-2xl border border-border bg-card p-6 shadow-soft">
-      <h2 className="font-semibold">بيانات حسابك</h2>
+      <h2 className="font-semibold">{t("customer.profile.title")}</h2>
       <p className="text-xs text-muted-foreground">
-        محفوظة دائمياً — تنطلب منك مرة وحدة فقط، وتكدر تعدلها هنا بأي وقت.
+        {t("customer.profile.desc")}
       </p>
 
       <div className="space-y-2">
-        <Label>رقم الواتساب</Label>
+        <Label>{t("customer.profile.whatsapp")}</Label>
         <Input dir="ltr" value={customer.whatsapp} disabled className="h-11 bg-secondary" />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="profile-name">الاسم الكامل</Label>
+        <Label htmlFor="profile-name">{t("customer.profile.name")}</Label>
         <Input
           id="profile-name"
           value={name}
@@ -554,7 +559,7 @@ function ProfileTab({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="profile-landmark">أقرب نقطة دالة</Label>
+        <Label htmlFor="profile-landmark">{t("customer.profile.landmark")}</Label>
         <Input
           id="profile-landmark"
           value={landmark}
@@ -563,7 +568,7 @@ function ProfileTab({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="profile-governorate">المحافظة / المدينة</Label>
+        <Label htmlFor="profile-governorate">{t("customer.profile.governorate")}</Label>
         <Input
           id="profile-governorate"
           value={governorate}
@@ -574,7 +579,7 @@ function ProfileTab({
 
       <Button type="submit" disabled={saving} className="gap-2">
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-        حفظ التعديلات
+        {t("customer.profile.save")}
       </Button>
     </form>
   );
