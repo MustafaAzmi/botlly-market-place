@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
@@ -29,6 +30,7 @@ export const Route = createFileRoute("/customer/auth")({
 type AuthMode = "login" | "signup";
 
 function CustomerAuthPage() {
+  const { t } = useLanguage();
   const [mode, setMode] = useState<AuthMode>("login");
   const [whatsapp, setWhatsapp] = useState("");
   const [name, setName] = useState("");
@@ -49,7 +51,7 @@ function CustomerAuthPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whatsapp.trim()) {
-      toast.error("الرجاء إدخال رقم الواتساب");
+      toast.error(t("customer.auth.required_whatsapp"));
       return;
     }
 
@@ -57,10 +59,10 @@ function CustomerAuthPage() {
     try {
       const result = await loginFn({ data: { whatsapp: whatsapp.trim() } });
       writeCustomerSession(result.customer, result.token);
-      toast.success(`أهلاً بعودتك ${result.customer.name} 👋`);
+      toast.success(t("customer.auth.welcome_back", { name: result.customer.name }));
       navigate({ to: "/customer/dashboard" });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "فشل تسجيل الدخول");
+      toast.error(error instanceof Error ? error.message : t("customer.auth.login_failed"));
     } finally {
       setLoading(false);
     }
@@ -69,7 +71,7 @@ function CustomerAuthPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whatsapp.trim() || !name.trim() || !landmark.trim() || !governorate.trim()) {
-      toast.error("الرجاء ملء جميع الحقول");
+      toast.error(t("customer.auth.required_all"));
       return;
     }
 
@@ -85,11 +87,11 @@ function CustomerAuthPage() {
       });
       writeCustomerSession(result.customer, result.token);
       toast.success(
-        result.existed ? `أهلاً بعودتك ${result.customer.name} 👋` : "تم إنشاء الحساب — راح نتذكرك دائماً ✅",
+        result.existed ? t("customer.auth.welcome_back", { name: result.customer.name }) : t("customer.auth.account_created"),
       );
       navigate({ to: "/customer/dashboard" });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "فشل إنشاء الحساب");
+      toast.error(error instanceof Error ? error.message : t("customer.auth.signup_failed"));
     } finally {
       setLoading(false);
     }
@@ -107,9 +109,9 @@ function CustomerAuthPage() {
       <main className="container mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-12">
         <div className="w-full space-y-6">
           <div className="text-center">
-            <h1 className="text-3xl font-bold">حساب الزبون</h1>
+            <h1 className="text-3xl font-bold">{t("customer.auth.title")}</h1>
             <p className="mt-2 text-muted-foreground">
-              سجل مرة وحدة بمعلوماتك — وبكل مرة تدخل برقم الواتساب فقط.
+              {t("customer.auth.subtitle")}
             </p>
           </div>
 
@@ -120,8 +122,8 @@ function CustomerAuthPage() {
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">تسجيل دخول</TabsTrigger>
-                <TabsTrigger value="signup">إنشاء حساب</TabsTrigger>
+                <TabsTrigger value="login">{t("customer.auth.login")}</TabsTrigger>
+                <TabsTrigger value="signup">{t("customer.auth.signup")}</TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -130,13 +132,13 @@ function CustomerAuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="login-whatsapp" className="flex items-center gap-2">
                     <Phone className="h-4 w-4" />
-                    رقم الواتساب
+                    {t("customer.auth.whatsapp")}
                   </Label>
                   <Input
                     id="login-whatsapp"
                     type="tel"
                     dir="ltr"
-                    placeholder="07XX XXX XXXX"
+                    placeholder={t("customer.auth.whatsapp.placeholder")}
                     value={whatsapp}
                     onChange={(e) => setWhatsapp(e.target.value)}
                     disabled={loading}
@@ -145,18 +147,18 @@ function CustomerAuthPage() {
                 </div>
 
                 <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                  {loading ? "جاري..." : "دخول"}
+                  {loading ? t("customer.auth.loading") : t("customer.auth.submit")}
                   <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                 </Button>
 
                 <p className="text-center text-sm text-muted-foreground">
-                  أول مرة هنا؟{" "}
+                  {t("customer.auth.new_user")}{" "}
                   <button
                     type="button"
                     onClick={() => setMode("signup")}
                     className="font-semibold text-primary hover:underline"
                   >
-                    أنشئ حساب
+                    {t("customer.auth.signup_link")}
                   </button>
                 </p>
               </form>
@@ -165,13 +167,13 @@ function CustomerAuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="signup-whatsapp" className="flex items-center gap-2">
                     <Phone className="h-4 w-4" />
-                    رقم الواتساب
+                    {t("customer.auth.whatsapp")}
                   </Label>
                   <Input
                     id="signup-whatsapp"
                     type="tel"
                     dir="ltr"
-                    placeholder="07XX XXX XXXX"
+                    placeholder={t("customer.auth.whatsapp.placeholder")}
                     value={whatsapp}
                     onChange={(e) => setWhatsapp(e.target.value)}
                     disabled={loading}
@@ -182,12 +184,12 @@ function CustomerAuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="signup-name" className="flex items-center gap-2">
                     <User className="h-4 w-4" />
-                    الاسم الكامل
+                    {t("customer.auth.name")}
                   </Label>
                   <Input
                     id="signup-name"
                     type="text"
-                    placeholder="أحمد محمد"
+                    placeholder={t("customer.auth.name.placeholder")}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     disabled={loading}
@@ -198,12 +200,12 @@ function CustomerAuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="signup-landmark" className="flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
-                    أقرب نقطة دالة
+                    {t("customer.auth.landmark")}
                   </Label>
                   <Input
                     id="signup-landmark"
                     type="text"
-                    placeholder="جامع، مدرسة، شارع معروف..."
+                    placeholder={t("customer.auth.landmark.placeholder")}
                     value={landmark}
                     onChange={(e) => setLandmark(e.target.value)}
                     disabled={loading}
@@ -214,12 +216,12 @@ function CustomerAuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="signup-governorate" className="flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
-                    المحافظة / المدينة
+                    {t("customer.auth.governorate")}
                   </Label>
                   <Input
                     id="signup-governorate"
                     type="text"
-                    placeholder="بغداد، البصرة، أربيل..."
+                    placeholder={t("customer.auth.governorate.placeholder")}
                     value={governorate}
                     onChange={(e) => setGovernorate(e.target.value)}
                     disabled={loading}
@@ -228,12 +230,12 @@ function CustomerAuthPage() {
                 </div>
 
                 <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                  {loading ? "جاري..." : "إنشاء حساب"}
+                  {loading ? t("customer.auth.loading") : t("customer.auth.submit.signup")}
                   <CheckCircle2 className="h-4 w-4" />
                 </Button>
 
                 <p className="text-center text-xs text-muted-foreground">
-                  معلوماتك تنحفظ مرة وحدة بقاعدة البيانات وتبقى محفوظة — ما نطلبها منك مرة ثانية.
+                  {t("customer.auth.info_once")}
                 </p>
               </form>
             )}
@@ -241,14 +243,14 @@ function CustomerAuthPage() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              { icon: "🚗", title: "فلاتر السيارة", desc: "نوع السيارة، الموديل، واللون" },
-              { icon: "🛒", title: "اطلب بضغطة", desc: "عنوانك محفوظ — الطلب فوري" },
-              { icon: "💬", title: "تواصل مع الوسيط", desc: "نساعدك بكل خطوة" },
+              { icon: "🚗", titleKey: "customer.auth.features.car_filters.title", descKey: "customer.auth.features.car_filters.desc" },
+              { icon: "🛒", titleKey: "customer.auth.features.quick_order.title", descKey: "customer.auth.features.quick_order.desc" },
+              { icon: "💬", titleKey: "customer.auth.features.support.title", descKey: "customer.auth.features.support.desc" },
             ].map((item) => (
-              <div key={item.title} className="rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
+              <div key={item.titleKey} className="rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
                 <div className="text-3xl">{item.icon}</div>
-                <h3 className="mt-2 font-semibold">{item.title}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">{item.desc}</p>
+                <h3 className="mt-2 font-semibold">{t(item.titleKey as any)}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey as any)}</p>
               </div>
             ))}
           </div>

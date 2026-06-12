@@ -353,7 +353,7 @@ function ProductCard({
   const specs = [
     product.carMake,
     product.carModel,
-    product.carYear ? `${t("customer.shop.model")} ${product.carYear}` : undefined,
+    product.carYear ? `${t("customer.shop.year")} ${product.carYear}` : undefined,
     product.color,
     product.size,
   ].filter(Boolean);
