@@ -50,9 +50,33 @@ export const Route = createFileRoute("/customer/dashboard")({
 type TabKey = "shop" | "profile";
 
 // wa.me links need digits only (international format, no +).
-function toWhatsAppLink(phone: string) {
+function toWhatsAppLink(phone: string, message?: string) {
   const digits = phone.replace(/\D/g, "").replace(/^0/, "964");
-  return `https://wa.me/${digits}`;
+  const baseUrl = `https://wa.me/${digits}`;
+  if (!message) return baseUrl;
+  const encodedMsg = encodeURIComponent(message);
+  return `${baseUrl}?text=${encodedMsg}`;
+}
+
+// Build order message for mediator: product name, prices, and merchant contact
+function buildOrderMessage(product: CustomerProduct, mediatorPhone: string) {
+  const lines = [
+    "طلب منتج جديد:",
+    `📦 ${product.title}`,
+  ];
+
+  if (product.originalPrice && product.originalPrice !== product.price) {
+    lines.push(`💰 السعر: ${product.price.toLocaleString()} ${product.currency} (كان ${product.originalPrice.toLocaleString()})`);
+  } else {
+    lines.push(`💰 السعر: ${product.price.toLocaleString()} ${product.currency}`);
+  }
+
+  if (product.merchantWhatsapp) {
+    lines.push(`📞 واتس اب التاجر: ${product.merchantWhatsapp}`);
+  }
+
+  const message = lines.join("\n");
+  return toWhatsAppLink(mediatorPhone, message);
 }
 
 function CustomerDashboard() {
@@ -375,19 +399,26 @@ function ProductCard({
             ))}
           </div>
         )}
-        <div className="mt-3 flex items-baseline gap-1.5">
-          <span className="text-lg font-bold">{product.price.toLocaleString()}</span>
-          <span className="text-xs text-muted-foreground">{product.currency}</span>
+        <div className="mt-3 space-y-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-lg font-bold">{product.price.toLocaleString()}</span>
+            <span className="text-xs text-muted-foreground">{product.currency}</span>
+            {product.originalPrice && product.originalPrice !== product.price && (
+              <span className="text-xs text-muted-foreground line-through">
+                {product.originalPrice.toLocaleString()}
+              </span>
+            )}
+          </div>
         </div>
         {mediatorPhone && (
           <a
-            href={toWhatsAppLink(mediatorPhone)}
+            href={buildOrderMessage(product, mediatorPhone)}
             target="_blank"
             rel="noreferrer"
             className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
           >
             <MessageCircle className="h-4 w-4" />
-            استفسر عن المنتج
+            طلب المنتج
           </a>
         )}
       </div>

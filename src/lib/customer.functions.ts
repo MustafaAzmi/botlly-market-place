@@ -35,7 +35,7 @@ export type CustomerProfile = {
   updatedAt: string;
 };
 
-// Customer-facing product view: specs + price ONLY (no merchant identity).
+// Customer-facing product view: specs + prices + merchant contact (for mediator eyes only).
 export type CustomerProduct = {
   id: string;
   title: string;
@@ -43,6 +43,8 @@ export type CustomerProduct = {
   imageUrls: string[];
   // The final price — the only price customers see.
   price: number;
+  // Original price (for mediator reference in order messages).
+  originalPrice?: number;
   currency: string;
   color?: string;
   size?: string;
@@ -50,6 +52,8 @@ export type CustomerProduct = {
   carModel?: string;
   carYear?: string;
   quantity?: number;
+  // Merchant WhatsApp (sent to mediator only, never shown to customer).
+  merchantWhatsapp?: string;
 };
 
 const phoneInput = z.object({
@@ -253,6 +257,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         description: getString(p.description),
         imageUrls: extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [],
         price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
+        originalPrice: getNumber(p.currentPrice) || undefined,
         currency: getString(p.currency) || "IQD",
         color: color || undefined,
         size: getString(p.size) || undefined,
@@ -260,6 +265,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         carModel: carModel || undefined,
         carYear: getString(p.carYear) || undefined,
         quantity: getNumber(p.quantity),
+        merchantWhatsapp: getString(p.whatsapp) || undefined,
       });
     }
 
