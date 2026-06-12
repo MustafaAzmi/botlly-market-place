@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as MerchantAppRouteImport } from './routes/merchant-app'
 import { Route as DataDeletionRouteImport } from './routes/data-deletion'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -20,6 +21,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
 import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
+import { Route as CustomerAppRouteImport } from './routes/customer/app'
 import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
@@ -48,6 +50,11 @@ const TermsRoute = TermsRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MerchantAppRoute = MerchantAppRouteImport.update({
+  id: '/merchant-app',
+  path: '/merchant-app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DataDeletionRoute = DataDeletionRouteImport.update({
@@ -93,6 +100,11 @@ const CustomerDashboardRoute = CustomerDashboardRouteImport.update({
 const CustomerAuthRoute = CustomerAuthRouteImport.update({
   id: '/customer/auth',
   path: '/customer/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerAppRoute = CustomerAppRouteImport.update({
+  id: '/customer/app',
+  path: '/customer/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Customer_layoutRoute = Customer_layoutRouteImport.update({
@@ -195,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -207,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof Customer_layoutRoute
+  '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -227,6 +241,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -239,6 +254,7 @@ export interface FileRoutesByTo {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof CustomerIndexRoute
+  '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -259,6 +275,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -271,6 +288,7 @@ export interface FileRoutesById {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer/__layout': typeof Customer_layoutRoute
+  '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -293,6 +311,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -305,6 +324,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/stores'
     | '/customer'
+    | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
     | '/store/$slug'
@@ -325,6 +345,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -337,6 +358,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/stores'
     | '/customer'
+    | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
     | '/store/$slug'
@@ -356,6 +378,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -368,6 +391,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/stores'
     | '/customer/__layout'
+    | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
     | '/store/$slug'
@@ -389,6 +413,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   DataDeletionRoute: typeof DataDeletionRoute
+  MerchantAppRoute: typeof MerchantAppRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
@@ -401,6 +426,7 @@ export interface RootRouteChildren {
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
   Customer_layoutRoute: typeof Customer_layoutRoute
+  CustomerAppRoute: typeof CustomerAppRoute
   CustomerAuthRoute: typeof CustomerAuthRoute
   CustomerDashboardRoute: typeof CustomerDashboardRoute
   StoreSlugRoute: typeof StoreSlugRoute
@@ -432,6 +458,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/merchant-app': {
+      id: '/merchant-app'
+      path: '/merchant-app'
+      fullPath: '/merchant-app'
+      preLoaderRoute: typeof MerchantAppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/data-deletion': {
@@ -495,6 +528,13 @@ declare module '@tanstack/react-router' {
       path: '/customer/auth'
       fullPath: '/customer/auth'
       preLoaderRoute: typeof CustomerAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/app': {
+      id: '/customer/app'
+      path: '/customer/app'
+      fullPath: '/customer/app'
+      preLoaderRoute: typeof CustomerAppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/customer/__layout': {
@@ -637,6 +677,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   DataDeletionRoute: DataDeletionRoute,
+  MerchantAppRoute: MerchantAppRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
@@ -649,6 +690,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,
   Customer_layoutRoute: Customer_layoutRoute,
+  CustomerAppRoute: CustomerAppRoute,
   CustomerAuthRoute: CustomerAuthRoute,
   CustomerDashboardRoute: CustomerDashboardRoute,
   StoreSlugRoute: StoreSlugRoute,

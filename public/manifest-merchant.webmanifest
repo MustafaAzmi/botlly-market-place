@@ -1,0 +1,25 @@
+{
+  "id": "botly-merchant",
+  "name": "بوتلي تاجر",
+  "short_name": "بوتلي تاجر",
+  "description": "أدر متجرك ومنتجاتك وطلباتك على بوتلي من مكان واحد.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/auth?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0d7490",
+  "categories": ["business", "shopping"],
+  "icons": [
+    { "src": "/icons/merchant-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/merchant-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "/icons/merchant-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

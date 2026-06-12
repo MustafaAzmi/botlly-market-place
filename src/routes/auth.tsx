@@ -24,6 +24,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/auth")({
   // ?mode=signup opens the create-store form directly; anything else → login.
@@ -34,7 +35,9 @@ export const Route = createFileRoute("/auth")({
     meta: [
       { title: "تسجيل دخول التاجر - Botly" },
       { name: "description", content: "Create or access your Botly merchant account." },
+      ...pwaHeadMeta("merchant"),
     ],
+    links: pwaHeadLinks("merchant"),
   }),
   component: AuthPage,
 });

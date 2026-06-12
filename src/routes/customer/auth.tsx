@@ -12,13 +12,16 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/auth")({
   head: () => ({
     meta: [
       { title: "دخول الزبائن - Botly" },
       { name: "description", content: "Login to your Botly customer account." },
+      ...pwaHeadMeta("customer"),
     ],
+    links: pwaHeadLinks("customer"),
   }),
   component: CustomerAuthPage,
 });

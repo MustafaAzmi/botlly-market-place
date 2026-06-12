@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Store, User } from "lucide-react";
+import { ArrowRight, Download, Store, User } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
@@ -32,6 +32,8 @@ const copy = {
     customer: "دخول الزبون",
     merchantLogin: "تسجيل الدخول للتاجر",
     createStore: "أنشئ متجر جديد",
+    customerApp: "حمّل تطبيق بوتلي زبون",
+    merchantApp: "حمّل تطبيق بوتلي تاجر",
     rights: "جميع الحقوق محفوظة",
   },
   en: {
@@ -41,6 +43,8 @@ const copy = {
     customer: "Customer entrance",
     merchantLogin: "Merchant sign in",
     createStore: "Create a new store",
+    customerApp: "Get the Botly Customer app",
+    merchantApp: "Get the Botly Merchant app",
     rights: "All rights reserved",
   },
 } as const;
@@ -98,6 +102,24 @@ function LandingPage() {
                   {text.createStore}
                 </Link>
               </Button>
+            </div>
+
+            {/* PWA install pages */}
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-sm">
+              <Link
+                to="/customer/app"
+                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
+              >
+                <Download className="h-4 w-4" />
+                {text.customerApp}
+              </Link>
+              <Link
+                to="/merchant-app"
+                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
+              >
+                <Download className="h-4 w-4" />
+                {text.merchantApp}
+              </Link>
             </div>
           </div>
         </div>

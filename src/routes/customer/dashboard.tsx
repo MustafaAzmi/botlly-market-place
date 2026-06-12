@@ -43,9 +43,13 @@ import {
   readCustomerSession,
   writeCustomerSession,
 } from "@/lib/customerSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/dashboard")({
-  head: () => ({ meta: [{ title: "Customer Dashboard - Botly" }] }),
+  head: () => ({
+    meta: [{ title: "Customer Dashboard - Botly" }, ...pwaHeadMeta("customer")],
+    links: pwaHeadLinks("customer"),
+  }),
   component: CustomerDashboard,
 });
 

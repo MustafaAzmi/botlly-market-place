@@ -18,9 +18,13 @@ import { Progress } from "@/components/ui/progress";
 import { useT } from "@/i18n/LanguageProvider";
 import { getMerchantDashboard, type MerchantDashboard } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/dashboard/")({
-  head: () => ({ meta: [{ title: "Dashboard - Botly" }] }),
+  head: () => ({
+    meta: [{ title: "Dashboard - Botly" }, ...pwaHeadMeta("merchant")],
+    links: pwaHeadLinks("merchant"),
+  }),
   component: DashboardHome,
 });
 
