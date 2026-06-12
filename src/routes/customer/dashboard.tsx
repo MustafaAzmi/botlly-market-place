@@ -45,7 +45,7 @@ import {
 } from "@/lib/customerSession";
 
 export const Route = createFileRoute("/customer/dashboard")({
-  head: () => ({ meta: [{ title: "لوحة الزبون - Botly" }] }),
+  head: () => ({ meta: [{ title: "Customer Dashboard - Botly" }] }),
   component: CustomerDashboard,
 });
 
