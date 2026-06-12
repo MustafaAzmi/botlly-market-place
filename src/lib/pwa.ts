@@ -53,9 +53,18 @@ export function pwaHeadMeta(app: PwaApp) {
 
 export function registerServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-  // Register early (not waiting for load) to ensure beforeinstallprompt fires.
-  // Modern browsers defer service worker activation until after initial load anyway.
-  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+
+  // Don't specify scope — let the manifest's scope take precedence
+  // Register immediately to ensure beforeinstallprompt fires before user interaction
+  navigator.serviceWorker.register("/sw.js").then((reg) => {
+    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+      console.log("[PWA] Service Worker registered:", reg.scope);
+    }
+  }).catch((err) => {
+    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+      console.error("[PWA] Service Worker registration failed:", err);
+    }
+  });
 }
 
 // beforeinstallprompt is Chromium-only; we stash the event so a button can
@@ -75,35 +84,55 @@ export function usePwaInstall() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    setIsIos(/iphone|ipad|ipod/i.test(window.navigator.userAgent));
+    const isIosDevice = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    setIsIos(isIosDevice);
+
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      // iOS Safari
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     setIsStandalone(standalone);
+
+    if ((window as any).__PWA_DEBUG__) {
+      console.log("[PWA] Init:", {
+        userAgent: window.navigator.userAgent,
+        isIos: isIosDevice,
+        isStandalone: standalone,
+        hasServiceWorker: !!navigator.serviceWorker,
+        protocol: window.location.protocol,
+      });
+    }
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
-        console.log("[PWA] beforeinstallprompt captured");
+      if ((window as any).__PWA_DEBUG__) {
+        console.log("[PWA] beforeinstallprompt fired and captured");
       }
     };
+
     const onInstalled = () => {
       setInstalled(true);
       setDeferredPrompt(null);
-      if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
-        console.log("[PWA] app installed");
+      if ((window as any).__PWA_DEBUG__) {
+        console.log("[PWA] app installed successfully");
       }
     };
+
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
-    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
-      console.log("[PWA] listeners attached, isStandalone:", standalone, "isIos:", /iphone|ipad|ipod/i.test(window.navigator.userAgent));
-    }
+
+    // Log when page becomes visible (important for installability)
+    const onVisibilityChange = () => {
+      if ((window as any).__PWA_DEBUG__ && document.visibilityState === "visible") {
+        console.log("[PWA] Page became visible, prompt available:", !!deferredPrompt);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 

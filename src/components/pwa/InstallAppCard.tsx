@@ -20,6 +20,14 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
   const cfg = PWA_APPS[app];
   const { canInstall, promptInstall, installed, isStandalone, isIos } = usePwaInstall();
   const [enablingNotifications, setEnablingNotifications] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+
+  const enableDebug = () => {
+    (window as any).__PWA_DEBUG__ = true;
+    setShowDebug(true);
+    console.log("[PWA] Debug mode enabled");
+    toast.success("تم تفعيل وضع التشخيص — افتح console (F12)");
+  };
 
   const handleInstall = async () => {
     try {
@@ -96,15 +104,25 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={enableNotifications}
-        disabled={enablingNotifications}
-        className="mt-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
-      >
-        <Bell className="h-3.5 w-3.5" />
-        {t("pwa.notifications.enable")}
-      </button>
+      <div className="mt-4 space-y-2 flex flex-col items-center">
+        <button
+          type="button"
+          onClick={enableNotifications}
+          disabled={enablingNotifications}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
+        >
+          <Bell className="h-3.5 w-3.5" />
+          {t("pwa.notifications.enable")}
+        </button>
+
+        <button
+          type="button"
+          onClick={enableDebug}
+          className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
+          {showDebug ? "✓ Debug ON" : "🔧 Debug"}
+        </button>
+      </div>
     </div>
   );
 }
