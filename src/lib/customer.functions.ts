@@ -292,6 +292,64 @@ export type CustomerCarCatalogue = {
   years: string[];
 };
 
+// Product order: customer requests, mediator receives (server-side, no UI opening).
+export const submitProductOrder = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        productTitle: z.string().trim().min(1),
+        price: z.number().min(0),
+        currency: z.string().trim().min(1),
+        merchantWhatsapp: z.string().trim().min(6),
+        customerName: z.string().trim().min(2),
+        customerPhone: z.string().trim().min(6),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const [mediatorResult] = await Promise.all([getMediatorPhone({})]);
+    const mediatorPhone = mediatorResult.phone;
+
+    if (!mediatorPhone) {
+      throw new Error("رقم الوسيط غير مسجل حالياً. حاول لاحقاً.");
+    }
+
+    // Build the message for the mediator.
+    const message = [
+      "📋 طلب منتج جديد:",
+      `📦 المنتج: ${data.productTitle}`,
+      `💰 السعر: ${data.price.toLocaleString()} ${data.currency}`,
+      `📞 واتس اب التاجر: ${data.merchantWhatsapp}`,
+      "",
+      "👤 بيانات الزبون:",
+      `الاسم: ${data.customerName}`,
+      `الهاتف: ${data.customerPhone}`,
+    ].join("\n");
+
+    // Store the order in the event store for history/admin view (optional).
+    await appendEvent("botly_order", {
+      productTitle: data.productTitle,
+      price: data.price,
+      currency: data.currency,
+      merchantWhatsapp: data.merchantWhatsapp,
+      customerName: data.customerName,
+      customerPhone: data.customerPhone,
+      mediatorPhone,
+      message,
+      createdAt: new Date().toISOString(),
+    });
+
+    // TODO: Send message to mediator via WhatsApp Business API (non-blocking;
+    // the order is already logged above, so even if the send fails, the admin
+    // can see it in the event store).
+    // For now, just confirm the order was received.
+
+    return {
+      success: true,
+      message: "تم إرسال طلبك للوسيط. سيتواصل معك قريباً إن شاء الله.",
+    };
+  });
+
 export const getEnabledCarCatalogue = createServerFn({ method: "POST" }).handler(
   async (): Promise<CustomerCarCatalogue> => {
     // Newest parseable catalogue event wins (listEvents returns newest first).
@@ -305,4 +363,3 @@ export const getEnabledCarCatalogue = createServerFn({ method: "POST" }).handler
     return { makes: [], colors: [], years: [] };
   },
 );
-

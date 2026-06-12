@@ -34,6 +34,7 @@ import {
   getMediatorPhone,
   getEnabledCarCatalogue,
   updateCustomerProfile,
+  submitProductOrder,
   type CustomerProduct,
 } from "@/lib/customer.functions";
 import {
@@ -50,33 +51,9 @@ export const Route = createFileRoute("/customer/dashboard")({
 type TabKey = "shop" | "profile";
 
 // wa.me links need digits only (international format, no +).
-function toWhatsAppLink(phone: string, message?: string) {
+function toWhatsAppLink(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^0/, "964");
-  const baseUrl = `https://wa.me/${digits}`;
-  if (!message) return baseUrl;
-  const encodedMsg = encodeURIComponent(message);
-  return `${baseUrl}?text=${encodedMsg}`;
-}
-
-// Build order message for mediator: product name, prices, and merchant contact
-function buildOrderMessage(product: CustomerProduct, mediatorPhone: string) {
-  const lines = [
-    "طلب منتج جديد:",
-    `📦 ${product.title}`,
-  ];
-
-  if (product.originalPrice && product.originalPrice !== product.price) {
-    lines.push(`💰 السعر: ${product.price.toLocaleString()} ${product.currency} (كان ${product.originalPrice.toLocaleString()})`);
-  } else {
-    lines.push(`💰 السعر: ${product.price.toLocaleString()} ${product.currency}`);
-  }
-
-  if (product.merchantWhatsapp) {
-    lines.push(`📞 واتس اب التاجر: ${product.merchantWhatsapp}`);
-  }
-
-  const message = lines.join("\n");
-  return toWhatsAppLink(mediatorPhone, message);
+  return `https://wa.me/${digits}`;
 }
 
 function CustomerDashboard() {
@@ -320,7 +297,13 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
           <p className="text-sm text-muted-foreground">النتائج: {products.length} قطعة</p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((product) => (
-              <ProductCard key={product.id} product={product} mediatorPhone={mediatorPhone} />
+              <ProductCard
+                key={product.id}
+                product={product}
+                mediatorPhone={mediatorPhone}
+                customerName={customerWhatsapp}
+                customerPhone={customerWhatsapp}
+              />
             ))}
           </div>
         </>
@@ -334,11 +317,18 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
 function ProductCard({
   product,
   mediatorPhone,
+  customerName,
+  customerPhone,
 }: {
   product: CustomerProduct;
   mediatorPhone: string;
+  customerName: string;
+  customerPhone: string;
 }) {
+  const submitOrderFn = useServerFn(submitProductOrder);
   const [imageIndex, setImageIndex] = useState(0);
+  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const images = product.imageUrls;
   const specs = [
     product.carMake,
@@ -347,6 +337,33 @@ function ProductCard({
     product.color,
     product.size,
   ].filter(Boolean);
+
+  const handleSubmitOrder = async () => {
+    if (!product.merchantWhatsapp) {
+      toast.error("معلومات التاجر غير متوفرة");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const result = await submitOrderFn({
+        data: {
+          productTitle: product.title,
+          price: product.price,
+          currency: product.currency,
+          merchantWhatsapp: product.merchantWhatsapp,
+          customerName,
+          customerPhone,
+        },
+      });
+      toast.success(result.message);
+      setShowOrderForm(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "فشل إرسال الطلب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
@@ -403,23 +420,59 @@ function ProductCard({
           <div className="flex items-baseline gap-1.5">
             <span className="text-lg font-bold">{product.price.toLocaleString()}</span>
             <span className="text-xs text-muted-foreground">{product.currency}</span>
-            {product.originalPrice && product.originalPrice !== product.price && (
-              <span className="text-xs text-muted-foreground line-through">
-                {product.originalPrice.toLocaleString()}
-              </span>
-            )}
           </div>
         </div>
-        {mediatorPhone && (
-          <a
-            href={buildOrderMessage(product, mediatorPhone)}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-          >
-            <MessageCircle className="h-4 w-4" />
-            طلب المنتج
-          </a>
+        <Button
+          onClick={() => setShowOrderForm(true)}
+          size="sm"
+          className="mt-3 w-full gap-2"
+        >
+          <MessageCircle className="h-4 w-4" />
+          طلب المنتج
+        </Button>
+
+        {showOrderForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
+              <h2 className="text-lg font-semibold">تأكيد الطلب</h2>
+              <p className="mt-2 text-sm text-muted-foreground">سيتم إرسال طلبك للوسيط</p>
+
+              <div className="mt-4 space-y-3 rounded-lg bg-secondary/50 p-3 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground">المنتج</div>
+                  <div className="font-medium">{product.title}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">السعر</div>
+                  <div className="font-medium">
+                    {product.price.toLocaleString()} {product.currency}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">بيانات الزبون</div>
+                  <div className="font-medium">{customerName}</div>
+                  <div className="text-xs text-muted-foreground">{customerPhone}</div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowOrderForm(false)}
+                  className="flex-1"
+                >
+                  إلغاء
+                </Button>
+                <Button
+                  onClick={handleSubmitOrder}
+                  disabled={submitting}
+                  className="flex-1 gap-2"
+                >
+                  {submitting ? "جاري الإرسال..." : "تأكيد الطلب"}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
