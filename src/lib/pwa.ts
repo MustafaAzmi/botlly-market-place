@@ -53,10 +53,9 @@ export function pwaHeadMeta(app: PwaApp) {
 
 export function registerServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-  // Register after load so it never competes with first paint.
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
+  // Register early (not waiting for load) to ensure beforeinstallprompt fires.
+  // Modern browsers defer service worker activation until after initial load anyway.
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
 
 // beforeinstallprompt is Chromium-only; we stash the event so a button can
@@ -86,13 +85,22 @@ export function usePwaInstall() {
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+      if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+        console.log("[PWA] beforeinstallprompt captured");
+      }
     };
     const onInstalled = () => {
       setInstalled(true);
       setDeferredPrompt(null);
+      if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+        console.log("[PWA] app installed");
+      }
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
+    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+      console.log("[PWA] listeners attached, isStandalone:", standalone, "isIos:", /iphone|ipad|ipod/i.test(window.navigator.userAgent));
+    }
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);

@@ -12,19 +12,33 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/LanguageProvider";
 import { PWA_APPS, requestNotificationPermission, usePwaInstall, type PwaApp } from "@/lib/pwa";
 
 export function InstallAppCard({ app }: { app: PwaApp }) {
+  const t = useT();
   const cfg = PWA_APPS[app];
   const { canInstall, promptInstall, installed, isStandalone, isIos } = usePwaInstall();
   const [enablingNotifications, setEnablingNotifications] = useState(false);
+
+  const handleInstall = async () => {
+    try {
+      const success = await promptInstall();
+      if (!success) {
+        toast.error(t("pwa.install.cancelled"));
+      }
+    } catch (error) {
+      console.error("[PWA Install Error]", error);
+      toast.error(t("pwa.install.error"));
+    }
+  };
 
   const enableNotifications = async () => {
     setEnablingNotifications(true);
     try {
       const permission = await requestNotificationPermission();
-      if (permission === "granted") toast.success("تم تفعيل الإشعارات ✅");
-      else if (permission === "denied") toast.error("الإشعارات مرفوضة من إعدادات المتصفح");
+      if (permission === "granted") toast.success(t("pwa.notifications.enabled"));
+      else if (permission === "denied") toast.error(t("pwa.notifications.denied"));
     } finally {
       setEnablingNotifications(false);
     }
@@ -42,40 +56,39 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
       {isStandalone ? (
         <p className="mt-3 flex items-center justify-center gap-2 text-sm font-medium text-primary">
           <CheckCircle2 className="h-4 w-4" />
-          أنت تستخدم التطبيق الآن
+          {t("pwa.install.using_app")}
         </p>
       ) : (
         <div className="mt-5 space-y-3">
           {canInstall && (
-            <Button size="lg" className="w-full gap-2" onClick={promptInstall}>
+            <Button size="lg" className="w-full gap-2" onClick={handleInstall}>
               <Download className="h-4 w-4" />
-              تنصيب التطبيق
+              {t("pwa.install.button")}
             </Button>
           )}
           {installed && (
             <p className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
               <CheckCircle2 className="h-4 w-4" />
-              تم تنصيب التطبيق على جهازك
+              {t("pwa.install.success")}
             </p>
           )}
 
           <Button asChild size="lg" variant={canInstall ? "outline" : "default"} className="w-full gap-2">
             <a href={cfg.startUrl}>
               <ExternalLink className="h-4 w-4" />
-              فتح التطبيق
+              {t("pwa.open.button")}
             </a>
           </Button>
 
           {isIos && !canInstall && (
             <div className="rounded-xl bg-secondary/60 p-4 text-start text-xs leading-6 text-muted-foreground">
-              <p className="font-semibold text-foreground">للتنصيب على iPhone / iPad:</p>
+              <p className="font-semibold text-foreground">{t("pwa.install.instructions_ios")}</p>
               <p className="mt-1 flex items-center gap-1.5">
-                1. اضغط زر المشاركة
+                {t("pwa.install.instructions_ios_1")}
                 <Share className="inline h-3.5 w-3.5" />
-                في شريط Safari
               </p>
               <p className="flex items-center gap-1.5">
-                2. اختر «إضافة إلى الشاشة الرئيسية»
+                {t("pwa.install.instructions_ios_2")}
                 <SquarePlus className="inline h-3.5 w-3.5" />
               </p>
             </div>
@@ -90,7 +103,7 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
         className="mt-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
       >
         <Bell className="h-3.5 w-3.5" />
-        تفعيل الإشعارات
+        {t("pwa.notifications.enable")}
       </button>
     </div>
   );

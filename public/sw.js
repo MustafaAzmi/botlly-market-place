@@ -27,8 +27,13 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting()),
+      .then((cache) => {
+        // Precache files; ignore failures for non-critical assets to avoid blocking install
+        return Promise.allSettled(
+          PRECACHE.map((url) => fetch(url).then((r) => cache.put(url, r)))
+        ).then(() => self.skipWaiting());
+      })
+      .catch(() => self.skipWaiting()), // Continue even if precache fails
   );
 });
 
