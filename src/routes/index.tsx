@@ -93,7 +93,7 @@ function LandingPage() {
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="gap-2">
-                <Link to="/auth">
+                <Link to="/auth" search={{ mode: "signup" }}>
                   <Store className="h-4 w-4" />
                   {text.createStore}
                 </Link>

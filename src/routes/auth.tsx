@@ -27,6 +27,10 @@ import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/auth")({
+  // ?mode=signup opens the create-store form directly; anything else → login.
+  validateSearch: (search: Record<string, unknown>): { mode?: AuthMode } => ({
+    mode: search.mode === "signup" ? "signup" : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "تسجيل دخول التاجر - Botly" },
@@ -120,7 +124,8 @@ function AuthPage() {
   const navigate = useNavigate();
   const loginMerchantFn = useServerFn(loginMerchant);
   const signupMerchantFn = useServerFn(signupMerchant);
-  const [mode, setMode] = useState<AuthMode>("login");
+  const { mode: requestedMode } = Route.useSearch();
+  const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : "login");
   const [showReset, setShowReset] = useState(false);
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
