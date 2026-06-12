@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALL_YEARS, CAR_YEARS, findMakeByLabel, type CarMake } from "@/lib/car-data";
+import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import {
   browseCarProducts,
   getMediatorPhone,

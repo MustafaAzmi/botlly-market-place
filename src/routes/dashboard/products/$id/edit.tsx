@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALL_YEARS, findMakeByLabel, type CarMake } from "@/lib/car-data";
+import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
 import { getMerchantProduct, updateMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";

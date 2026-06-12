@@ -16,6 +16,11 @@ import {
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  defaultCatalogueConfig,
+  parseCatalogueConfig,
+  type CatalogueConfig,
+} from "@/lib/car-data";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -576,51 +581,50 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
   });
 
 // ---------------------------------------------------------------------------
-// Car catalogue configuration (admin-managed, visible to customers only if
-// checked/enabled in this configuration)
+// Car catalogue configuration (admin-managed, single source of truth for the
+// customer/merchant dropdowns)
 // ---------------------------------------------------------------------------
+//
+// The admin owns the FULL catalogue, not just visibility flags: makes, models,
+// colors and years can be added, removed, shown or hidden. The hardcoded lists
+// in car-data.ts only seed the first load; after that, whatever the admin
+// saves here is the catalogue.
 
-export interface CarCatalogueConfig {
-  enabledMakes: string[]; // Car make keys (e.g., "toyota", "bmw")
-  modelsByMake: Record<string, string[]>; // Models per make
-  enabledColors: string[]; // Arabic color names
-  enabledYears: string[]; // Years as strings
-}
+const catalogItemSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean(),
+});
 
 const catalogInput = tokenInput.extend({
   config: z.object({
-    enabledMakes: z.array(z.string()),
-    modelsByMake: z.record(z.array(z.string())),
-    enabledColors: z.array(z.string()),
-    enabledYears: z.array(z.string()),
+    makes: z
+      .array(
+        z.object({
+          key: z.string().trim().min(1).max(80),
+          label: z.string().trim().min(1).max(80),
+          enabled: z.boolean(),
+          models: z.array(catalogItemSchema).max(300),
+        }),
+      )
+      .max(300),
+    colors: z.array(catalogItemSchema).max(200),
+    years: z.array(catalogItemSchema).max(200),
   }),
 });
 
 export const getCarCatalogueConfig = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<CarCatalogueConfig> => {
+  .handler(async ({ data }): Promise<CatalogueConfig> => {
     await authorizeAdmin(data.token);
+    // listEvents returns newest first — the first parseable event is the
+    // current catalogue. No saved catalogue yet → seed from the standard list
+    // (everything unchecked) so the admin has something to start from.
     const rows = await listEvents("botly_catalogue_config");
-    if (rows.length === 0) {
-      return { enabledMakes: [], modelsByMake: {}, enabledColors: [], enabledYears: [] };
+    for (const row of rows) {
+      const parsed = parseCatalogueConfig(row.payload);
+      if (parsed) return parsed;
     }
-    const latest = rows[rows.length - 1];
-    const p = latest.payload ?? {};
-    return {
-      enabledMakes: Array.isArray(p.enabledMakes)
-        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      modelsByMake:
-        typeof p.modelsByMake === "object" && p.modelsByMake !== null
-          ? (p.modelsByMake as Record<string, unknown>)
-          : {},
-      enabledColors: Array.isArray(p.enabledColors)
-        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      enabledYears: Array.isArray(p.enabledYears)
-        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-    };
+    return defaultCatalogueConfig();
   });
 
 export const saveCarCatalogueConfig = createServerFn({ method: "POST" })

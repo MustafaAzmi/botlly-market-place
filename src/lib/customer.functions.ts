@@ -21,7 +21,7 @@ import {
   phoneKey,
   type EventRow,
 } from "@/lib/eventStore.server";
-import { filterByEnabledConfig, type CarMake } from "@/lib/car-data";
+import { parseCatalogueConfig, toEnabledCatalogue, type CarMake } from "@/lib/car-data";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -288,35 +288,15 @@ export type CustomerCarCatalogue = {
 
 export const getEnabledCarCatalogue = createServerFn({ method: "POST" }).handler(
   async (): Promise<CustomerCarCatalogue> => {
-    const configRows = await listEvents("botly_catalogue_config").catch(
-      () => [] as EventRow[],
-    );
-
-    if (configRows.length === 0) {
-      return { makes: [], colors: [], years: [] };
+    // Newest parseable catalogue event wins (listEvents returns newest first).
+    // Nothing saved yet → empty dropdowns: items appear only after the admin
+    // checks them in /admin/catalog.
+    const rows = await listEvents("botly_catalogue_config").catch(() => [] as EventRow[]);
+    for (const row of rows) {
+      const config = parseCatalogueConfig(row.payload);
+      if (config) return toEnabledCatalogue(config);
     }
-
-    const latest = configRows[configRows.length - 1];
-    const p = latest.payload ?? {};
-    const config = {
-      enabledMakes: Array.isArray(p.enabledMakes)
-        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      modelsByMake:
-        typeof p.modelsByMake === "object" && p.modelsByMake !== null
-          ? (p.modelsByMake as Record<string, unknown>)
-          : {},
-      enabledColors: Array.isArray(p.enabledColors)
-        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      enabledYears: Array.isArray(p.enabledYears)
-        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-    };
-
-    // Filter the hardcoded car data by what's enabled
-    const filtered = filterByEnabledConfig(config);
-    return filtered;
+    return { makes: [], colors: [], years: [] };
   },
 );
 

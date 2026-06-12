@@ -183,33 +183,126 @@ export function findMakeByLabel(label: string): CarMake | undefined {
   return CAR_MAKES.find((make) => make.label === label || make.key === label);
 }
 
-// Filters cars by admin-enabled configuration. Returns only enabled makes with
-// only enabled models, and only enabled colors/years.
-export function filterByEnabledConfig(config: {
-  enabledMakes: string[];
-  modelsByMake: Record<string, string[]>;
-  enabledColors: string[];
-  enabledYears: string[];
-}): {
+// ---------------------------------------------------------------------------
+// Admin-managed catalogue configuration
+// ---------------------------------------------------------------------------
+//
+// The arrays above are only the SEED. The live catalogue — what customers and
+// merchants actually see in their dropdowns — is stored in the event store
+// (botly_catalogue_config) and fully editable from the admin panel: the admin
+// can add/remove makes, models, colors and years, and show/hide each one with
+// a checkbox. Customer, merchant and admin all read from this single source.
+
+export type CatalogueItem = { name: string; enabled: boolean };
+
+export type CatalogueMakeConfig = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  models: CatalogueItem[];
+};
+
+export type CatalogueConfig = {
+  makes: CatalogueMakeConfig[];
+  colors: CatalogueItem[];
+  years: CatalogueItem[];
+};
+
+// First-run state: the standard list above, everything hidden until the admin
+// explicitly checks it.
+export function defaultCatalogueConfig(): CatalogueConfig {
+  return {
+    makes: CAR_MAKES.map((make) => ({
+      key: make.key,
+      label: make.label,
+      enabled: false,
+      models: make.models.map((name) => ({ name, enabled: false })),
+    })),
+    colors: CAR_COLORS.map((name) => ({ name, enabled: false })),
+    years: CAR_YEARS.map((name) => ({ name, enabled: false })),
+  };
+}
+
+function parseItems(value: unknown): CatalogueItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: CatalogueItem[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.name !== "string" || !entry.name) continue;
+    items.push({ name: entry.name, enabled: entry.enabled === true });
+  }
+  return items;
+}
+
+function asStringSet(value: unknown): Set<string> {
+  return new Set(
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [],
+  );
+}
+
+// Read a stored catalogue event payload. Returns null for unrelated payloads.
+export function parseCatalogueConfig(
+  payload?: Record<string, unknown> | null,
+): CatalogueConfig | null {
+  if (!payload) return null;
+
+  if (Array.isArray(payload.makes)) {
+    const makes: CatalogueMakeConfig[] = [];
+    for (const raw of payload.makes) {
+      if (!raw || typeof raw !== "object") continue;
+      const m = raw as Record<string, unknown>;
+      if (typeof m.key !== "string" || !m.key) continue;
+      if (typeof m.label !== "string" || !m.label) continue;
+      makes.push({
+        key: m.key,
+        label: m.label,
+        enabled: m.enabled === true,
+        models: parseItems(m.models),
+      });
+    }
+    return { makes, colors: parseItems(payload.colors), years: parseItems(payload.years) };
+  }
+
+  // Legacy shape (first catalogue version): enabled keys against the hardcoded
+  // lists — convert into the editable shape so old saves keep working.
+  if (Array.isArray(payload.enabledMakes)) {
+    const enabledMakes = asStringSet(payload.enabledMakes);
+    const enabledColors = asStringSet(payload.enabledColors);
+    const enabledYears = asStringSet(payload.enabledYears);
+    const modelsByMake = (
+      payload.modelsByMake && typeof payload.modelsByMake === "object" ? payload.modelsByMake : {}
+    ) as Record<string, unknown>;
+
+    const config = defaultCatalogueConfig();
+    for (const make of config.makes) {
+      make.enabled = enabledMakes.has(make.key);
+      const enabledModels = asStringSet(modelsByMake[make.key]);
+      for (const model of make.models) model.enabled = enabledModels.has(model.name);
+    }
+    for (const color of config.colors) color.enabled = enabledColors.has(color.name);
+    for (const year of config.years) year.enabled = enabledYears.has(year.name);
+    return config;
+  }
+
+  return null;
+}
+
+// What customers/merchants see: only the checked items.
+export function toEnabledCatalogue(config: CatalogueConfig): {
   makes: CarMake[];
   colors: string[];
   years: string[];
 } {
-  const enabledMakeSet = new Set(config.enabledMakes);
-  const colorSet = new Set(config.enabledColors);
-  const yearSet = new Set(config.enabledYears);
-
-  const makes = CAR_MAKES.filter((make) => enabledMakeSet.has(make.key)).map((make) => ({
-    ...make,
-    models: make.models.filter((m) => {
-      const enabled = config.modelsByMake[make.key];
-      return enabled && enabled.includes(m);
-    }),
-  }));
-
   return {
-    makes,
-    colors: CAR_COLORS.filter((c) => colorSet.has(c)),
-    years: CAR_YEARS.filter((y) => yearSet.has(y)),
+    makes: config.makes
+      .filter((make) => make.enabled)
+      .map((make) => ({
+        key: make.key,
+        label: make.label,
+        models: make.models.filter((model) => model.enabled).map((model) => model.name),
+      })),
+    colors: config.colors.filter((color) => color.enabled).map((color) => color.name),
+    years: config.years.filter((year) => year.enabled).map((year) => year.name),
   };
 }

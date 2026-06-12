@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { filterByEnabledConfig, type CarMake } from "@/lib/car-data";
+import { parseCatalogueConfig, toEnabledCatalogue, type CarMake } from "@/lib/car-data";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
@@ -913,30 +913,12 @@ export const getEnabledCarCatalogueForMerchant = createServerFn({ method: "POST"
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }): Promise<MerchantCarCatalogue> => {
     await getAuthorizedMerchant(data.token);
-    const configRows = await listEvents("botly_catalogue_config");
-
-    if (configRows.length === 0) {
-      return { makes: [], colors: [], years: [] };
+    // Same single source as the customer side: newest parseable catalogue
+    // event from the admin panel.
+    const rows = await listEvents("botly_catalogue_config");
+    for (const row of rows) {
+      const config = parseCatalogueConfig(row.payload);
+      if (config) return toEnabledCatalogue(config);
     }
-
-    const latest = configRows[configRows.length - 1];
-    const p = latest.payload ?? {};
-    const config = {
-      enabledMakes: Array.isArray(p.enabledMakes)
-        ? (p.enabledMakes as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      modelsByMake:
-        typeof p.modelsByMake === "object" && p.modelsByMake !== null
-          ? (p.modelsByMake as Record<string, unknown>)
-          : {},
-      enabledColors: Array.isArray(p.enabledColors)
-        ? (p.enabledColors as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-      enabledYears: Array.isArray(p.enabledYears)
-        ? (p.enabledYears as unknown[]).filter((v): v is string => typeof v === "string")
-        : [],
-    };
-
-    const filtered = filterByEnabledConfig(config);
-    return filtered;
+    return { makes: [], colors: [], years: [] };
   });
