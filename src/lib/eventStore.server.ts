@@ -197,12 +197,31 @@ export function randomToken(): string {
     .replace(/=+$/g, "");
 }
 
-// Normalize a phone number to a comparable form (+<digits>).
+// Normalize a phone number to international format (+<country><digits>).
+// Handles Iraqi numbers in all formats:
+// - 07XXXXXXXXX → +9647XXXXXXXXX (local Iraqi format)
+// - 9647XXXXXXXXX → +9647XXXXXXXXX (10 digits without +)
+// - +9647XXXXXXXXX → +9647XXXXXXXXX (already international)
+// - 00967XXXXXXXXX → +967XXXXXXXXX (alternative international format)
 export function normalizePhone(phone: string): string {
-  return phone
-    .replace(/[^\d+]/g, "")
-    .replace(/^00/, "+")
-    .trim();
+  const digits = phone.replace(/[^\d+]/g, "").trim();
+  if (!digits) return "";
+
+  // Remove leading + if present, we'll add it back at the end
+  let cleaned = digits.replace(/^\+/, "");
+
+  // Convert 00 prefix to country code (e.g., 00964 → 964)
+  if (cleaned.startsWith("00")) {
+    cleaned = cleaned.slice(2);
+  }
+
+  // Convert Iraqi local format to international:
+  // 07XXXXXXXXX (11 digits) → 9647XXXXXXXXX (12 digits)
+  if (cleaned.startsWith("07") && cleaned.length === 11) {
+    cleaned = "964" + cleaned.slice(1);
+  }
+
+  return "+" + cleaned;
 }
 
 // Format-independent phone identity: "07801234567", "+9647801234567" and

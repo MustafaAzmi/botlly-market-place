@@ -408,8 +408,12 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     // the order is already logged above, so even if the send fails, the admin
     // can see it in the event store).
     const normalizedPhone = normalizePhone(mediatorPhone);
-    sendWhatsAppText(normalizedPhone, message).catch(() => {
+    sendWhatsAppText(normalizedPhone, message).catch((error) => {
       // Log failures silently — order is already stored in event store
+      console.error("[submitProductOrder] Failed to send message to mediator", {
+        phone: normalizedPhone,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
 
     return {
