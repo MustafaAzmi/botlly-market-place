@@ -772,15 +772,18 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       updatedAt: new Date().toISOString(),
     };
 
-    // Delete all old events for this product before inserting the new one
+    // Delete all old events for this product before inserting the new one,
+    // otherwise the edited product shows up duplicated in listings.
+    const oldRowIds = rows
+      .filter(
+        (r) =>
+          getString(r.payload?.merchantId) === merchantId &&
+          (getString(r.payload?.productId) === productId || r.id === data.productId),
+      )
+      .map((r) => r.id);
     const store = await getEventStore();
     if (store === "broadcasts") {
-      await supabaseAdmin
-        .from("broadcasts")
-        .delete()
-        .eq("source", "botly")
-        .eq("event_type", PRODUCT_PROVIDER)
-        .eq("payload->>productId" as never, productId);
+      await supabaseAdmin.from("broadcasts").delete().in("id", oldRowIds);
     } else {
       await supabaseAdmin
         .from("whatsapp_webhook_events")
