@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
@@ -137,12 +136,6 @@ function AuthPage() {
   const resetForm = () => {
     setPassword("");
     setShowReset(false);
-  };
-
-  const onModeChange = (value: string) => {
-    if (value !== "login" && value !== "signup") return;
-    setMode(value);
-    resetForm();
   };
 
   const saveAuthSession = (
@@ -338,88 +331,97 @@ function AuthPage() {
                 </div>
               </form>
             ) : (
-              <>
-                <Tabs value={mode} onValueChange={onModeChange} className="w-full">
-                  <TabsList className="grid h-10 w-full grid-cols-2">
-                    <TabsTrigger value="login">{text.login}</TabsTrigger>
-                    <TabsTrigger value="signup">{text.signup}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+              <form onSubmit={onAuthSubmit} className="space-y-5">
+                {mode === "login" && (
+                  <div>
+                    <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {locale === "ar" ? "ادخل برقم واتساب وكلمة المرور" : "Sign in with WhatsApp number and password"}
+                    </p>
+                  </div>
+                )}
 
-                <form onSubmit={onAuthSubmit} className="mt-6 space-y-5">
-                  <Field
-                    icon={Phone}
-                    id="whatsapp"
-                    label={text.whatsapp}
-                    value={whatsapp}
-                    onChange={setWhatsapp}
-                    placeholder={text.whatsappPlaceholder}
-                    type="tel"
-                    dir="ltr"
-                  />
+                {mode === "signup" && (
+                  <div>
+                    <h2 className="text-xl font-semibold tracking-normal">{text.signup}</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {locale === "ar" ? "أنشئ متجر جديد" : "Create your store"}
+                    </p>
+                  </div>
+                )}
 
-                  {mode === "signup" && (
-                    <>
-                      <div>
-                        <Field
-                          icon={Building2}
-                          id="storeName"
-                          label={text.storeName}
-                          value={storeName}
-                          onChange={setStoreName}
-                          placeholder={text.storeNamePlaceholder}
-                        />
-                        <StoreSlugHint storeName={storeName} locale={locale} />
-                      </div>
+                <Field
+                  icon={Phone}
+                  id="whatsapp"
+                  label={text.whatsapp}
+                  value={whatsapp}
+                  onChange={setWhatsapp}
+                  placeholder={text.whatsappPlaceholder}
+                  type="tel"
+                  dir="ltr"
+                />
+
+                {mode === "signup" && (
+                  <>
+                    <div>
                       <Field
-                        icon={Mail}
-                        id="email"
-                        label={text.emailOptional}
-                        value={email}
-                        onChange={setEmail}
-                        placeholder={text.emailPlaceholder}
-                        type="email"
-                        dir="ltr"
+                        icon={Building2}
+                        id="storeName"
+                        label={text.storeName}
+                        value={storeName}
+                        onChange={setStoreName}
+                        placeholder={text.storeNamePlaceholder}
                       />
-                    </>
-                  )}
-
-                  <PasswordField
-                    id="password"
-                    label={text.password}
-                    value={password}
-                    onChange={setPassword}
-                    placeholder={text.passwordPlaceholder}
-                  />
-
-                  {mode === "login" && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="link"
-                        className="h-auto px-0"
-                        onClick={() => setShowReset(true)}
-                      >
-                        {text.forgotPassword}
-                      </Button>
+                      <StoreSlugHint storeName={storeName} locale={locale} />
                     </div>
-                  )}
+                    <Field
+                      icon={Mail}
+                      id="email"
+                      label={text.emailOptional}
+                      value={email}
+                      onChange={setEmail}
+                      placeholder={text.emailPlaceholder}
+                      type="email"
+                      dir="ltr"
+                    />
+                  </>
+                )}
 
-                  <Button
-                    type="submit"
-                    size="lg"
-                    className="w-full gap-2 shadow-soft"
-                    disabled={loading}
-                  >
-                    {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
-                    <ArrowRight className="h-4 w-4 rtl:rotate-180" />
-                  </Button>
+                <PasswordField
+                  id="password"
+                  label={text.password}
+                  value={password}
+                  onChange={setPassword}
+                  placeholder={text.passwordPlaceholder}
+                />
 
-                  <p className="text-center text-xs leading-5 text-muted-foreground">
-                    {text.terms}
-                  </p>
-                </form>
-              </>
+                {mode === "login" && (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto px-0"
+                      onClick={() => setShowReset(true)}
+                    >
+                      {text.forgotPassword}
+                    </Button>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full gap-2 shadow-soft"
+                  disabled={loading}
+                >
+                  {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
+                  <ArrowRight className="h-4 w-4 rtl:rotate-180" />
+                </Button>
+
+                <p className="text-center text-xs leading-5 text-muted-foreground">
+                  {text.terms}
+                </p>
+              </form>
             )}
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
