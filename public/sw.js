@@ -8,7 +8,7 @@
 //   - /api/*       : network only (never cached — auth + live data)
 //   - push         : show a notification, focus/open the target URL on click
 
-const VERSION = "botly-pwa-v1";
+const VERSION = "botly-pwa-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";
@@ -17,6 +17,8 @@ const PRECACHE = [
   OFFLINE_URL,
   "/manifest-customer.webmanifest",
   "/manifest-merchant.webmanifest",
+  "/icons/customer.svg",
+  "/icons/merchant.svg",
   "/icons/customer-192.png",
   "/icons/customer-512.png",
   "/icons/merchant-192.png",
@@ -28,12 +30,17 @@ self.addEventListener("install", (event) => {
     caches
       .open(STATIC_CACHE)
       .then((cache) => {
-        // Precache files; ignore failures for non-critical assets to avoid blocking install
+        // Precache files individually; only store OK responses so a missing
+        // asset never blocks install nor poisons the cache with a 404 page.
         return Promise.allSettled(
-          PRECACHE.map((url) => fetch(url).then((r) => cache.put(url, r)))
+          PRECACHE.map((url) =>
+            fetch(url).then((r) => {
+              if (r.ok) return cache.put(url, r);
+            }),
+          ),
         ).then(() => self.skipWaiting());
       })
-      .catch(() => self.skipWaiting()), // Continue even if precache fails
+      .catch(() => self.skipWaiting()),
   );
 });
 

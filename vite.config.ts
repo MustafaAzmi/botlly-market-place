@@ -4,7 +4,19 @@
 //     componentTagger (dev-only), VITE_* env injection, @ path alias, React/TanStack dedupe,
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import { execSync } from "node:child_process";
+
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+
+// Regenerate the PWA PNG icons from the checked-in script on every dev/build
+// start. The deploy pipeline doesn't reliably ship binary files pushed via
+// git, so the icons are (re)created as a build artifact on the server itself —
+// only text sources need to survive the sync.
+try {
+  execSync("node scripts/generate-pwa-icons.mjs", { stdio: "ignore" });
+} catch {
+  // Never block the build on icon generation.
+}
 
 export default defineConfig({
   // `noExternals: ["tslib"]` forces Nitro to bundle tslib into the server output

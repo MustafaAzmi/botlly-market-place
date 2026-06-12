@@ -17,16 +17,16 @@ export const PWA_APPS: Record<
   customer: {
     name: "بوتلي زبون",
     manifest: "/manifest-customer.webmanifest",
-    startUrl: "/customer/auth?source=pwa",
+    startUrl: "/customer/auth",
     themeColor: "#16a34a",
-    icon: "/icons/customer-192.png",
+    icon: "/icons/customer.svg",
   },
   merchant: {
     name: "بوتلي تاجر",
     manifest: "/manifest-merchant.webmanifest",
-    startUrl: "/auth?source=pwa",
+    startUrl: "/auth",
     themeColor: "#0d7490",
-    icon: "/icons/merchant-192.png",
+    icon: "/icons/merchant.svg",
   },
 };
 
