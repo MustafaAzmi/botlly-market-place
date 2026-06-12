@@ -663,7 +663,18 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
     const rows = await listEvents(PRODUCT_PROVIDER);
-    return rows.filter((row) => getString(row.payload?.merchantId) === merchantId).map(toProduct);
+    // Append-only store: edits add rows with the same productId, so keep
+    // only the newest event per product (rows come newest first).
+    const seen = new Set<string>();
+    const products: MerchantProduct[] = [];
+    for (const row of rows) {
+      if (getString(row.payload?.merchantId) !== merchantId) continue;
+      const product = toProduct(row);
+      if (seen.has(product.id)) continue;
+      seen.add(product.id);
+      products.push(product);
+    }
+    return products;
   });
 
 export const getMerchantProduct = createServerFn({ method: "POST" })
@@ -773,12 +784,15 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     };
 
     // Delete all old events for this product before inserting the new one,
-    // otherwise the edited product shows up duplicated in listings.
+    // otherwise the edited product shows up duplicated in listings. Matching
+    // by productId AND by row id covers legacy rows without a productId.
     const oldRowIds = rows
       .filter(
         (r) =>
           getString(r.payload?.merchantId) === merchantId &&
-          (getString(r.payload?.productId) === productId || r.id === data.productId),
+          (getString(r.payload?.productId) === productId ||
+            r.id === productId ||
+            r.id === data.productId),
       )
       .map((r) => r.id);
     const store = await getEventStore();
@@ -791,6 +805,12 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
         .eq("source", "botly")
         .eq("event_type", PRODUCT_PROVIDER)
         .eq("payload->>productId" as never, productId);
+      await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .eq("source", "botly")
+        .eq("event_type", PRODUCT_PROVIDER)
+        .in("id", oldRowIds);
     }
 
     const updated = await insertEvent(PRODUCT_PROVIDER, payload);
@@ -815,18 +835,26 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
     );
     if (!row) throw new Error("لم يتم العثور على المنتج.");
 
+    // Products are append-only (edits add rows with the same productId):
+    // delete EVERY event row of this product — by productId AND by row id —
+    // otherwise an older version resurrects as "latest" right after delete.
+    const pid = getString(row.payload?.productId);
+    const targetRowIds = rows
+      .filter(
+        (r) =>
+          getString(r.payload?.merchantId) === merchantId &&
+          (r.id === row.id ||
+            r.id === data.productId ||
+            (pid !== "" &&
+              (getString(r.payload?.productId) === pid || r.id === pid))),
+      )
+      .map((r) => r.id);
+
     const store = await getEventStore();
     if (store === "broadcasts") {
-      const result = await supabaseAdmin
-        .from("broadcasts")
-        .delete()
-        .eq("id", row.id);
+      const result = await supabaseAdmin.from("broadcasts").delete().in("id", targetRowIds);
       if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
     } else {
-      // Products are append-only (edits add rows with the same productId):
-      // delete EVERY event row of this product, otherwise an older version
-      // resurrects as "latest" right after the delete.
-      const pid = getString(row.payload?.productId);
       if (pid) {
         const byProductId = await supabaseAdmin
           .from("whatsapp_webhook_events")
@@ -836,15 +864,15 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
           .eq("payload->>productId" as never, pid);
         if (byProductId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
       }
-      // Also remove the matched row itself (covers legacy rows without a
+      // Also delete by collected row ids (covers legacy rows without a
       // productId in the payload).
-      const byRowId = await supabaseAdmin
+      const byRowIds = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
         .eq("source", "botly")
         .eq("event_type", PRODUCT_PROVIDER)
-        .eq("id", row.id);
-      if (byRowId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+        .in("id", targetRowIds);
+      if (byRowIds.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
     }
 
     return { ok: true };
@@ -856,9 +884,16 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
     const merchant = await getAuthorizedMerchant(data.token);
     const profile = toProfile(merchant);
     const rows = await listEvents(PRODUCT_PROVIDER);
-    const products = rows
-      .filter((row) => getString(row.payload?.merchantId) === profile.id)
-      .map(toProduct);
+    // Newest event per product wins (append-only store, rows newest first).
+    const seen = new Set<string>();
+    const products: MerchantProduct[] = [];
+    for (const row of rows) {
+      if (getString(row.payload?.merchantId) !== profile.id) continue;
+      const product = toProduct(row);
+      if (seen.has(product.id)) continue;
+      seen.add(product.id);
+      products.push(product);
+    }
 
     return {
       profile,
