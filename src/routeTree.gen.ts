@@ -27,6 +27,7 @@ import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminDeliveryRouteImport } from './routes/admin/delivery'
 import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
 import { Route as AdminCurrenciesRouteImport } from './routes/admin/currencies'
+import { Route as AdminCatalogRouteImport } from './routes/admin/catalog'
 import { Route as AdminBroadcastsRouteImport } from './routes/admin/broadcasts'
 import { Route as AdminBotRouteImport } from './routes/admin/bot'
 import { Route as DashboardWorkflowIndexRouteImport } from './routes/dashboard/workflow/index'
@@ -129,6 +130,11 @@ const AdminCurrenciesRoute = AdminCurrenciesRouteImport.update({
   path: '/admin/currencies',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCatalogRoute = AdminCatalogRouteImport.update({
+  id: '/admin/catalog',
+  path: '/admin/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminBroadcastsRoute = AdminBroadcastsRouteImport.update({
   id: '/admin/broadcasts',
   path: '/admin/broadcasts',
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
@@ -255,6 +263,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
@@ -288,6 +297,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
     | '/admin/customers'
     | '/admin/delivery'
@@ -319,6 +329,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
     | '/admin/customers'
     | '/admin/delivery'
@@ -349,6 +360,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
     | '/admin/customers'
     | '/admin/delivery'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
   AdminBroadcastsRoute: typeof AdminBroadcastsRoute
+  AdminCatalogRoute: typeof AdminCatalogRoute
   AdminCurrenciesRoute: typeof AdminCurrenciesRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDeliveryRoute: typeof AdminDeliveryRoute
@@ -533,6 +546,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCurrenciesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/catalog': {
+      id: '/admin/catalog'
+      path: '/admin/catalog'
+      fullPath: '/admin/catalog'
+      preLoaderRoute: typeof AdminCatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/broadcasts': {
       id: '/admin/broadcasts'
       path: '/admin/broadcasts'
@@ -621,6 +641,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
   AdminBroadcastsRoute: AdminBroadcastsRoute,
+  AdminCatalogRoute: AdminCatalogRoute,
   AdminCurrenciesRoute: AdminCurrenciesRoute,
   AdminCustomersRoute: AdminCustomersRoute,
   AdminDeliveryRoute: AdminDeliveryRoute,
