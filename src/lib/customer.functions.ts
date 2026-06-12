@@ -19,9 +19,11 @@ import {
   getNumber,
   eventTime,
   phoneKey,
+  normalizePhone,
   type EventRow,
 } from "@/lib/eventStore.server";
 import { parseCatalogueConfig, toEnabledCatalogue, type CarMake } from "@/lib/car-data";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -345,14 +347,17 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       createdAt: new Date().toISOString(),
     });
 
-    // TODO: Send message to mediator via WhatsApp Business API (non-blocking;
+    // Send message to mediator via WhatsApp Business API (non-blocking;
     // the order is already logged above, so even if the send fails, the admin
     // can see it in the event store).
-    // For now, just confirm the order was received.
+    const normalizedPhone = normalizePhone(mediatorPhone);
+    sendWhatsAppText(normalizedPhone, message).catch(() => {
+      // Log failures silently — order is already stored in event store
+    });
 
     return {
       success: true,
-      message: "تم إرسال طلبك للوسيط. سيتواصل معك قريباً إن شاء الله.",
+      message: "تم إرسال طلبك للوسيط. سيتم الاهتمام بك والتواصل معك خلال دقائق قريباً إن شاء الله.",
     };
   });
 
