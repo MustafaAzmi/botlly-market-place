@@ -120,7 +120,7 @@ function CustomerDashboard() {
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
-        {tab === "shop" && <ShopTab customerWhatsapp={customer.whatsapp} mediatorPhone={mediatorPhone} />}
+        {tab === "shop" && <ShopTab customer={customer} mediatorPhone={mediatorPhone} />}
         {tab === "profile" && (
           <ProfileTab
             session={session}
@@ -149,7 +149,13 @@ function CustomerDashboard() {
 // Shop: car filters → products (specs + final price only, no merchant info)
 // ---------------------------------------------------------------------------
 
-function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string; mediatorPhone: string }) {
+function ShopTab({
+  customer,
+  mediatorPhone,
+}: {
+  customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
+  mediatorPhone: string;
+}) {
   const browseFn = useServerFn(browseCarProducts);
   const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [carMake, setCarMake] = useState("");

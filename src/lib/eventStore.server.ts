@@ -22,7 +22,8 @@ export type BotlyEventType =
   | "botly_admin_session"
   | "botly_admin_message"
   | "botly_settings"
-  | "botly_delivery_company";
+  | "botly_delivery_company"
+  | "botly_catalogue_config";
 
 export type EventRow = {
   id: string;

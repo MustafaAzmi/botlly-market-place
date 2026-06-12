@@ -332,7 +332,7 @@ async function listEvents(provider: string) {
   const fallback = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,received_at")
-    .eq("provider", provider)
+    .eq("provider" as never, provider as never)
     .order("received_at", { ascending: false })
     .limit(5000);
 
@@ -342,7 +342,7 @@ async function listEvents(provider: string) {
   }
   if (fallback.error)
     throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
-  return (fallback.data ?? []) as EventRow[];
+  return (fallback.data ?? []) as unknown as EventRow[];
 }
 
 async function findMerchantByPhone(whatsapp: string) {
@@ -402,7 +402,7 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
       source: "botly",
       event_type: provider,
       payload,
-    })
+    } as never)
     .select("id,payload,created_at")
     .single();
 
@@ -422,7 +422,7 @@ async function insertEvent(provider: string, payload: Record<string, unknown>) {
     return insertEvent(provider, payload);
   }
   if (fallback.error) throw new Error(explainDbError("تعذر حفظ بيانات المتجر", fallback.error));
-  return fallback.data as EventRow;
+  return fallback.data as unknown as EventRow;
 }
 
 async function createSession(merchant: EventRow) {
