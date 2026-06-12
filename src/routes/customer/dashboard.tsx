@@ -301,8 +301,10 @@ function ShopTab({ customerWhatsapp, mediatorPhone }: { customerWhatsapp: string
                 key={product.id}
                 product={product}
                 mediatorPhone={mediatorPhone}
-                customerName={customerWhatsapp}
-                customerPhone={customerWhatsapp}
+                customerName={customer.name}
+                customerPhone={customer.whatsapp}
+                customerGovernorate={customer.governorate}
+                customerLandmark={customer.landmark}
               />
             ))}
           </div>
@@ -319,11 +321,15 @@ function ProductCard({
   mediatorPhone,
   customerName,
   customerPhone,
+  customerGovernorate,
+  customerLandmark,
 }: {
   product: CustomerProduct;
   mediatorPhone: string;
   customerName: string;
   customerPhone: string;
+  customerGovernorate: string;
+  customerLandmark: string;
 }) {
   const submitOrderFn = useServerFn(submitProductOrder);
   const [imageIndex, setImageIndex] = useState(0);
@@ -354,6 +360,8 @@ function ProductCard({
           merchantWhatsapp: product.merchantWhatsapp,
           customerName,
           customerPhone,
+          customerGovernorate,
+          customerLandmark,
         },
       });
       toast.success(result.message);
@@ -452,6 +460,8 @@ function ProductCard({
                   <div className="text-xs text-muted-foreground">بيانات الزبون</div>
                   <div className="font-medium">{customerName}</div>
                   <div className="text-xs text-muted-foreground">{customerPhone}</div>
+                  <div className="text-xs text-muted-foreground">{customerGovernorate}</div>
+                  <div className="text-xs text-muted-foreground">{customerLandmark}</div>
                 </div>
               </div>
 

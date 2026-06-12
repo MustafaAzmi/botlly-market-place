@@ -303,6 +303,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
         merchantWhatsapp: z.string().trim().min(6),
         customerName: z.string().trim().min(2),
         customerPhone: z.string().trim().min(6),
+        customerGovernorate: z.string().trim().min(1),
+        customerLandmark: z.string().trim().min(1),
       })
       .parse(d),
   )
@@ -324,6 +326,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       "👤 بيانات الزبون:",
       `الاسم: ${data.customerName}`,
       `الهاتف: ${data.customerPhone}`,
+      `المحافظة: ${data.customerGovernorate}`,
+      `أقرب نقطة دالة: ${data.customerLandmark}`,
     ].join("\n");
 
     // Store the order in the event store for history/admin view (optional).
@@ -334,6 +338,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       merchantWhatsapp: data.merchantWhatsapp,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
+      customerGovernorate: data.customerGovernorate,
+      customerLandmark: data.customerLandmark,
       mediatorPhone,
       message,
       createdAt: new Date().toISOString(),
