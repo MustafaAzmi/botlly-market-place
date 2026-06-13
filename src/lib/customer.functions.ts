@@ -329,6 +329,30 @@ function toWhatsAppRecipient(phone: string): string {
   return normalizePhone(phone).replace(/^\+/, "");
 }
 
+async function sendOrderToMediator(phone: string, message: string) {
+  const primaryRecipient = toWhatsAppRecipient(phone);
+  const legacyRecipient = normalizePhone(phone);
+
+  const primary = await sendWhatsAppText(primaryRecipient, message);
+  if (primary.ok) return { phone: primaryRecipient, ...primary };
+
+  // Before the mediator split, this order path sent the normalized number with
+  // "+". Keep that as a compatibility fallback for accounts that were already
+  // working with the older format.
+  if (legacyRecipient && legacyRecipient !== primaryRecipient) {
+    const legacy = await sendWhatsAppText(legacyRecipient, message);
+    if (legacy.ok) return { phone: legacyRecipient, ...legacy };
+    return {
+      phone: primaryRecipient,
+      ok: false,
+      status: legacy.status || primary.status,
+      error: `primary=${primary.error ?? primary.status}; legacy=${legacy.error ?? legacy.status}`,
+    };
+  }
+
+  return { phone: primaryRecipient, ...primary };
+}
+
 export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async () => {
   const phones = await readMediatorPhones();
   return { phone: phones[0] ?? "", phones };
@@ -460,8 +484,11 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     );
     const message = lines.join("\n");
 
+    const orderId = crypto.randomUUID();
+
     // Store the order in the event store for history/admin view (optional).
     await appendEvent("botly_order", {
+      orderId,
       productId: product.id,
       productTitle: product.title,
       price: product.price,
@@ -481,13 +508,12 @@ export const submitProductOrder = createServerFn({ method: "POST" })
 
     const sendResults = [];
     for (const mediatorPhone of mediatorPhones) {
-      const recipient = toWhatsAppRecipient(mediatorPhone);
       try {
-        const result = await sendWhatsAppText(recipient, message);
-        sendResults.push({ phone: recipient, ...result });
+        const result = await sendOrderToMediator(mediatorPhone, message);
+        sendResults.push(result);
       } catch (error) {
         sendResults.push({
-          phone: recipient,
+          phone: mediatorPhone,
           ok: false,
           status: 0,
           error: error instanceof Error ? error.message : String(error),
@@ -496,6 +522,28 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     }
 
     const sentCount = sendResults.filter((result) => result.ok).length;
+    await appendEvent("botly_order", {
+      orderId,
+      productId: product.id,
+      productTitle: product.title,
+      price: product.price,
+      currency: product.currency,
+      merchantId: merchant.merchantId,
+      merchantStoreName: merchant.storeName,
+      merchantWhatsapp: merchant.whatsapp,
+      customerName: data.customerName,
+      customerPhone: data.customerPhone,
+      customerGovernorate: data.customerGovernorate,
+      customerLandmark: data.customerLandmark,
+      mediatorPhone: mediatorPhones[0],
+      mediatorPhones,
+      message,
+      whatsappSent: sentCount > 0,
+      whatsappSentCount: sentCount,
+      whatsappSendResults: sendResults,
+      createdAt: new Date().toISOString(),
+    });
+
     if (sentCount === 0) {
       console.error("[submitProductOrder] Failed to send order to all mediators", sendResults);
       throw new Error(
