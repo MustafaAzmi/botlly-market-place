@@ -6,9 +6,9 @@ import { toast } from "sonner";
 import { Loader2, Phone, Save, Trash2, Users } from "lucide-react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   listCustomers,
   getPlatformSettings,
@@ -33,7 +33,7 @@ function AdminCustomersPage() {
   const purgeProductsFn = useServerFn(purgeAllProducts);
 
   const [search, setSearch] = useState("");
-  const [mediator, setMediator] = useState("");
+  const [mediators, setMediators] = useState("");
   const [savingMediator, setSavingMediator] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [purging, setPurging] = useState(false);
@@ -49,7 +49,7 @@ function AdminCustomersPage() {
   useEffect(() => {
     if (!session?.token) return;
     getSettingsFn({ data: { token: session.token } })
-      .then((settings) => setMediator(settings.mediatorPhone))
+      .then((settings) => setMediators((settings.mediatorPhones ?? [settings.mediatorPhone]).filter(Boolean).join("\n")))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -58,8 +58,12 @@ function AdminCustomersPage() {
     if (!session?.token) return;
     setSavingMediator(true);
     try {
-      await setMediatorFn({ data: { token: session.token, mediatorPhone: mediator.trim() } });
-      toast.success("تم حفظ رقم الوسيط ✅");
+      const mediatorPhones = mediators
+        .split(/\r?\n|,/)
+        .map((phone) => phone.trim())
+        .filter(Boolean);
+      await setMediatorFn({ data: { token: session.token, mediatorPhones } });
+      toast.success("تم حفظ أرقام الوسطاء ✅");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل الحفظ");
     } finally {
@@ -98,21 +102,21 @@ function AdminCustomersPage() {
         <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
           <div className="flex items-center gap-2 font-semibold">
             <Phone className="h-4 w-4 text-primary" />
-            رقم الوسيط (للتواصل)
+            أرقام استلام الطلبات
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            هذا الرقم يظهر للزبائن بزر «التواصل مع الوسيط»، وتوصلك عليه إشعارات الطلبات
-            بتفاصيلها الكاملة. قابل للتغيير بأي وقت.
+            أضف رقم الوسيط أو الموظفين، كل رقم بسطر. طلب الزبون يروح لكل الأرقام
+            المحفوظة، وأول رقم يظهر للزبون بزر التواصل.
           </p>
-          <div className="mt-3 flex max-w-md gap-2">
-            <Input
+          <div className="mt-3 flex max-w-2xl gap-2">
+            <Textarea
               dir="ltr"
-              placeholder="07XX XXX XXXX"
-              value={mediator}
-              onChange={(e) => setMediator(e.target.value)}
-              className="h-11"
+              placeholder={"07836635435\n0770 XXX XXXX\n0750 XXX XXXX"}
+              value={mediators}
+              onChange={(e) => setMediators(e.target.value)}
+              className="min-h-28"
             />
-            <Button onClick={saveMediator} disabled={savingMediator} className="gap-2">
+            <Button onClick={saveMediator} disabled={savingMediator} className="h-11 gap-2">
               <Save className="h-4 w-4" />
               {savingMediator ? "جاري..." : "حفظ"}
             </Button>
@@ -144,7 +148,7 @@ function AdminCustomersPage() {
                 <thead className="border-b border-border bg-secondary/50 text-right">
                   <tr>
                     <Th>الاسم</Th>
-                    <Th>رقم الواتساب</Th>
+                    <Th>رقم الهاتف</Th>
                     <Th>المحافظة</Th>
                     <Th>أقرب نقطة دالة</Th>
                     <Th>تاريخ التسجيل</Th>

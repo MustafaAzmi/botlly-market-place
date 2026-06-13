@@ -293,13 +293,40 @@ export const browseCarProducts = createServerFn({ method: "POST" })
 // Mediator (الوسيط) contact — admin-managed number in botly_settings
 // ---------------------------------------------------------------------------
 
-export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async () => {
+function normalizeMediatorPhones(values: string[]): string[] {
+  const seen = new Set<string>();
+  const phones: string[] = [];
+  for (const value of values) {
+    const phone = value.trim();
+    if (!phone) continue;
+    const key = phoneKey(phone);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    phones.push(phone);
+  }
+  return phones;
+}
+
+async function readMediatorPhones(): Promise<string[]> {
   const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of rows) {
-    const phone = getString(row.payload?.mediatorPhone);
-    if (phone) return { phone };
+    const storedPhones = Array.isArray(row.payload?.mediatorPhones)
+      ? (row.payload?.mediatorPhones as unknown[]).filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    const phones = normalizeMediatorPhones([
+      ...storedPhones,
+      getString(row.payload?.mediatorPhone),
+    ]);
+    if (phones.length > 0) return phones;
   }
-  return { phone: "" };
+  return [];
+}
+
+export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async () => {
+  const phones = await readMediatorPhones();
+  return { phone: phones[0] ?? "", phones };
 });
 
 // Customer-facing car catalogue: only enabled items show in dropdowns.
@@ -394,14 +421,13 @@ export const submitProductOrder = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const product = await resolveOrderProduct(data.productId);
-    const [mediatorResult, merchant] = await Promise.all([
-      getMediatorPhone({}),
+    const [mediatorPhones, merchant] = await Promise.all([
+      readMediatorPhones(),
       resolveMerchantContact(product.id, product.merchantId),
     ]);
-    const mediatorPhone = mediatorResult.phone;
 
-    if (!mediatorPhone) {
-      throw new Error("رقم الوسيط غير مسجل حالياً. حاول لاحقاً.");
+    if (mediatorPhones.length === 0) {
+      throw new Error("أرقام الوسطاء غير مسجلة حالياً. حاول لاحقاً.");
     }
 
     // The order must never fail just because the merchant's number is missing
@@ -442,7 +468,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerPhone: data.customerPhone,
       customerGovernorate: data.customerGovernorate,
       customerLandmark: data.customerLandmark,
-      mediatorPhone,
+      mediatorPhone: mediatorPhones[0],
+      mediatorPhones,
       message,
       createdAt: new Date().toISOString(),
     });
@@ -450,14 +477,16 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     // Send message to mediator via WhatsApp Business API (non-blocking;
     // the order is already logged above, so even if the send fails, the admin
     // can see it in the event store).
-    const normalizedPhone = normalizePhone(mediatorPhone);
-    sendWhatsAppText(normalizedPhone, message).catch((error) => {
-      // Log failures silently — order is already stored in event store
-      console.error("[submitProductOrder] Failed to send message to mediator", {
-        phone: normalizedPhone,
-        error: error instanceof Error ? error.message : String(error),
+    for (const mediatorPhone of mediatorPhones) {
+      const normalizedPhone = normalizePhone(mediatorPhone);
+      sendWhatsAppText(normalizedPhone, message).catch((error) => {
+        // Log failures silently — order is already stored in event store
+        console.error("[submitProductOrder] Failed to send message to mediator", {
+          phone: normalizedPhone,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
+    }
 
     return {
       success: true,

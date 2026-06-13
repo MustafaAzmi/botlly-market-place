@@ -100,10 +100,11 @@ const directMessageInput = merchantActionInput.extend({
 // ---------------------------------------------------------------------------
 
 const ADMIN_SESSION_TTL_DAYS = 7;
+const DEFAULT_ADMIN_SEED_VERSION = "owner-admin-2026-06-13";
 
 // Bootstrap credentials. Seeded into the DB on first login if no admin exists,
 // then editable via changeAdminPassword. NOT used for auth after seeding.
-const DEFAULT_ADMIN = { whatsapp: "07836653453", password: "123456" };
+const DEFAULT_ADMIN = { whatsapp: "07836635435", password: "ma@MA769667" };
 
 async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
@@ -113,10 +114,41 @@ function adminIdentity(row: EventRow) {
   return getString(row.payload?.adminId) || row.id;
 }
 
-// Seed the default admin once if the admin table is empty.
+// Seed/update the owner admin. This intentionally keeps the requested owner
+// login available even when older admin rows already exist in the event store.
 async function ensureAdminSeed(): Promise<void> {
   const admins = await listEvents("botly_admin");
-  if (admins.length > 0) return;
+  const normalized = normalizePhone(DEFAULT_ADMIN.whatsapp);
+  const existing = admins.find((row) => getString(row.payload?.whatsappNormalized) === normalized);
+  if (existing) {
+    if (getString(existing.payload?.ownerSeedVersion) === DEFAULT_ADMIN_SEED_VERSION) return;
+
+    const salt = getString(existing.payload?.passwordSalt);
+    const expectedHash = getString(existing.payload?.passwordHash);
+    const defaultHash = salt ? await hashPassword(DEFAULT_ADMIN.password, salt) : "";
+    if (salt && expectedHash === defaultHash) {
+      await appendEvent("botly_admin", {
+        ...(existing.payload ?? {}),
+        adminId: adminIdentity(existing),
+        ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const newSalt = randomToken();
+    await appendEvent("botly_admin", {
+      ...(existing.payload ?? {}),
+      adminId: adminIdentity(existing),
+      whatsapp: DEFAULT_ADMIN.whatsapp,
+      whatsappNormalized: normalized,
+      passwordSalt: newSalt,
+      passwordHash: await hashPassword(DEFAULT_ADMIN.password, newSalt),
+      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
 
   const salt = randomToken();
   await appendEvent("botly_admin", {
@@ -125,6 +157,7 @@ async function ensureAdminSeed(): Promise<void> {
     whatsappNormalized: normalizePhone(DEFAULT_ADMIN.whatsapp),
     passwordSalt: salt,
     passwordHash: await hashPassword(DEFAULT_ADMIN.password, salt),
+    ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -186,9 +219,12 @@ export const loginAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => loginInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
+    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
+      throw new Error("رقم الأدمن غير صحيح.");
+    }
 
     const row = await findAdminByPhone(data.whatsapp);
-    if (!row) throw new Error("رقم الواتساب غير مسجل كأدمن.");
+    if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
     const salt = getString(row.payload?.passwordSalt);
     const expected = getString(row.payload?.passwordHash);
@@ -559,22 +595,53 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
     const rows = await listEvents("botly_settings");
-    const mediatorPhone = rows
-      .map((row) => getString(row.payload?.mediatorPhone))
-      .find(Boolean);
-    return { mediatorPhone: mediatorPhone ?? "" };
+    for (const row of rows) {
+      const storedPhones = Array.isArray(row.payload?.mediatorPhones)
+        ? (row.payload?.mediatorPhones as unknown[]).filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [];
+      const mediatorPhones = normalizeMediatorPhones([
+        ...storedPhones,
+        getString(row.payload?.mediatorPhone),
+      ]);
+      if (mediatorPhones.length > 0) {
+        return { mediatorPhone: mediatorPhones[0], mediatorPhones };
+      }
+    }
+    return { mediatorPhone: "", mediatorPhones: [] as string[] };
   });
 
 const mediatorPhoneInput = tokenInput.extend({
-  mediatorPhone: z.string().trim().max(40),
+  mediatorPhone: z.string().trim().max(40).optional().or(z.literal("")),
+  mediatorPhones: z.array(z.string().trim().min(3).max(40)).max(20).optional(),
 });
+
+function normalizeMediatorPhones(values: string[]): string[] {
+  const seen = new Set<string>();
+  const phones: string[] = [];
+  for (const value of values) {
+    const phone = value.trim();
+    if (!phone) continue;
+    const key = phoneKey(phone);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    phones.push(phone);
+  }
+  return phones;
+}
 
 export const setMediatorPhone = createServerFn({ method: "POST" })
   .inputValidator((d) => mediatorPhoneInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
+    const mediatorPhones = normalizeMediatorPhones([
+      ...(data.mediatorPhones ?? []),
+      data.mediatorPhone ?? "",
+    ]);
     await appendEvent("botly_settings", {
-      mediatorPhone: data.mediatorPhone,
+      mediatorPhone: mediatorPhones[0] ?? "",
+      mediatorPhones,
       updatedAt: new Date().toISOString(),
     });
     return { ok: true };

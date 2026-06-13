@@ -65,7 +65,7 @@ function AdminLoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="whatsapp">رقم الواتساب</Label>
+              <Label htmlFor="whatsapp">رقم الهاتف</Label>
               <Input
                 id="whatsapp"
                 type="tel"
@@ -108,7 +108,7 @@ function AdminLoginPage() {
         <div>
           <h2 className="text-4xl font-bold leading-tight">لوحة التحكم الإدارية</h2>
           <p className="mt-4 text-lg text-white/80">
-            تحكّم بظهور المتاجر في نتائج البحث وأرسل الرسائل للتجار من مكان واحد.
+            تحكّم بظهور المتاجر، طلبات الزبائن، وأرقام الوسطاء من مكان واحد.
           </p>
         </div>
         <div className="text-sm text-white/60">© 2026 Botly Market Place</div>
