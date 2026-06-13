@@ -324,6 +324,11 @@ async function readMediatorPhones(): Promise<string[]> {
   return [];
 }
 
+// WhatsApp Graph API expects the recipient number without a leading "+".
+function toWhatsAppRecipient(phone: string): string {
+  return normalizePhone(phone).replace(/^\+/, "");
+}
+
 export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async () => {
   const phones = await readMediatorPhones();
   return { phone: phones[0] ?? "", phones };
@@ -474,18 +479,28 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       createdAt: new Date().toISOString(),
     });
 
-    // Send message to mediator via WhatsApp Business API (non-blocking;
-    // the order is already logged above, so even if the send fails, the admin
-    // can see it in the event store).
+    const sendResults = [];
     for (const mediatorPhone of mediatorPhones) {
-      const normalizedPhone = normalizePhone(mediatorPhone);
-      sendWhatsAppText(normalizedPhone, message).catch((error) => {
-        // Log failures silently — order is already stored in event store
-        console.error("[submitProductOrder] Failed to send message to mediator", {
-          phone: normalizedPhone,
+      const recipient = toWhatsAppRecipient(mediatorPhone);
+      try {
+        const result = await sendWhatsAppText(recipient, message);
+        sendResults.push({ phone: recipient, ...result });
+      } catch (error) {
+        sendResults.push({
+          phone: recipient,
+          ok: false,
+          status: 0,
           error: error instanceof Error ? error.message : String(error),
         });
-      });
+      }
+    }
+
+    const sentCount = sendResults.filter((result) => result.ok).length;
+    if (sentCount === 0) {
+      console.error("[submitProductOrder] Failed to send order to all mediators", sendResults);
+      throw new Error(
+        "تم حفظ الطلب، لكن تعذر إرسال ملخص الطلب للوسيط عبر واتساب. راجع إعدادات رقم الواتساب.",
+      );
     }
 
     return {
