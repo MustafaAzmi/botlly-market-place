@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ImagePlus, X } from "lucide-react";
+import { ArrowLeft, Camera, ImagePlus, Images, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
-import { createMerchantProduct } from "@/lib/merchant.functions";
+import { createMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/new")({
@@ -25,40 +26,109 @@ export const Route = createFileRoute("/dashboard/products/new")({
   component: NewProductPage,
 });
 
+const MAX_IMAGES = 6;
+
 function NewProductPage() {
   const navigate = useNavigate();
   const createMerchantProductFn = useServerFn(createMerchantProduct);
+  const getCatalogFn = useServerFn(getEnabledCarCatalogueForMerchant);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // Multiple product photos: first one is the primary image.
+  const [images, setImages] = useState<string[]>([]);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
+  const [carMake, setCarMake] = useState("");
+  const [carModel, setCarModel] = useState("");
+  const [carYear, setCarYear] = useState("");
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
-  const [discountPrice, setDiscountPrice] = useState("");
+  const [finalPrice, setFinalPrice] = useState("");
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [makes, setMakes] = useState<CarMake[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [years, setYears] = useState<string[]>([]);
 
   useEffect(() => {
     if (!currency && currencies[0]) setCurrency(currencies[0].code);
-  }, [currencies, currency]);
+    const merchantSession = readMerchantSession();
+    if (!merchantSession?.token) return;
+    getCatalogFn({ data: { token: merchantSession.token } })
+      .then((catalog) => {
+        setMakes(catalog.makes);
+        setColors(catalog.colors);
+        setYears(catalog.years);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencies]);
 
-  const onPickImage = (file: File | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("اختار صورة للمنتج فقط");
+  const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
+
+  // Resize + recompress the uploaded image to a small JPEG data URL. Raw
+  // camera photos are megabytes; the server caps the stored image, and big
+  // base64 blobs bloat the database — so we shrink client-side first.
+  const compressImageFile = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("تعذر قراءة الصورة"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("تعذر فتح الصورة"));
+        img.onload = () => {
+          const maxDim = 1000;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("تعذر معالجة الصورة"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+
+  // Handle camera capture / gallery pick (multiple files supported).
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-picking the same file
+    if (files.length === 0) return;
+
+    if (images.length + files.length > MAX_IMAGES) {
+      toast.error(`الحد الأقصى ${MAX_IMAGES} صور للمنتج`);
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("حجم الصورة يجب أن يكون أقل من 2MB");
-      return;
+
+    for (const file of files) {
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error("حجم الصورة يجب أن لا يزيد على 8MB");
+        continue;
+      }
+      if (!file.type.startsWith("image/")) {
+        toast.error("اختر صورة فقط");
+        continue;
+      }
+      try {
+        const dataUrl = await compressImageFile(file);
+        setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, dataUrl] : prev));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "تعذر معالجة الصورة");
+      }
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setImagePreview(reader.result);
-    };
-    reader.readAsDataURL(file);
+  };
+
+  const removeImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -69,14 +139,24 @@ function NewProductPage() {
       return;
     }
 
-    if (!imagePreview) {
-      toast.error("صورة المنتج مطلوبة");
+    if (images.length === 0) {
+      toast.error("أضف صورة واحدة على الأقل للمنتج");
       return;
     }
+
     const price = Number(currentPrice);
-    const salePrice = discountPrice.trim() ? Number(discountPrice) : undefined;
-    if (!description.trim() || !Number.isFinite(price)) {
-      toast.error("الوصف والسعر الحالي مطلوبة");
+    const customerPrice = finalPrice.trim() ? Number(finalPrice) : undefined;
+    const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
+    if (!title.trim() || !description.trim() || !Number.isFinite(price)) {
+      toast.error("اسم المنتج والوصف والسعر مطلوبة");
+      return;
+    }
+    if (customerPrice !== undefined && !Number.isFinite(customerPrice)) {
+      toast.error("السعر النهائي غير صحيح");
+      return;
+    }
+    if (availableQuantity !== undefined && !Number.isInteger(availableQuantity)) {
+      toast.error("الكمية يجب أن تكون رقم صحيح");
       return;
     }
 
@@ -85,14 +165,19 @@ function NewProductPage() {
       await createMerchantProductFn({
         data: {
           token: merchantSession.token,
+          title: title.trim(),
           description: description.trim(),
-          imageUrl: imagePreview,
+          imageUrl: images[0],
+          imageUrls: images,
           currentPrice: price,
-          discountPrice: salePrice,
+          discountPrice: customerPrice,
           currency,
           size: size.trim(),
           color: color.trim(),
-          quantity: quantity.trim() ? Number(quantity) : undefined,
+          quantity: availableQuantity,
+          carMake: carMake.trim(),
+          carModel: carModel.trim(),
+          carYear: carYear === ALL_YEARS ? "" : carYear.trim(),
         },
       });
       toast.success("تم حفظ المنتج");
@@ -107,7 +192,7 @@ function NewProductPage() {
   return (
     <DashboardLayout
       title="إضافة منتج"
-      subtitle="أضف صورة المنتج وسعره ووصفه المختصر. باقي التفاصيل اختيارية."
+      subtitle="أضف اسم القطعة والسعر والوصف وحدد السيارة المناسبة، وأضف حتى 6 صور."
     >
       <div className="mb-4">
         <Button asChild variant="ghost" size="sm" className="gap-2">
@@ -121,79 +206,188 @@ function NewProductPage() {
       <form onSubmit={onSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-5 shadow-soft">
-            <Field id="image" label="صورة المنتج">
-              <input
-                ref={inputRef}
-                id="image"
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => onPickImage(e.target.files?.[0])}
-              />
-              {imagePreview ? (
-                <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
-                  <img src={imagePreview} alt="Product" className="h-full w-full object-cover" />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="absolute end-3 top-3"
-                    onClick={() => {
-                      if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
-                      setImagePreview(null);
-                      if (inputRef.current) inputRef.current.value = "";
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/40 text-center transition-colors hover:bg-secondary"
-                >
+            <Label className="text-sm font-medium">
+              صور المنتج ({images.length}/{MAX_IMAGES})
+            </Label>
+            {/* Hidden inputs: capture="environment" opens the camera directly
+                on mobile; the plain one opens the photo gallery / file picker. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleImageFileChange}
+              className="hidden"
+            />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageFileChange}
+              className="hidden"
+            />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2"
+                disabled={images.length >= MAX_IMAGES}
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                <Camera className="h-5 w-5" />
+                التقط بالكاميرا
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2"
+                disabled={images.length >= MAX_IMAGES}
+                onClick={() => galleryInputRef.current?.click()}
+              >
+                <Images className="h-5 w-5" />
+                اختر من الاستديو
+              </Button>
+            </div>
+
+            {images.length === 0 ? (
+              <div className="mt-4 aspect-[4/3] overflow-hidden rounded-lg border border-border bg-secondary">
+                <div className="flex h-full items-center justify-center text-center text-muted-foreground">
                   <span>
                     <ImagePlus className="mx-auto h-8 w-8 text-primary" />
-                    <span className="mt-3 block text-sm font-medium">اختر صورة المنتج</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      PNG أو JPG، أقل من 2MB
+                    <span className="mt-3 block text-sm font-medium">معاينة الصور</span>
+                    <span className="mt-1 block text-xs">
+                      التقط صورة أو اختر من الاستديو — حتى {MAX_IMAGES} صور
                     </span>
                   </span>
-                </button>
-              )}
-            </Field>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                {images.map((img, index) => (
+                  <div
+                    key={index}
+                    className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-secondary"
+                  >
+                    <img src={img} alt={`صورة ${index + 1}`} className="h-full w-full object-cover" />
+                    {index === 0 && (
+                      <span className="absolute bottom-1 start-1 rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                        الرئيسية
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className="absolute end-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white opacity-90 transition hover:bg-destructive"
+                      aria-label="حذف الصورة"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
+            <Field id="title" label="اسم المنتج">
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="مثال: لايت أمامي مرسيدس E-Class"
+                className="h-11"
+                maxLength={140}
+                required
+              />
+            </Field>
+
             <Field id="description" label="وصف مختصر">
               <Textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
-                placeholder="مثال: تيشيرت قطن مريح، مناسب للاستخدام اليومي"
+                placeholder="مثال: لايت أمامي أصلي، حالة ممتازة، يناسب موديلات 2016-2020"
                 maxLength={280}
                 required
               />
             </Field>
 
+            {/* Which car does this part fit? Drives the customer filters. */}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field id="size" label="المقاس (اختياري)">
+              <Field id="carMake" label="نوع السيارة">
+                <Select
+                  value={carMake}
+                  onValueChange={(value) => {
+                    setCarMake(value);
+                    setCarModel("");
+                  }}
+                >
+                  <SelectTrigger id="carMake" className="h-11">
+                    <SelectValue placeholder="اختر نوع السيارة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {makes.map((make) => (
+                      <SelectItem key={make.key} value={make.label}>
+                        {make.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id="carModel" label="الموديل">
+                <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
+                  <SelectTrigger id="carModel" className="h-11">
+                    <SelectValue placeholder={selectedMake ? "اختر الموديل" : "اختر النوع أولاً"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(selectedMake?.models ?? []).map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id="carYear" label="سنة الصنع (اختياري)">
+                <Select value={carYear} onValueChange={setCarYear}>
+                  <SelectTrigger id="carYear" className="h-11">
+                    <SelectValue placeholder={ALL_YEARS} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_YEARS}>{ALL_YEARS}</SelectItem>
+                    {years.map((y) => (
+                      <SelectItem key={y} value={y}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field id="color" label="اللون (اختياري)">
+                <Select value={color} onValueChange={setColor}>
+                  <SelectTrigger id="color" className="h-11">
+                    <SelectValue placeholder="اختر اللون" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {colors.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field id="size" label="المقاس / القياس (اختياري)">
                 <Input
                   id="size"
                   value={size}
                   onChange={(e) => setSize(e.target.value)}
-                  placeholder="S / M / L أو 42"
-                  className="h-11"
-                />
-              </Field>
-              <Field id="color" label="اللون (اختياري)">
-                <Input
-                  id="color"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  placeholder="أسود، أبيض..."
+                  placeholder="مثال: 18 إنج"
                   className="h-11"
                 />
               </Field>
@@ -229,17 +423,20 @@ function NewProductPage() {
                 required
               />
             </Field>
-            <Field id="discountPrice" label="السعر بعد الخصم (اختياري)">
+            <Field id="finalPrice" label="السعر النهائي (يظهر للزبون)">
               <Input
-                id="discountPrice"
-                value={discountPrice}
-                onChange={(e) => setDiscountPrice(e.target.value)}
+                id="finalPrice"
+                value={finalPrice}
+                onChange={(e) => setFinalPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"
               />
+              <p className="text-xs text-muted-foreground">
+                هذا هو السعر الوحيد الذي يشاهده الزبون. إذا تركته فارغاً يظهر السعر الحالي.
+              </p>
             </Field>
             <Field id="currency" label="العملة">
               <Select value={currency} onValueChange={setCurrency}>

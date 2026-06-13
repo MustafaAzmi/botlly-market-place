@@ -23,6 +23,7 @@ import {
   setMerchantSubscription,
   setMerchantSuspended,
   setMerchantVisibility,
+  deleteMerchantStore,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
@@ -33,23 +34,16 @@ export const Route = createFileRoute("/admin/stores")({
   component: AdminStoresPage,
 });
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("ar", { day: "numeric", month: "short" });
-  } catch {
-    return "—";
-  }
-}
-
 function AdminStoresPage() {
   const listMerchantsFn = useServerFn(listMerchants);
   const setVisibilityFn = useServerFn(setMerchantVisibility);
   const setSuspendedFn = useServerFn(setMerchantSuspended);
   const setSubscriptionFn = useServerFn(setMerchantSubscription);
+  const deleteStoreFn = useServerFn(deleteMerchantStore);
 
   const [searchTerm, setSearchTerm] = useState("");
   const session = readAdminSession();
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const {
     data: merchants = [],
@@ -125,10 +119,8 @@ function AdminStoresPage() {
                 <tr>
                   <th className="px-4 py-3 text-right font-medium">المتجر</th>
                   <th className="px-4 py-3 text-right font-medium">الواتساب</th>
-                  <th className="px-4 py-3 text-right font-medium">المنصة</th>
                   <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
-                  <th className="px-4 py-3 text-right font-medium">آخر مزامنة</th>
                   <th className="px-4 py-3 text-center font-medium">الظهور</th>
                   <th className="px-4 py-3 text-center font-medium">إجراءات</th>
                 </tr>
@@ -136,7 +128,7 @@ function AdminStoresPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -147,12 +139,10 @@ function AdminStoresPage() {
                       <td className="px-4 py-3" dir="ltr">
                         {m.whatsapp || "—"}
                       </td>
-                      <td className="px-4 py-3">{m.platform}</td>
                       <td className="px-4 py-3">
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>
                       <td className="px-4 py-3 text-center">{m.productCount}</td>
-                      <td className="px-4 py-3">{formatDate(m.lastSyncedAt)}</td>
                       <td className="px-4 py-3 text-center">
                         {m.visibleInSearch ? (
                           <Badge className="bg-green-100 text-green-800">ظاهر</Badge>
@@ -247,7 +237,7 @@ function AdminStoresPage() {
                             )}
 
                             <DropdownMenuSeparator />
-                            <DropdownMenuLabel>الاشتراك</DropdownMenuLabel>
+                            <DropdownMenuLabel>الاشتراك والتمييز</DropdownMenuLabel>
                             <DropdownMenuItem
                               onClick={() =>
                                 run(
@@ -259,11 +249,11 @@ function AdminStoresPage() {
                                         status: "active",
                                       },
                                     }),
-                                  "تم تعليم الاشتراك كفعّال",
+                                  "تم تمييز المتجر في البحث",
                                 )
                               }
                             >
-                              اشتراك فعّال
+                              تمييز مدفوع في البحث
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() =>
@@ -282,6 +272,14 @@ function AdminStoresPage() {
                             >
                               اشتراك منتهٍ
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={() => setDeleteConfirm({ id: m.merchantId, name: m.storeName })}
+                            >
+                              حذف المتجر من قاعدة البيانات
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -297,6 +295,44 @@ function AdminStoresPage() {
           <p className="text-sm text-muted-foreground">عرض {filtered.length} متجر</p>
         )}
       </div>
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
+            <h2 className="text-lg font-semibold">تأكيد حذف المتجر</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              هل أنت متأكد من حذف "{deleteConfirm.name}"؟ سيتم حذف جميع المنتجات والطلبات المرتبطة به أيضاً. لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1"
+              >
+                إلغاء
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!session?.token) return;
+                  deleteStoreFn({ data: { token: session.token, merchantId: deleteConfirm.id } })
+                    .then(() => {
+                      toast.success("تم حذف المتجر وجميع بيانته");
+                      setDeleteConfirm(null);
+                      refetch();
+                    })
+                    .catch((err) => {
+                      toast.error(err instanceof Error ? err.message : "فشل حذف المتجر");
+                    });
+                }}
+                className="flex-1"
+              >
+                حذف نهائياً
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

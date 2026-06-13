@@ -11,17 +11,25 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as MerchantAppRouteImport } from './routes/merchant-app'
 import { Route as DataDeletionRouteImport } from './routes/data-deletion'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
+import { Route as CustomerIndexRouteImport } from './routes/customer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
+import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
+import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
+import { Route as CustomerAppRouteImport } from './routes/customer/app'
+import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminDeliveryRouteImport } from './routes/admin/delivery'
+import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
 import { Route as AdminCurrenciesRouteImport } from './routes/admin/currencies'
+import { Route as AdminCatalogRouteImport } from './routes/admin/catalog'
 import { Route as AdminBroadcastsRouteImport } from './routes/admin/broadcasts'
 import { Route as AdminBotRouteImport } from './routes/admin/bot'
 import { Route as DashboardWorkflowIndexRouteImport } from './routes/dashboard/workflow/index'
@@ -31,8 +39,8 @@ import { Route as DashboardProductsIndexRouteImport } from './routes/dashboard/p
 import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/orders/index'
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
-import { Route as ApiCronSyncSocialRouteImport } from './routes/api/cron/sync-social'
-import { Route as ApiAuthMetaCallbackRouteImport } from './routes/api/auth/meta/callback'
+import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
+import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -42,6 +50,11 @@ const TermsRoute = TermsRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MerchantAppRoute = MerchantAppRouteImport.update({
+  id: '/merchant-app',
+  path: '/merchant-app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DataDeletionRoute = DataDeletionRouteImport.update({
@@ -64,6 +77,11 @@ const DashboardIndexRoute = DashboardIndexRouteImport.update({
   path: '/dashboard/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CustomerIndexRoute = CustomerIndexRouteImport.update({
+  id: '/customer/',
+  path: '/customer/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
@@ -72,6 +90,26 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const StoreSlugRoute = StoreSlugRouteImport.update({
   id: '/store/$slug',
   path: '/store/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerDashboardRoute = CustomerDashboardRouteImport.update({
+  id: '/customer/dashboard',
+  path: '/customer/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerAuthRoute = CustomerAuthRouteImport.update({
+  id: '/customer/auth',
+  path: '/customer/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerAppRoute = CustomerAppRouteImport.update({
+  id: '/customer/app',
+  path: '/customer/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Customer_layoutRoute = Customer_layoutRouteImport.update({
+  id: '/customer/__layout',
+  path: '/customer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStoresRoute = AdminStoresRouteImport.update({
@@ -94,9 +132,19 @@ const AdminDeliveryRoute = AdminDeliveryRouteImport.update({
   path: '/admin/delivery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCustomersRoute = AdminCustomersRouteImport.update({
+  id: '/admin/customers',
+  path: '/admin/customers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminCurrenciesRoute = AdminCurrenciesRouteImport.update({
   id: '/admin/currencies',
   path: '/admin/currencies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCatalogRoute = AdminCatalogRouteImport.update({
+  id: '/admin/catalog',
+  path: '/admin/catalog',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminBroadcastsRoute = AdminBroadcastsRouteImport.update({
@@ -144,14 +192,14 @@ const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
   path: '/api/whatsapp/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCronSyncSocialRoute = ApiCronSyncSocialRouteImport.update({
-  id: '/api/cron/sync-social',
-  path: '/api/cron/sync-social',
+const ApiProductImageIdRoute = ApiProductImageIdRouteImport.update({
+  id: '/api/product-image/$id',
+  path: '/api/product-image/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAuthMetaCallbackRoute = ApiAuthMetaCallbackRouteImport.update({
-  id: '/api/auth/meta/callback',
-  path: '/api/auth/meta/callback',
+const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
+  id: '/dashboard/products/$id/edit',
+  path: '/dashboard/products/$id/edit',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -159,19 +207,27 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer': typeof Customer_layoutRoute
+  '/customer/app': typeof CustomerAppRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
+  '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
@@ -179,25 +235,32 @@ export interface FileRoutesByFullPath {
   '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer': typeof CustomerIndexRoute
+  '/customer/app': typeof CustomerAppRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders': typeof DashboardOrdersIndexRoute
@@ -205,26 +268,34 @@ export interface FileRoutesByTo {
   '/dashboard/review': typeof DashboardReviewIndexRoute
   '/dashboard/store': typeof DashboardStoreIndexRoute
   '/dashboard/workflow': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
+  '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
+  '/admin/catalog': typeof AdminCatalogRoute
   '/admin/currencies': typeof AdminCurrenciesRoute
+  '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/customer/__layout': typeof Customer_layoutRoute
+  '/customer/app': typeof CustomerAppRoute
+  '/customer/auth': typeof CustomerAuthRoute
+  '/customer/dashboard': typeof CustomerDashboardRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
+  '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/api/cron/sync-social': typeof ApiCronSyncSocialRoute
+  '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
   '/dashboard/orders/': typeof DashboardOrdersIndexRoute
@@ -232,7 +303,7 @@ export interface FileRoutesById {
   '/dashboard/review/': typeof DashboardReviewIndexRoute
   '/dashboard/store/': typeof DashboardStoreIndexRoute
   '/dashboard/workflow/': typeof DashboardWorkflowIndexRoute
-  '/api/auth/meta/callback': typeof ApiAuthMetaCallbackRoute
+  '/dashboard/products/$id/edit': typeof DashboardProductsIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -240,19 +311,27 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer'
+    | '/customer/app'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin/'
+    | '/customer/'
     | '/dashboard/'
-    | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
@@ -260,25 +339,32 @@ export interface FileRouteTypes {
     | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
-    | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer'
+    | '/customer/app'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
-    | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders'
@@ -286,25 +372,33 @@ export interface FileRouteTypes {
     | '/dashboard/review'
     | '/dashboard/store'
     | '/dashboard/workflow'
-    | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   id:
     | '__root__'
     | '/'
     | '/auth'
     | '/data-deletion'
+    | '/merchant-app'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
+    | '/admin/catalog'
     | '/admin/currencies'
+    | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
     | '/admin/packages'
     | '/admin/stores'
+    | '/customer/__layout'
+    | '/customer/app'
+    | '/customer/auth'
+    | '/customer/dashboard'
     | '/store/$slug'
     | '/admin/'
+    | '/customer/'
     | '/dashboard/'
-    | '/api/cron/sync-social'
+    | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
     | '/dashboard/orders/'
@@ -312,26 +406,34 @@ export interface FileRouteTypes {
     | '/dashboard/review/'
     | '/dashboard/store/'
     | '/dashboard/workflow/'
-    | '/api/auth/meta/callback'
+    | '/dashboard/products/$id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   DataDeletionRoute: typeof DataDeletionRoute
+  MerchantAppRoute: typeof MerchantAppRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
   AdminBroadcastsRoute: typeof AdminBroadcastsRoute
+  AdminCatalogRoute: typeof AdminCatalogRoute
   AdminCurrenciesRoute: typeof AdminCurrenciesRoute
+  AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDeliveryRoute: typeof AdminDeliveryRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
+  Customer_layoutRoute: typeof Customer_layoutRoute
+  CustomerAppRoute: typeof CustomerAppRoute
+  CustomerAuthRoute: typeof CustomerAuthRoute
+  CustomerDashboardRoute: typeof CustomerDashboardRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  CustomerIndexRoute: typeof CustomerIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
-  ApiCronSyncSocialRoute: typeof ApiCronSyncSocialRoute
+  ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
   DashboardOrdersIndexRoute: typeof DashboardOrdersIndexRoute
@@ -339,7 +441,7 @@ export interface RootRouteChildren {
   DashboardReviewIndexRoute: typeof DashboardReviewIndexRoute
   DashboardStoreIndexRoute: typeof DashboardStoreIndexRoute
   DashboardWorkflowIndexRoute: typeof DashboardWorkflowIndexRoute
-  ApiAuthMetaCallbackRoute: typeof ApiAuthMetaCallbackRoute
+  DashboardProductsIdEditRoute: typeof DashboardProductsIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -356,6 +458,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/merchant-app': {
+      id: '/merchant-app'
+      path: '/merchant-app'
+      fullPath: '/merchant-app'
+      preLoaderRoute: typeof MerchantAppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/data-deletion': {
@@ -386,6 +495,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/customer/': {
+      id: '/customer/'
+      path: '/customer'
+      fullPath: '/customer/'
+      preLoaderRoute: typeof CustomerIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/': {
       id: '/admin/'
       path: '/admin'
@@ -398,6 +514,34 @@ declare module '@tanstack/react-router' {
       path: '/store/$slug'
       fullPath: '/store/$slug'
       preLoaderRoute: typeof StoreSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/dashboard': {
+      id: '/customer/dashboard'
+      path: '/customer/dashboard'
+      fullPath: '/customer/dashboard'
+      preLoaderRoute: typeof CustomerDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/auth': {
+      id: '/customer/auth'
+      path: '/customer/auth'
+      fullPath: '/customer/auth'
+      preLoaderRoute: typeof CustomerAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/app': {
+      id: '/customer/app'
+      path: '/customer/app'
+      fullPath: '/customer/app'
+      preLoaderRoute: typeof CustomerAppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/__layout': {
+      id: '/customer/__layout'
+      path: '/customer'
+      fullPath: '/customer'
+      preLoaderRoute: typeof Customer_layoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stores': {
@@ -428,11 +572,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDeliveryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/customers': {
+      id: '/admin/customers'
+      path: '/admin/customers'
+      fullPath: '/admin/customers'
+      preLoaderRoute: typeof AdminCustomersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/currencies': {
       id: '/admin/currencies'
       path: '/admin/currencies'
       fullPath: '/admin/currencies'
       preLoaderRoute: typeof AdminCurrenciesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/catalog': {
+      id: '/admin/catalog'
+      path: '/admin/catalog'
+      fullPath: '/admin/catalog'
+      preLoaderRoute: typeof AdminCatalogRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/broadcasts': {
@@ -498,18 +656,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/cron/sync-social': {
-      id: '/api/cron/sync-social'
-      path: '/api/cron/sync-social'
-      fullPath: '/api/cron/sync-social'
-      preLoaderRoute: typeof ApiCronSyncSocialRouteImport
+    '/api/product-image/$id': {
+      id: '/api/product-image/$id'
+      path: '/api/product-image/$id'
+      fullPath: '/api/product-image/$id'
+      preLoaderRoute: typeof ApiProductImageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/auth/meta/callback': {
-      id: '/api/auth/meta/callback'
-      path: '/api/auth/meta/callback'
-      fullPath: '/api/auth/meta/callback'
-      preLoaderRoute: typeof ApiAuthMetaCallbackRouteImport
+    '/dashboard/products/$id/edit': {
+      id: '/dashboard/products/$id/edit'
+      path: '/dashboard/products/$id/edit'
+      fullPath: '/dashboard/products/$id/edit'
+      preLoaderRoute: typeof DashboardProductsIdEditRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -519,19 +677,27 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   DataDeletionRoute: DataDeletionRoute,
+  MerchantAppRoute: MerchantAppRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
   AdminBroadcastsRoute: AdminBroadcastsRoute,
+  AdminCatalogRoute: AdminCatalogRoute,
   AdminCurrenciesRoute: AdminCurrenciesRoute,
+  AdminCustomersRoute: AdminCustomersRoute,
   AdminDeliveryRoute: AdminDeliveryRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,
+  Customer_layoutRoute: Customer_layoutRoute,
+  CustomerAppRoute: CustomerAppRoute,
+  CustomerAuthRoute: CustomerAuthRoute,
+  CustomerDashboardRoute: CustomerDashboardRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
+  CustomerIndexRoute: CustomerIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
-  ApiCronSyncSocialRoute: ApiCronSyncSocialRoute,
+  ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,
   DashboardOrdersIndexRoute: DashboardOrdersIndexRoute,
@@ -539,7 +705,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardReviewIndexRoute: DashboardReviewIndexRoute,
   DashboardStoreIndexRoute: DashboardStoreIndexRoute,
   DashboardWorkflowIndexRoute: DashboardWorkflowIndexRoute,
-  ApiAuthMetaCallbackRoute: ApiAuthMetaCallbackRoute,
+  DashboardProductsIdEditRoute: DashboardProductsIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,0 +1,261 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { ArrowRight, CheckCircle2, MapPin, Phone, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
+import { Logo } from "@/components/layout/Logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
+import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
+
+export const Route = createFileRoute("/customer/auth")({
+  head: () => ({
+    meta: [
+      { title: "دخول الزبائن - Botly" },
+      { name: "description", content: "Login to your Botly customer account." },
+      ...pwaHeadMeta("customer"),
+    ],
+    links: pwaHeadLinks("customer"),
+  }),
+  component: CustomerAuthPage,
+});
+
+type AuthMode = "login" | "signup";
+
+function CustomerAuthPage() {
+  const { t } = useLanguage();
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [name, setName] = useState("");
+  const [landmark, setLandmark] = useState("");
+  const [governorate, setGovernorate] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const loginFn = useServerFn(loginCustomer);
+  const signupFn = useServerFn(signupCustomer);
+
+  // Already remembered on this device? Straight to the dashboard.
+  useEffect(() => {
+    if (readCustomerSession()) {
+      navigate({ to: "/customer/dashboard" });
+    }
+  }, [navigate]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!whatsapp.trim()) {
+      toast.error(t("customer.auth.required_whatsapp"));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await loginFn({ data: { whatsapp: whatsapp.trim() } });
+      writeCustomerSession(result.customer, result.token);
+      toast.success(t("customer.auth.welcome_back", { name: result.customer.name }));
+      navigate({ to: "/customer/dashboard" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("customer.auth.login_failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!whatsapp.trim() || !name.trim() || !landmark.trim() || !governorate.trim()) {
+      toast.error(t("customer.auth.required_all"));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await signupFn({
+        data: {
+          whatsapp: whatsapp.trim(),
+          name: name.trim(),
+          landmark: landmark.trim(),
+          governorate: governorate.trim(),
+        },
+      });
+      writeCustomerSession(result.customer, result.token);
+      toast.success(
+        result.existed ? t("customer.auth.welcome_back", { name: result.customer.name }) : t("customer.auth.account_created"),
+      );
+      navigate({ to: "/customer/dashboard" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("customer.auth.signup_failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-primary-soft to-background">
+      <header className="border-b border-border bg-background/50 backdrop-blur-sm">
+        <div className="container mx-auto flex h-16 max-w-2xl items-center justify-between px-4">
+          <Logo />
+          <LanguageSwitcher />
+        </div>
+      </header>
+
+      <main className="container mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-12">
+        <div className="w-full space-y-6">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold">{t("customer.auth.title")}</h1>
+            <p className="mt-2 text-muted-foreground">
+              {t("customer.auth.subtitle")}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-soft">
+            <Tabs
+              value={mode}
+              onValueChange={(value) => setMode(value as AuthMode)}
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">{t("customer.auth.login")}</TabsTrigger>
+                <TabsTrigger value="signup">{t("customer.auth.signup")}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            {mode === "login" ? (
+              <form onSubmit={handleLogin} className="mt-6 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="login-whatsapp" className="flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    {t("customer.auth.whatsapp")}
+                  </Label>
+                  <Input
+                    id="login-whatsapp"
+                    type="tel"
+                    dir="ltr"
+                    placeholder={t("customer.auth.whatsapp.placeholder")}
+                    value={whatsapp}
+                    onChange={(e) => setWhatsapp(e.target.value)}
+                    disabled={loading}
+                    className="h-11"
+                  />
+                </div>
+
+                <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
+                  {loading ? t("customer.auth.loading") : t("customer.auth.submit")}
+                  <ArrowRight className="h-4 w-4 rtl:rotate-180" />
+                </Button>
+
+                <p className="text-center text-sm text-muted-foreground">
+                  {t("customer.auth.new_user")}{" "}
+                  <button
+                    type="button"
+                    onClick={() => setMode("signup")}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    {t("customer.auth.signup_link")}
+                  </button>
+                </p>
+              </form>
+            ) : (
+              <form onSubmit={handleSignup} className="mt-6 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-whatsapp" className="flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    {t("customer.auth.whatsapp")}
+                  </Label>
+                  <Input
+                    id="signup-whatsapp"
+                    type="tel"
+                    dir="ltr"
+                    placeholder={t("customer.auth.whatsapp.placeholder")}
+                    value={whatsapp}
+                    onChange={(e) => setWhatsapp(e.target.value)}
+                    disabled={loading}
+                    className="h-11"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-name" className="flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    {t("customer.auth.name")}
+                  </Label>
+                  <Input
+                    id="signup-name"
+                    type="text"
+                    placeholder={t("customer.auth.name.placeholder")}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={loading}
+                    className="h-11"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-landmark" className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {t("customer.auth.landmark")}
+                  </Label>
+                  <Input
+                    id="signup-landmark"
+                    type="text"
+                    placeholder={t("customer.auth.landmark.placeholder")}
+                    value={landmark}
+                    onChange={(e) => setLandmark(e.target.value)}
+                    disabled={loading}
+                    className="h-11"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-governorate" className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {t("customer.auth.governorate")}
+                  </Label>
+                  <Input
+                    id="signup-governorate"
+                    type="text"
+                    placeholder={t("customer.auth.governorate.placeholder")}
+                    value={governorate}
+                    onChange={(e) => setGovernorate(e.target.value)}
+                    disabled={loading}
+                    className="h-11"
+                  />
+                </div>
+
+                <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
+                  {loading ? t("customer.auth.loading") : t("customer.auth.submit.signup")}
+                  <CheckCircle2 className="h-4 w-4" />
+                </Button>
+
+                <p className="text-center text-xs text-muted-foreground">
+                  {t("customer.auth.info_once")}
+                </p>
+              </form>
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            {[
+              { icon: "🚗", titleKey: "customer.auth.features.car_filters.title", descKey: "customer.auth.features.car_filters.desc" },
+              { icon: "🛒", titleKey: "customer.auth.features.quick_order.title", descKey: "customer.auth.features.quick_order.desc" },
+              { icon: "💬", titleKey: "customer.auth.features.support.title", descKey: "customer.auth.features.support.desc" },
+            ].map((item) => (
+              <div key={item.titleKey} className="rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
+                <div className="text-3xl">{item.icon}</div>
+                <h3 className="mt-2 font-semibold">{t(item.titleKey as any)}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey as any)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

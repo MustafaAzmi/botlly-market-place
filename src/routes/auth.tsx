@@ -5,6 +5,8 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  Eye,
+  EyeOff,
   KeyRound,
   Mail,
   MessageCircle,
@@ -19,17 +21,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/auth")({
+  // ?mode=signup opens the create-store form directly; anything else → login.
+  validateSearch: (search: Record<string, unknown>): { mode?: AuthMode } => ({
+    mode: search.mode === "signup" ? "signup" : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "تسجيل دخول التاجر - Botly" },
       { name: "description", content: "Create or access your Botly merchant account." },
+      ...pwaHeadMeta("merchant"),
     ],
+    links: pwaHeadLinks("merchant"),
   }),
   component: AuthPage,
 });
@@ -118,7 +126,8 @@ function AuthPage() {
   const navigate = useNavigate();
   const loginMerchantFn = useServerFn(loginMerchant);
   const signupMerchantFn = useServerFn(signupMerchant);
-  const [mode, setMode] = useState<AuthMode>("login");
+  const { mode: requestedMode } = Route.useSearch();
+  const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : "login");
   const [showReset, setShowReset] = useState(false);
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
@@ -132,12 +141,6 @@ function AuthPage() {
     setShowReset(false);
   };
 
-  const onModeChange = (value: string) => {
-    if (value !== "login" && value !== "signup") return;
-    setMode(value);
-    resetForm();
-  };
-
   const saveAuthSession = (
     successMessage: string,
     result: Awaited<ReturnType<typeof loginMerchantFn>>,
@@ -146,6 +149,7 @@ function AuthPage() {
       token: result.token,
       merchantId: result.profile.id,
       storeName: result.profile.storeName,
+      storeSlug: result.profile.storeSlug,
       whatsapp: result.profile.whatsapp,
       email: result.profile.email,
       bio: result.profile.bio,
@@ -330,28 +334,39 @@ function AuthPage() {
                 </div>
               </form>
             ) : (
-              <>
-                <Tabs value={mode} onValueChange={onModeChange} className="w-full">
-                  <TabsList className="grid h-10 w-full grid-cols-2">
-                    <TabsTrigger value="login">{text.login}</TabsTrigger>
-                    <TabsTrigger value="signup">{text.signup}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+              <form onSubmit={onAuthSubmit} className="space-y-5">
+                {mode === "login" && (
+                  <div>
+                    <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {locale === "ar" ? "ادخل برقم واتساب وكلمة المرور" : "Sign in with WhatsApp number and password"}
+                    </p>
+                  </div>
+                )}
 
-                <form onSubmit={onAuthSubmit} className="mt-6 space-y-5">
-                  <Field
-                    icon={Phone}
-                    id="whatsapp"
-                    label={text.whatsapp}
-                    value={whatsapp}
-                    onChange={setWhatsapp}
-                    placeholder={text.whatsappPlaceholder}
-                    type="tel"
-                    dir="ltr"
-                  />
+                {mode === "signup" && (
+                  <div>
+                    <h2 className="text-xl font-semibold tracking-normal">{text.signup}</h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {locale === "ar" ? "أنشئ متجر جديد" : "Create your store"}
+                    </p>
+                  </div>
+                )}
 
-                  {mode === "signup" && (
-                    <>
+                <Field
+                  icon={Phone}
+                  id="whatsapp"
+                  label={text.whatsapp}
+                  value={whatsapp}
+                  onChange={setWhatsapp}
+                  placeholder={text.whatsappPlaceholder}
+                  type="tel"
+                  dir="ltr"
+                />
+
+                {mode === "signup" && (
+                  <>
+                    <div>
                       <Field
                         icon={Building2}
                         id="storeName"
@@ -360,58 +375,56 @@ function AuthPage() {
                         onChange={setStoreName}
                         placeholder={text.storeNamePlaceholder}
                       />
-                      <Field
-                        icon={Mail}
-                        id="email"
-                        label={text.emailOptional}
-                        value={email}
-                        onChange={setEmail}
-                        placeholder={text.emailPlaceholder}
-                        type="email"
-                        dir="ltr"
-                      />
-                    </>
-                  )}
-
-                  <Field
-                    icon={KeyRound}
-                    id="password"
-                    label={text.password}
-                    value={password}
-                    onChange={setPassword}
-                    placeholder={text.passwordPlaceholder}
-                    type="password"
-                    dir="ltr"
-                  />
-
-                  {mode === "login" && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="link"
-                        className="h-auto px-0"
-                        onClick={() => setShowReset(true)}
-                      >
-                        {text.forgotPassword}
-                      </Button>
+                      <StoreSlugHint storeName={storeName} locale={locale} />
                     </div>
-                  )}
+                    <Field
+                      icon={Mail}
+                      id="email"
+                      label={text.emailOptional}
+                      value={email}
+                      onChange={setEmail}
+                      placeholder={text.emailPlaceholder}
+                      type="email"
+                      dir="ltr"
+                    />
+                  </>
+                )}
 
-                  <Button
-                    type="submit"
-                    size="lg"
-                    className="w-full gap-2 shadow-soft"
-                    disabled={loading}
-                  >
-                    {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
-                    <ArrowRight className="h-4 w-4 rtl:rotate-180" />
-                  </Button>
+                <PasswordField
+                  id="password"
+                  label={text.password}
+                  value={password}
+                  onChange={setPassword}
+                  placeholder={text.passwordPlaceholder}
+                />
 
-                  <p className="text-center text-xs leading-5 text-muted-foreground">
-                    {text.terms}
-                  </p>
-                </form>
-              </>
+                {mode === "login" && (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="h-auto px-0"
+                      onClick={() => setShowReset(true)}
+                    >
+                      {text.forgotPassword}
+                    </Button>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full gap-2 shadow-soft"
+                  disabled={loading}
+                >
+                  {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
+                  <ArrowRight className="h-4 w-4 rtl:rotate-180" />
+                </Button>
+
+                <p className="text-center text-xs leading-5 text-muted-foreground">
+                  {text.terms}
+                </p>
+              </form>
             )}
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
@@ -461,6 +474,94 @@ function Field({
         />
       </div>
     </div>
+  );
+}
+
+// Password input with a show/hide toggle.
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="relative">
+        <KeyRound className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id={id}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          dir="ltr"
+          className="h-11 ps-10 pe-10"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+          tabIndex={-1}
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Client-side mirror of the server slug rules (merchant.functions
+// generateStoreSlug): English names become a readable URL slug; Arabic names
+// get a unique number so URLs never contain Arabic text.
+function previewStoreSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+// Live hint under the store-name field showing the store's URL identifier.
+function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" }) {
+  if (!storeName.trim()) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {locale === "ar"
+          ? "يفضّل كتابة اسم المتجر بالإنكليزي حتى يظهر برابط متجرك."
+          : "Prefer an English store name — it becomes your store URL."}
+      </p>
+    );
+  }
+  const slug = previewStoreSlug(storeName);
+  if (slug.length >= 2) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        {locale === "ar" ? "رابط متجرك: " : "Your store URL: "}
+        <span dir="ltr" className="font-medium text-primary">
+          bot-lly.tech/dashboard?store={slug}
+        </span>
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1.5 text-xs text-amber-600">
+      {locale === "ar"
+        ? "الاسم بالعربي — راح ينعطي متجرك رقم مميز بالرابط بدل الاسم حتى ما يصير خلل بالاستدعاء."
+        : "Arabic name detected — a unique store number will be used in the URL instead."}
+    </p>
   );
 }
 

@@ -1,239 +1,135 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowRight, Download, Store, User } from "lucide-react";
+
+import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
+import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
-import { useT } from "@/i18n/LanguageProvider";
-import { MarketingHeader, MarketingFooter } from "@/components/layout/MarketingChrome";
-import {
-  Sparkles,
-  Store,
-  Bot,
-  Inbox,
-  BarChart3,
-  ArrowRight,
-  MessageCircle,
-  Search,
-  Package,
-  CheckCircle2,
-  Truck,
-} from "lucide-react";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Botly — AI WhatsApp Commerce for Merchants" },
+      { title: "Botly — وسيط بين التاجر والزبون" },
       {
         name: "description",
-        content:
-          "Botly turns WhatsApp into a smart AI store. Create your storefront, connect a bot, and convert chats into orders.",
+        content: "بوتلي وسيط بين التاجر والزبون. يدورلك عن أي منتج تريده ويوصله إلك لغاية عندك.",
       },
-      { property: "og:title", content: "Botly — AI WhatsApp Commerce" },
+      { property: "og:title", content: "Botly — وسيط بين التاجر والزبون" },
       {
         property: "og:description",
-        content: "Turn WhatsApp into a smart store that sells for you.",
+        content: "خلي راسك مرتاح واستخدم بوتلي.",
       },
     ],
   }),
   component: LandingPage,
 });
 
-function LandingPage() {
-  const t = useT();
-  return (
-    <div className="min-h-screen bg-background">
-      <MarketingHeader />
+const copy = {
+  ar: {
+    title: "بوتلي وسيط بين التاجر والزبون",
+    subtitle: "يدورلك عن أي منتج إنت تريده ويوصله إلك لغاية عندك.",
+    tagline: "خلي راسك مرتاح واستخدم بوتلي.",
+    customer: "دخول الزبون",
+    merchantLogin: "تسجيل الدخول للتاجر",
+    createStore: "أنشئ متجر جديد",
+    customerApp: "حمّل تطبيق بوتلي زبون",
+    merchantApp: "حمّل تطبيق بوتلي تاجر",
+    rights: "جميع الحقوق محفوظة",
+  },
+  en: {
+    title: "Botly connects merchants and customers",
+    subtitle: "We find any product you want and deliver it right to your door.",
+    tagline: "Sit back, relax, and use Botly.",
+    customer: "Customer entrance",
+    merchantLogin: "Merchant sign in",
+    createStore: "Create a new store",
+    customerApp: "Get the Botly Customer app",
+    merchantApp: "Get the Botly Merchant app",
+    rights: "All rights reserved",
+  },
+} as const;
 
-      {/* Hero */}
-      <section className="relative overflow-hidden">
+function LandingPage() {
+  const { locale } = useLanguage();
+  const text = copy[locale];
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+        <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+          <Logo />
+          <LanguageSwitcher />
+        </div>
+      </header>
+
+      <main className="relative flex flex-1 items-center overflow-hidden">
         <div className="absolute inset-0 -z-10" style={{ background: "var(--gradient-hero)" }} />
         <div className="absolute -top-32 start-1/2 -z-10 h-[400px] w-[800px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
 
         <div className="container mx-auto max-w-6xl px-4 py-20 md:py-28">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary-soft px-4 py-1.5 text-xs font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              {t("hero.badge")}
-            </div>
             <h1 className="text-balance text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl md:text-6xl">
-              {t("hero.title")}
+              {text.title}
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-balance text-base text-muted-foreground sm:text-lg">
-              {t("hero.subtitle")}
+              {text.subtitle}
             </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <p className="mx-auto mt-3 max-w-2xl text-balance text-lg font-semibold text-primary sm:text-xl">
+              {text.tagline}
+            </p>
+
+            <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="gap-2 shadow-elevated">
-                <Link to="/auth">
-                  {t("hero.cta.primary")}
-                  <ArrowRight className="h-4 w-4 rtl:rotate-180" />
+                <Link to="/customer/auth">
+                  <User className="h-4 w-4" />
+                  {text.customer}
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline">
-                <a href="#workflow">{t("hero.cta.secondary")}</a>
-              </Button>
-            </div>
-
-            <div className="mx-auto mt-14 grid max-w-2xl grid-cols-3 gap-4 border-t border-border/60 pt-8">
-              {[
-                { v: t("features.store.title"), l: t("hero.stats.merchants") },
-                { v: t("features.bot.title"), l: t("hero.stats.products") },
-                { v: t("features.leads.title"), l: t("hero.stats.orders") },
-              ].map((s) => (
-                <div key={s.l}>
-                  <div className="text-sm font-bold text-foreground sm:text-base">{s.v}</div>
-                  <div className="mt-1 text-xs text-muted-foreground sm:text-sm">{s.l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Preview card */}
-          <div className="mx-auto mt-16 max-w-4xl">
-            <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-elevated">
-              <div className="flex items-center gap-1.5 border-b border-border bg-secondary/50 px-4 py-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-destructive/50" />
-                <span className="h-2.5 w-2.5 rounded-full bg-warning/60" />
-                <span className="h-2.5 w-2.5 rounded-full bg-success/60" />
-              </div>
-              <div className="grid gap-0 md:grid-cols-2">
-                <div className="space-y-4 p-6">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MessageCircle className="h-4 w-4 text-success" />
-                    WhatsApp
-                  </div>
-                  <ChatBubble side="in">أبحث عن منتج مناسب</ChatBubble>
-                  <ChatBubble side="out">أشوف منتجات المتجر وأرشحلك المناسب.</ChatBubble>
-                  <div className="rounded-xl border border-border bg-background p-3">
-                    <div className="aspect-video rounded-lg bg-secondary" />
-                    <div className="mt-2 text-sm font-medium">منتج من متجرك</div>
-                    <div className="text-xs text-muted-foreground">السعر من لوحة التاجر</div>
-                  </div>
-                </div>
-                <div className="border-s border-border bg-secondary/30 p-6">
-                  <div className="mb-4 text-sm font-semibold">Botly Dashboard</div>
-                  <div className="space-y-3">
-                    <MiniStat label={t("dashboard.stat.products")} value="0" />
-                    <MiniStat label={t("dashboard.stat.leads")} value="0" />
-                    <MiniStat label={t("dashboard.stat.searches")} value="0" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="border-t border-border/60 bg-background py-20">
-        <div className="container mx-auto max-w-6xl px-4">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{t("features.title")}</h2>
-            <p className="mt-4 text-muted-foreground">{t("features.subtitle")}</p>
-          </div>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { i: Store, k: "store" },
-              { i: Bot, k: "bot" },
-              { i: Inbox, k: "leads" },
-              { i: BarChart3, k: "analytics" },
-            ].map(({ i: Icon, k }) => (
-              <div
-                key={k}
-                className="group rounded-2xl border border-border bg-card p-6 shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated"
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="gap-2 border-primary/40 text-primary hover:bg-primary-soft"
               >
-                <div className="mb-4 grid h-11 w-11 place-items-center rounded-xl bg-primary-soft text-primary">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-semibold">{t(`features.${k}.title` as never)}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t(`features.${k}.desc` as never)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Workflow */}
-      <section id="workflow" className="border-t border-border/60 bg-secondary/40 py-20">
-        <div className="container mx-auto max-w-6xl px-4">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{t("workflow.title")}</h2>
-            <p className="mt-4 text-muted-foreground">{t("workflow.subtitle")}</p>
-          </div>
-          <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[
-              { i: MessageCircle, k: "step1" },
-              { i: Sparkles, k: "step2" },
-              { i: Search, k: "step3" },
-              { i: Package, k: "step4" },
-              { i: CheckCircle2, k: "step5" },
-              { i: Truck, k: "step6" },
-            ].map(({ i: Icon, k }, idx) => (
-              <div key={k} className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-                <div className="mb-4 flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <span className="text-xs font-semibold text-muted-foreground">0{idx + 1}</span>
-                </div>
-                <h3 className="font-semibold">{t(`workflow.${k}.title` as never)}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t(`workflow.${k}.desc` as never)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-20">
-        <div className="container mx-auto max-w-4xl px-4">
-          <div
-            className="overflow-hidden rounded-3xl p-10 text-center shadow-glow sm:p-14"
-            style={{ background: "var(--gradient-primary)" }}
-          >
-            <h2 className="text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl">
-              {t("cta.title")}
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-primary-foreground/85">{t("cta.subtitle")}</p>
-            <div className="mt-8">
-              <Button asChild size="lg" variant="secondary" className="gap-2 shadow-elevated">
                 <Link to="/auth">
-                  {t("hero.cta.primary")}
+                  {text.merchantLogin}
                   <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                 </Link>
               </Button>
+              <Button asChild size="lg" variant="outline" className="gap-2">
+                <Link to="/auth" search={{ mode: "signup" }}>
+                  <Store className="h-4 w-4" />
+                  {text.createStore}
+                </Link>
+              </Button>
+            </div>
+
+            {/* PWA install pages */}
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-4 text-sm">
+              <Link
+                to="/customer/app"
+                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
+              >
+                <Download className="h-4 w-4" />
+                {text.customerApp}
+              </Link>
+              <Link
+                to="/merchant-app"
+                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
+              >
+                <Download className="h-4 w-4" />
+                {text.merchantApp}
+              </Link>
             </div>
           </div>
         </div>
-      </section>
+      </main>
 
-      <MarketingFooter />
-    </div>
-  );
-}
-
-function ChatBubble({ side, children }: { side: "in" | "out"; children: React.ReactNode }) {
-  const inbound = side === "in";
-  return (
-    <div className={`flex ${inbound ? "justify-start" : "justify-end"}`}>
-      <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-          inbound
-            ? "bg-secondary text-foreground rounded-bl-sm rtl:rounded-bl-2xl rtl:rounded-br-sm"
-            : "bg-primary text-primary-foreground rounded-br-sm rtl:rounded-br-2xl rtl:rounded-bl-sm"
-        }`}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-lg font-semibold">{value}</span>
+      <footer className="border-t border-border/60 bg-background">
+        <div className="container mx-auto max-w-6xl px-4 py-6 text-center text-xs text-muted-foreground">
+          © {new Date().getFullYear()} Botly. {text.rights}.
+        </div>
+      </footer>
     </div>
   );
 }

@@ -23,7 +23,7 @@ export type ManagedProduct = {
   currency: string;
   imageUrl: string;
   postUrl: string;
-  source: string; // "manual" | "instagram" | "facebook"
+  source: string; // "manual" | "video"
   category: string | null;
   brand: string | null;
   color: string | null;

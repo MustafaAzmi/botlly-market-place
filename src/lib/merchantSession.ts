@@ -2,9 +2,13 @@ export interface MerchantSession {
   token?: string;
   merchantId?: string;
   storeName?: string;
+  storeSlug?: string;
   whatsapp?: string;
   email?: string;
   bio?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
   deliveryPhone?: string;
   signedInAt?: string;
   updatedAt?: string;

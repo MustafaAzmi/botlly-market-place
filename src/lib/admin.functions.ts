@@ -10,9 +10,17 @@ import {
   sha256,
   randomToken,
   normalizePhone,
+  phoneKey,
+  deleteEventsByPayloadField,
   type EventRow,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  defaultCatalogueConfig,
+  parseCatalogueConfig,
+  type CatalogueConfig,
+} from "@/lib/car-data";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,7 +36,6 @@ export interface MerchantAdminView {
   storeName: string;
   whatsapp: string;
   email?: string;
-  platform: string; // instagram | facebook | "—"
   subscriptionStatus: string; // active | expired | trial | none
   packageExpiry: string | null;
   isActive: boolean;
@@ -38,7 +45,6 @@ export interface MerchantAdminView {
   // Effective customer-facing visibility (false = hidden from search/bot).
   visibleInSearch: boolean;
   productCount: number;
-  lastSyncedAt: string | null;
   createdAt: string;
 }
 
@@ -260,15 +266,11 @@ function isVisibleInSearch(p: Record<string, unknown>): boolean {
   return true;
 }
 
-// Load product counts (active, latest-per-productId) and last sync per merchant.
+// Load product counts (active, latest-per-productId).
 async function loadMerchantMetrics(): Promise<{
   productCounts: Map<string, number>;
-  lastSync: Map<string, string>;
-  platform: Map<string, string>;
 }> {
   const productCounts = new Map<string, number>();
-  const lastSync = new Map<string, string>();
-  const platform = new Map<string, string>();
 
   // Products: count latest-per-productId, non-rejected.
   const productRows = await listEvents("botly_product");
@@ -284,21 +286,7 @@ async function loadMerchantMetrics(): Promise<{
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
   }
 
-  // Connections: latest sync + platform per merchant.
-  const connRows = await listEvents("botly_meta_connection");
-  for (const row of connRows) {
-    const p = row.payload ?? {};
-    if (p.kind !== "connection") continue;
-    const mId = getString(p.merchantId);
-    if (!mId) continue;
-    if (!lastSync.has(mId)) {
-      const synced = getString(p.lastSyncedAt);
-      if (synced) lastSync.set(mId, synced);
-      platform.set(mId, getString(p.instagramBusinessAccountId) ? "instagram" : "facebook");
-    }
-  }
-
-  return { productCounts, lastSync, platform };
+  return { productCounts };
 }
 
 export const listMerchants = createServerFn({ method: "POST" })
@@ -306,7 +294,7 @@ export const listMerchants = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<MerchantAdminView[]> => {
     await authorizeAdmin(data.token);
     const merchants = await latestMerchants();
-    const { productCounts, lastSync, platform } = await loadMerchantMetrics();
+    const { productCounts } = await loadMerchantMetrics();
 
     return merchants
       .map((row) => {
@@ -317,7 +305,6 @@ export const listMerchants = createServerFn({ method: "POST" })
           storeName: getString(p.storeName) || "متجر",
           whatsapp: getString(p.whatsapp),
           email: getString(p.email) || undefined,
-          platform: platform.get(mId) || "—",
           subscriptionStatus: getString(p.subscriptionStatus) || "none",
           packageExpiry: getString(p.packageExpiry) || null,
           isActive: p.isActive !== false,
@@ -326,7 +313,6 @@ export const listMerchants = createServerFn({ method: "POST" })
           bannedFromBot: p.bannedFromBot === true,
           visibleInSearch: isVisibleInSearch(p),
           productCount: productCounts.get(mId) ?? 0,
-          lastSyncedAt: lastSync.get(mId) ?? null,
           createdAt: getString(p.createdAt) || eventTime(row),
         } satisfies MerchantAdminView;
       })
@@ -377,6 +363,56 @@ export const setMerchantSubscription = createServerFn({ method: "POST" })
       subscriptionStatus: data.status,
       packageExpiry: data.packageExpiry ?? "",
     });
+  });
+
+// Hard delete a merchant store and all its data (products, orders, sessions).
+//
+// Deletes by row id rather than a payload->>merchantId filter: merchants
+// created before the merchantId payload field existed are identified by their
+// row id (see merchantIdentity), so a JSON-path filter matches nothing for
+// them and the store silently survives. Collecting ids via listEvents also
+// works on both the source/event_type and legacy provider column schemas.
+export const deleteMerchantStore = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchants = await listEvents("botly_merchant");
+    const target = merchants.find(
+      (r) => merchantIdentity(r) === data.merchantId || r.id === data.merchantId,
+    );
+    if (!target) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(target);
+
+    const [products, orders, sessions] = await Promise.all([
+      listEvents("botly_product"),
+      listEvents("botly_order"),
+      listEvents("botly_session"),
+    ]);
+
+    const ids = new Set<string>();
+    // Every profile event in the merchant's append-only history.
+    for (const r of merchants) {
+      if (merchantIdentity(r) === merchantId || r.id === data.merchantId) ids.add(r.id);
+    }
+    const belongsToMerchant = (r: EventRow) => getString(r.payload?.merchantId) === merchantId;
+    for (const r of products) if (belongsToMerchant(r)) ids.add(r.id);
+    for (const r of orders) if (belongsToMerchant(r)) ids.add(r.id);
+    for (const r of sessions) if (belongsToMerchant(r)) ids.add(r.id);
+
+    const all = [...ids];
+    for (let i = 0; i < all.length; i += 200) {
+      const chunk = all.slice(i, i + 200);
+      const result = await supabaseAdmin
+        .from("whatsapp_webhook_events")
+        .delete()
+        .in("id", chunk as never[]);
+      if (result.error) {
+        throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
+      }
+    }
+
+    return { ok: true, deleted: all.length };
   });
 
 // ---------------------------------------------------------------------------
@@ -468,4 +504,167 @@ export const listAdminMessages = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+  });
+
+// ---------------------------------------------------------------------------
+// Customers (الزبائن) + purchase report
+// ---------------------------------------------------------------------------
+
+export interface CustomerAdminView {
+  customerId: string;
+  name: string;
+  whatsapp: string;
+  landmark: string;
+  governorate: string;
+  createdAt: string;
+}
+
+function customerIdentity(row: EventRow) {
+  return getString(row.payload?.customerId) || row.id;
+}
+
+export const listCustomers = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<CustomerAdminView[]> => {
+    await authorizeAdmin(data.token);
+
+    const customerRows = await listEvents("botly_customer");
+
+    // Latest profile per customer.
+    const seen = new Map<string, EventRow>();
+    for (const row of customerRows) {
+      const id = customerIdentity(row);
+      if (!seen.has(id)) seen.set(id, row);
+    }
+
+    return [...seen.values()].map((row) => {
+      const p = row.payload ?? {};
+      return {
+        customerId: customerIdentity(row),
+        name: getString(p.name) || "زبون",
+        whatsapp: getString(p.whatsapp),
+        landmark: getString(p.landmark),
+        governorate: getString(p.governorate),
+        createdAt: getString(p.createdAt) || eventTime(row),
+      };
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// Platform settings (mediator contact number)
+// ---------------------------------------------------------------------------
+
+export const getPlatformSettings = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const rows = await listEvents("botly_settings");
+    const mediatorPhone = rows
+      .map((row) => getString(row.payload?.mediatorPhone))
+      .find(Boolean);
+    return { mediatorPhone: mediatorPhone ?? "" };
+  });
+
+const mediatorPhoneInput = tokenInput.extend({
+  mediatorPhone: z.string().trim().max(40),
+});
+
+export const setMediatorPhone = createServerFn({ method: "POST" })
+  .inputValidator((d) => mediatorPhoneInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    await appendEvent("botly_settings", {
+      mediatorPhone: data.mediatorPhone,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  });
+
+// ---------------------------------------------------------------------------
+// Car catalogue configuration (admin-managed, single source of truth for the
+// customer/merchant dropdowns)
+// ---------------------------------------------------------------------------
+//
+// The admin owns the FULL catalogue, not just visibility flags: makes, models,
+// colors and years can be added, removed, shown or hidden. The hardcoded lists
+// in car-data.ts only seed the first load; after that, whatever the admin
+// saves here is the catalogue.
+
+const catalogItemSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean(),
+});
+
+const catalogInput = tokenInput.extend({
+  config: z.object({
+    makes: z
+      .array(
+        z.object({
+          key: z.string().trim().min(1).max(80),
+          label: z.string().trim().min(1).max(80),
+          enabled: z.boolean(),
+          models: z.array(catalogItemSchema).max(300),
+        }),
+      )
+      .max(300),
+    colors: z.array(catalogItemSchema).max(200),
+    years: z.array(catalogItemSchema).max(200),
+  }),
+});
+
+export const getCarCatalogueConfig = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<CatalogueConfig> => {
+    await authorizeAdmin(data.token);
+    // listEvents returns newest first — the first parseable event is the
+    // current catalogue. No saved catalogue yet → seed from the standard list
+    // (everything unchecked) so the admin has something to start from.
+    const rows = await listEvents("botly_catalogue_config");
+    for (const row of rows) {
+      const parsed = parseCatalogueConfig(row.payload);
+      if (parsed) return parsed;
+    }
+    return defaultCatalogueConfig();
+  });
+
+export const saveCarCatalogueConfig = createServerFn({ method: "POST" })
+  .inputValidator((d) => catalogInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    await appendEvent("botly_catalogue_config", {
+      ...data.config,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  });
+
+// ---------------------------------------------------------------------------
+// Maintenance: purge ALL products (old demo data cleanup)
+// ---------------------------------------------------------------------------
+
+// Hard-deletes every product row (with their inline images) from the event
+// store. Used once to clear the old non-car demo catalogue (pants, watches...).
+export const purgeAllProducts = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+
+    const primary = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .delete({ count: "exact" })
+      .eq("source", "botly")
+      .eq("event_type", "botly_product");
+
+    if (!primary.error) return { ok: true, deleted: primary.count ?? 0 };
+
+    // Older schema fallback (provider column instead of source/event_type).
+    const fallback = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .delete({ count: "exact" })
+      .eq("provider" as never, "botly_product");
+
+    if (fallback.error) {
+      throw new Error(`تعذر مسح المنتجات: ${fallback.error.message ?? "خطأ غير معروف"}`);
+    }
+    return { ok: true, deleted: fallback.count ?? 0 };
   });

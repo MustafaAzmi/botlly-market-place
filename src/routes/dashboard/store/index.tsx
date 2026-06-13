@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, ImagePlus, Loader2, Store, Truck } from "lucide-react";
+import { ExternalLink, ImagePlus, Loader2, MapPin, Store } from "lucide-react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -24,13 +24,23 @@ function StoreProfilePage() {
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [bio, setBio] = useState("");
+  const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
+  const [storeSlug, setStoreSlug] = useState("");
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  const mapUrl =
+    latitude.trim() && longitude.trim()
+      ? `https://www.google.com/maps?q=${encodeURIComponent(`${latitude.trim()},${longitude.trim()}`)}`
+      : "";
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -42,22 +52,38 @@ function StoreProfilePage() {
     setStoreName(merchantSession.storeName ?? "");
     setWhatsapp(merchantSession.whatsapp ?? "");
     setBio(merchantSession.bio ?? "");
+    setAddress(merchantSession.address ?? "");
+    setLatitude(
+      typeof merchantSession.latitude === "number" ? String(merchantSession.latitude) : "",
+    );
+    setLongitude(
+      typeof merchantSession.longitude === "number" ? String(merchantSession.longitude) : "",
+    );
     setDeliveryPhone(merchantSession.deliveryPhone ?? "");
+    setStoreSlug(merchantSession.storeSlug ?? "");
 
     getCurrentMerchantFn({ data: { token: merchantSession.token } })
       .then((profile) => {
         setStoreName(profile.storeName);
         setWhatsapp(profile.whatsapp);
         setBio(profile.bio ?? "");
+        setAddress(profile.address ?? "");
+        setLatitude(typeof profile.latitude === "number" ? String(profile.latitude) : "");
+        setLongitude(typeof profile.longitude === "number" ? String(profile.longitude) : "");
         setDeliveryPhone(profile.deliveryPhone ?? "");
+        if (profile.storeSlug) setStoreSlug(profile.storeSlug);
         setLogoPreview(profile.logoUrl ?? null);
         setCoverPreview(profile.coverUrl ?? null);
         writeMerchantSession({
           merchantId: profile.id,
+          storeSlug: profile.storeSlug,
           storeName: profile.storeName,
           whatsapp: profile.whatsapp,
           email: profile.email,
           bio: profile.bio,
+          address: profile.address,
+          latitude: profile.latitude,
+          longitude: profile.longitude,
           deliveryPhone: profile.deliveryPhone,
         });
       })
@@ -85,6 +111,36 @@ function StoreProfilePage() {
     reader.readAsDataURL(file);
   };
 
+  const useCurrentLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("متصفحك ما يدعم تحديد الموقع. افتح الصفحة من Chrome وجرب مرة ثانية.");
+      return;
+    }
+
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextLatitude = position.coords.latitude.toFixed(6);
+        const nextLongitude = position.coords.longitude.toFixed(6);
+        const nextMapUrl = `https://www.google.com/maps?q=${nextLatitude},${nextLongitude}`;
+        setLatitude(nextLatitude);
+        setLongitude(nextLongitude);
+        setAddress((current) => current.trim() || nextMapUrl);
+        toast.success("تم تحديد موقع المتجر من Google Maps");
+        setLocating(false);
+      },
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "اسمح للموقع من المتصفح حتى نحدد مكان المتجر."
+            : "ما قدرنا نحدد موقعك حالياً، جرب مرة ثانية.";
+        toast.error(message);
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const merchantSession = readMerchantSession();
@@ -97,6 +153,15 @@ function StoreProfilePage() {
       toast.error("اسم المحل ورقم واتساب مطلوبة");
       return;
     }
+    const latValue = latitude.trim() ? Number(latitude) : undefined;
+    const lngValue = longitude.trim() ? Number(longitude) : undefined;
+    if (
+      (latValue !== undefined && !Number.isFinite(latValue)) ||
+      (lngValue !== undefined && !Number.isFinite(lngValue))
+    ) {
+      toast.error("إحداثيات المتجر غير صحيحة");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -106,6 +171,9 @@ function StoreProfilePage() {
           storeName: storeName.trim(),
           whatsapp: whatsapp.trim(),
           bio: bio.trim(),
+          address: address.trim(),
+          latitude: latValue,
+          longitude: lngValue,
           deliveryPhone: deliveryPhone.trim(),
           logoUrl: logoPreview ?? "",
           coverUrl: coverPreview ?? "",
@@ -116,6 +184,9 @@ function StoreProfilePage() {
         storeName: profile.storeName,
         whatsapp: profile.whatsapp,
         bio: profile.bio,
+        address: profile.address,
+        latitude: profile.latitude,
+        longitude: profile.longitude,
         deliveryPhone: profile.deliveryPhone,
       });
       toast.success("تم حفظ صفحة المتجر");
@@ -133,7 +204,7 @@ function StoreProfilePage() {
       subtitle="بيانات المتجر محفوظة بقاعدة البيانات، تقدر تعدلها وتكمل باقي الصفحة."
       actions={
         <Button asChild variant="outline" size="lg" className="gap-2">
-          <Link to="/store/$slug" params={{ slug: "noor-store" }}>
+          <Link to="/store/$slug" params={{ slug: storeSlug || "store" }}>
             <ExternalLink className="h-4 w-4" />
             معاينة الصفحة
           </Link>
@@ -240,27 +311,60 @@ function StoreProfilePage() {
                   maxLength={280}
                 />
               </Field>
-            </div>
-
-            <div className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-soft">
-              <div className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-primary" />
-                <h2 className="font-semibold">شركة التوصيل</h2>
-              </div>
-              <Field id="deliveryPhone" label="رقم واتساب شركة التوصيل (اختياري)">
-                <Input
-                  id="deliveryPhone"
-                  value={deliveryPhone}
-                  onChange={(e) => setDeliveryPhone(e.target.value)}
-                  placeholder="07XX XXX XXXX"
-                  dir="ltr"
-                  className="h-11 text-start"
+              <Field id="address" label="عنوان المتجر أو رابط الموقع (اختياري)">
+                <Textarea
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="مثال: بغداد - المنصور، أو رابط موقع المتجر"
+                  rows={3}
+                  maxLength={500}
                 />
               </Field>
-              <p className="text-sm leading-6 text-muted-foreground">
-                هذا الرقم يستخدم لاحقاً لإشعار شركة التوصيل بالطلبات الجديدة.
-              </p>
+              <div className="rounded-lg border border-border bg-background p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">موقع المتجر على Google Maps</Label>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      اضغط الزر وخلي المتصفح يحدد موقعك الحالي حتى نستخدمه بالبحث القريب للزبائن.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    className="gap-2"
+                    onClick={useCurrentLocation}
+                    disabled={locating}
+                  >
+                    {locating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MapPin className="h-4 w-4" />
+                    )}
+                    موقعي الآن
+                  </Button>
+                </div>
+                {mapUrl ? (
+                  <div className="mt-3 flex flex-col gap-2 rounded-md bg-primary-soft px-3 py-2 text-sm text-primary sm:flex-row sm:items-center sm:justify-between">
+                    <span>تم حفظ موقع المتجر للبحث القريب.</span>
+                    <a
+                      href={mapUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline"
+                    >
+                      فتح بالخريطة
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ) : null}
+              </div>
             </div>
+
+            {/* Delivery company section hidden from merchants for now —
+                delivery companies are managed by the admin (/admin/delivery).
+                The saved deliveryPhone value is preserved through profile saves. */}
           </section>
 
           <div className="flex justify-end">

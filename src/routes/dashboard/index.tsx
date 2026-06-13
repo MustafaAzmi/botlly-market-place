@@ -3,38 +3,28 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowUpRight,
   CheckCircle2,
-  Instagram,
   Loader2,
   Package,
   Search,
   ShoppingBag,
   TrendingUp,
-  Truck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useT } from "@/i18n/LanguageProvider";
-import {
-  getMerchantDashboard,
-  updateMerchantProfile,
-  type MerchantDashboard,
-} from "@/lib/merchant.functions";
-import {
-  getMetaConnectUrl,
-  getMetaStatus,
-  listMetaConnections,
-  syncMerchantPosts,
-  type MetaConnectionView,
-} from "@/lib/meta.functions";
+import { getMerchantDashboard, type MerchantDashboard } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
+import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/dashboard/")({
-  head: () => ({ meta: [{ title: "Dashboard - Botly" }] }),
+  head: () => ({
+    meta: [{ title: "Dashboard - Botly" }, ...pwaHeadMeta("merchant")],
+    links: pwaHeadLinks("merchant"),
+  }),
   component: DashboardHome,
 });
 
@@ -42,18 +32,8 @@ function DashboardHome() {
   const t = useT();
   const navigate = useNavigate();
   const getMerchantDashboardFn = useServerFn(getMerchantDashboard);
-  const updateMerchantProfileFn = useServerFn(updateMerchantProfile);
-  const getMetaConnectUrlFn = useServerFn(getMetaConnectUrl);
-  const getMetaStatusFn = useServerFn(getMetaStatus);
-  const listMetaConnectionsFn = useServerFn(listMetaConnections);
-  const syncMerchantPostsFn = useServerFn(syncMerchantPosts);
   const [dashboard, setDashboard] = useState<MerchantDashboard | null>(null);
-  const [deliveryWhatsapp, setDeliveryWhatsapp] = useState("");
   const [loading, setLoading] = useState(true);
-  const [metaConfigured, setMetaConfigured] = useState(false);
-  const [metaConnections, setMetaConnections] = useState<MetaConnectionView[]>([]);
-  const [connectingMeta, setConnectingMeta] = useState(false);
-  const [syncingMeta, setSyncingMeta] = useState(false);
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -65,7 +45,6 @@ function DashboardHome() {
     getMerchantDashboardFn({ data: { token: merchantSession.token } })
       .then((nextDashboard) => {
         setDashboard(nextDashboard);
-        setDeliveryWhatsapp(nextDashboard.profile.deliveryPhone ?? "");
         writeMerchantSession({
           merchantId: nextDashboard.profile.id,
           storeName: nextDashboard.profile.storeName,
@@ -80,85 +59,7 @@ function DashboardHome() {
         navigate({ to: "/auth" });
       })
       .finally(() => setLoading(false));
-
-    // Load Meta (Instagram/Facebook) connection status.
-    getMetaStatusFn()
-      .then((status) => setMetaConfigured(status.configured))
-      .catch(() => setMetaConfigured(false));
-
-    listMetaConnectionsFn({ data: { token: merchantSession.token } })
-      .then((connections) => setMetaConnections(connections))
-      .catch(() => setMetaConnections([]));
-
-    // Surface the OAuth callback result (?meta=connected|error).
-    const params = new URLSearchParams(window.location.search);
-    const metaResult = params.get("meta");
-    if (metaResult === "connected") {
-      toast.success("تم ربط حساب انستغرام/فيسبوك بنجاح. جاري استيراد منشوراتك.");
-    } else if (metaResult === "error") {
-      toast.error("تعذر ربط الحساب. حاول مرة ثانية.");
-    }
-  }, [getMerchantDashboardFn, getMetaStatusFn, listMetaConnectionsFn, navigate]);
-
-  const connectMeta = async () => {
-    const merchantSession = readMerchantSession();
-    if (!merchantSession?.token) {
-      navigate({ to: "/auth" });
-      return;
-    }
-    setConnectingMeta(true);
-    try {
-      const { url } = await getMetaConnectUrlFn({ data: { token: merchantSession.token } });
-      window.location.href = url;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر بدء ربط الحساب");
-      setConnectingMeta(false);
-    }
-  };
-
-  const syncNow = async () => {
-    const merchantSession = readMerchantSession();
-    if (!merchantSession?.token) {
-      navigate({ to: "/auth" });
-      return;
-    }
-    setSyncingMeta(true);
-    try {
-      const result = await syncMerchantPostsFn({ data: { token: merchantSession.token } });
-      toast.success(`تم استيراد ${result.imported} منتج (${result.pendingReview} بحاجة مراجعة)`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تحديث المنشورات");
-    } finally {
-      setSyncingMeta(false);
-    }
-  };
-
-  const saveDeliveryWhatsapp = async () => {
-    const merchantSession = readMerchantSession();
-    if (!merchantSession?.token || !dashboard) {
-      navigate({ to: "/auth" });
-      return;
-    }
-
-    try {
-      const profile = await updateMerchantProfileFn({
-        data: {
-          token: merchantSession.token,
-          storeName: dashboard.profile.storeName,
-          whatsapp: dashboard.profile.whatsapp,
-          bio: dashboard.profile.bio ?? "",
-          deliveryPhone: deliveryWhatsapp.trim(),
-          logoUrl: dashboard.profile.logoUrl ?? "",
-          coverUrl: dashboard.profile.coverUrl ?? "",
-        },
-      });
-      setDashboard({ ...dashboard, profile });
-      writeMerchantSession({ deliveryPhone: profile.deliveryPhone });
-      toast.success("تم حفظ رقم واتساب شركة التوصيل");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر حفظ رقم التوصيل");
-    }
-  };
+  }, [getMerchantDashboardFn, navigate]);
 
   const stats = dashboard?.stats ?? { products: 0, searches: 0, orders: 0, completion: 0 };
   const recentProducts = dashboard?.products.slice(0, 4) ?? [];
@@ -225,93 +126,8 @@ function DashboardHome() {
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-                <div className="mb-3 flex items-center gap-2">
-                  <Instagram className="h-5 w-5 text-primary" />
-                  <div className="font-semibold">ربط انستغرام / فيسبوك</div>
-                </div>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  اربط حسابك التجاري وخلّي Botly يحوّل منشوراتك تلقائياً لمنتجات قابلة للبحث. استمر
-                  بالنشر الطبيعي على حساباتك.
-                </p>
-
-                {metaConnections.length > 0 && (
-                  <div className="mb-4 space-y-2">
-                    {metaConnections.map((conn, index) => (
-                      <div
-                        key={`${conn.platform}-${index}`}
-                        className="flex items-center justify-between rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm"
-                      >
-                        <span className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-primary" />
-                          {conn.instagramUsername || conn.facebookPageName || conn.platform}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {conn.status === "active" ? "مفعّل" : conn.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <Button
-                  type="button"
-                  className="w-full gap-2"
-                  onClick={connectMeta}
-                  disabled={!metaConfigured || connectingMeta}
-                >
-                  {connectingMeta ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Instagram className="h-4 w-4" />
-                  )}
-                  {metaConnections.length > 0 ? "ربط حساب إضافي" : "ربط انستغرام / فيسبوك"}
-                </Button>
-                {metaConnections.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mt-2 w-full gap-2"
-                    onClick={syncNow}
-                    disabled={syncingMeta}
-                  >
-                    {syncingMeta ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Search className="h-4 w-4" />
-                    )}
-                    تحديث المنشورات الآن
-                  </Button>
-                )}
-                {!metaConfigured && (
-                  <p className="mt-2 text-center text-xs text-muted-foreground">
-                    الميزة قيد التفعيل حالياً.
-                  </p>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-                <div className="mb-3 flex items-center gap-2">
-                  <Truck className="h-5 w-5 text-primary" />
-                  <div className="font-semibold">واتساب شركة التوصيل</div>
-                </div>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  اختياري، ويستخدم لاحقاً لإرسال الطلبات لشركة التوصيل.
-                </p>
-                <div className="space-y-3">
-                  <Input
-                    value={deliveryWhatsapp}
-                    onChange={(e) => setDeliveryWhatsapp(e.target.value)}
-                    placeholder="07XX XXX XXXX"
-                    dir="ltr"
-                    className="h-11 text-start"
-                  />
-                  <Button type="button" className="w-full" onClick={saveDeliveryWhatsapp}>
-                    ربط رقم التوصيل
-                  </Button>
-                </div>
-              </div>
-
+              {/* Delivery company linking hidden from merchants for now —
+                  delivery companies are managed by the admin (/admin/delivery). */}
               <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
                 <div className="mb-3 flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />
