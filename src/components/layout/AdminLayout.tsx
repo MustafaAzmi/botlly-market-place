@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, Store, Package, Truck, Send, LogOut, ShieldCheck, Bot, Coins, Users, Car } from "lucide-react";
+import { LayoutDashboard, Store, Package, Truck, Send, LogOut, ShieldCheck, Coins, Users, Car, PhoneCall } from "lucide-react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ const items = [
   { to: "/admin/packages", icon: Package, label: "باقات الدفع" },
   { to: "/admin/currencies", icon: Coins, label: "العملات" },
   { to: "/admin/delivery", icon: Truck, label: "شركات التوصيل" },
-  { to: "/admin/bot", icon: Bot, label: "إعدادات البوت" },
+  { to: "/admin/mediators", icon: PhoneCall, label: "الوسطاء" },
   { to: "/admin/broadcasts", icon: Send, label: "الرسائل الجماعية" },
 ];
 

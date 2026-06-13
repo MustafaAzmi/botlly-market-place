@@ -20,6 +20,7 @@ export type BotlyEventType =
   | "botly_order"
   | "botly_admin"
   | "botly_admin_session"
+  | "botly_admin_password_reset"
   | "botly_admin_message"
   | "botly_settings"
   | "botly_delivery_company"

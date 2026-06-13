@@ -25,6 +25,7 @@ import { Route as CustomerAppRouteImport } from './routes/customer/app'
 import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
+import { Route as AdminMediatorsRouteImport } from './routes/admin/mediators'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminDeliveryRouteImport } from './routes/admin/delivery'
 import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
@@ -122,6 +123,11 @@ const AdminPackagesRoute = AdminPackagesRouteImport.update({
   path: '/admin/packages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminMediatorsRoute = AdminMediatorsRouteImport.update({
+  id: '/admin/mediators',
+  path: '/admin/mediators',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof Customer_layoutRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof CustomerIndexRoute
@@ -285,6 +293,7 @@ export interface FileRoutesById {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer/__layout': typeof Customer_layoutRoute
@@ -321,6 +330,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
     | '/customer'
@@ -355,6 +365,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
     | '/customer'
@@ -388,6 +399,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
     | '/customer/__layout'
@@ -423,6 +435,7 @@ export interface RootRouteChildren {
   AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDeliveryRoute: typeof AdminDeliveryRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminMediatorsRoute: typeof AdminMediatorsRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
   Customer_layoutRoute: typeof Customer_layoutRoute
@@ -565,6 +578,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/mediators': {
+      id: '/admin/mediators'
+      path: '/admin/mediators'
+      fullPath: '/admin/mediators'
+      preLoaderRoute: typeof AdminMediatorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/delivery': {
       id: '/admin/delivery'
       path: '/admin/delivery'
@@ -687,6 +707,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCustomersRoute: AdminCustomersRoute,
   AdminDeliveryRoute: AdminDeliveryRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminMediatorsRoute: AdminMediatorsRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,
   Customer_layoutRoute: Customer_layoutRoute,

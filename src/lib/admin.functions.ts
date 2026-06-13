@@ -11,7 +11,6 @@ import {
   randomToken,
   normalizePhone,
   phoneKey,
-  deleteEventsByPayloadField,
   type EventRow,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
@@ -82,6 +81,16 @@ const subscriptionInput = merchantActionInput.extend({
 
 const changePasswordInput = tokenInput.extend({
   currentPassword: z.string().min(4).max(200),
+  newPassword: z.string().min(6).max(200),
+});
+
+const passwordResetRequestInput = z.object({
+  whatsapp: z.string().trim().min(3).max(40),
+});
+
+const passwordResetInput = z.object({
+  whatsapp: z.string().trim().min(3).max(40),
+  code: z.string().trim().min(4).max(12),
   newPassword: z.string().min(6).max(200),
 });
 
@@ -268,6 +277,107 @@ export const changeAdminPassword = createServerFn({ method: "POST" })
       passwordHash: await hashPassword(data.newPassword, newSalt),
       updatedAt: new Date().toISOString(),
     });
+    return { ok: true };
+  });
+
+function generateResetCode(): string {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(100000 + (bytes[0] % 900000));
+}
+
+async function hashResetCode(resetId: string, code: string) {
+  return sha256(`${resetId}:${code.trim()}`);
+}
+
+export const requestAdminPasswordReset = createServerFn({ method: "POST" })
+  .inputValidator((d) => passwordResetRequestInput.parse(d))
+  .handler(async ({ data }) => {
+    await ensureAdminSeed();
+    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
+      throw new Error("رقم الهاتف غير مسجل كأدمن.");
+    }
+
+    const row = await findAdminByPhone(data.whatsapp);
+    if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
+
+    const adminId = adminIdentity(row);
+    const resetId = crypto.randomUUID();
+    const code = generateResetCode();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    await appendEvent("botly_admin_password_reset", {
+      resetId,
+      adminId,
+      whatsapp: getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp,
+      codeHash: await hashResetCode(resetId, code),
+      used: false,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
+
+    const recipient = toWhatsAppRecipient(getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp);
+    const message = `رمز تغيير كلمة مرور لوحة أدمن Botly هو: ${code}\nينتهي خلال 15 دقيقة.`;
+    const result = await sendWhatsAppText(recipient, message);
+    if (!result.ok) {
+      throw new Error(result.error || "تعذر إرسال رمز الاسترجاع إلى رقم الواتساب المسجل.");
+    }
+
+    return { ok: true };
+  });
+
+export const resetAdminPassword = createServerFn({ method: "POST" })
+  .inputValidator((d) => passwordResetInput.parse(d))
+  .handler(async ({ data }) => {
+    await ensureAdminSeed();
+    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
+      throw new Error("رقم الهاتف غير مسجل كأدمن.");
+    }
+
+    const row = await findAdminByPhone(data.whatsapp);
+    if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
+
+    const adminId = adminIdentity(row);
+    const resetRows = await listEvents("botly_admin_password_reset");
+    const latestByResetId = new Map<string, EventRow>();
+    for (const resetRow of resetRows) {
+      const resetId = getString(resetRow.payload?.resetId);
+      if (!resetId || latestByResetId.has(resetId)) continue;
+      latestByResetId.set(resetId, resetRow);
+    }
+
+    let matched: EventRow | null = null;
+    for (const resetRow of latestByResetId.values()) {
+      const p = resetRow.payload ?? {};
+      const resetId = getString(p.resetId);
+      if (getString(p.adminId) !== adminId) continue;
+      if (p.used === true) continue;
+      if (new Date(getString(p.expiresAt)).getTime() <= Date.now()) continue;
+      const expected = getString(p.codeHash);
+      const actual = await hashResetCode(resetId, data.code);
+      if (expected && expected === actual) {
+        matched = resetRow;
+        break;
+      }
+    }
+
+    if (!matched) throw new Error("رمز الاسترجاع غير صحيح أو منتهي.");
+
+    const newSalt = randomToken();
+    await appendEvent("botly_admin", {
+      ...(row.payload ?? {}),
+      adminId,
+      passwordSalt: newSalt,
+      passwordHash: await hashPassword(data.newPassword, newSalt),
+      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
+      updatedAt: new Date().toISOString(),
+    });
+    await appendEvent("botly_admin_password_reset", {
+      ...(matched.payload ?? {}),
+      used: true,
+      usedAt: new Date().toISOString(),
+    });
+
     return { ok: true };
   });
 
@@ -703,35 +813,4 @@ export const saveCarCatalogueConfig = createServerFn({ method: "POST" })
       updatedAt: new Date().toISOString(),
     });
     return { ok: true };
-  });
-
-// ---------------------------------------------------------------------------
-// Maintenance: purge ALL products (old demo data cleanup)
-// ---------------------------------------------------------------------------
-
-// Hard-deletes every product row (with their inline images) from the event
-// store. Used once to clear the old non-car demo catalogue (pants, watches...).
-export const purgeAllProducts = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }) => {
-    await authorizeAdmin(data.token);
-
-    const primary = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .delete({ count: "exact" })
-      .eq("source", "botly")
-      .eq("event_type", "botly_product");
-
-    if (!primary.error) return { ok: true, deleted: primary.count ?? 0 };
-
-    // Older schema fallback (provider column instead of source/event_type).
-    const fallback = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .delete({ count: "exact" })
-      .eq("provider" as never, "botly_product");
-
-    if (fallback.error) {
-      throw new Error(`تعذر مسح المنتجات: ${fallback.error.message ?? "خطأ غير معروف"}`);
-    }
-    return { ok: true, deleted: fallback.count ?? 0 };
   });
