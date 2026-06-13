@@ -106,6 +106,8 @@ function ensureInstallPromptCapture() {
   });
 }
 
+ensureInstallPromptCapture();
+
 export function usePwaInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
     savedInstallPrompt,

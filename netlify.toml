@@ -25,6 +25,36 @@
   force = false
 
 [[redirects]]
+  from = "/icons/*"
+  to = "/icons/:splat"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/manifest-customer.webmanifest"
+  to = "/manifest-customer.webmanifest"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/manifest-merchant.webmanifest"
+  to = "/manifest-merchant.webmanifest"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/sw.js"
+  to = "/sw.js"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/offline.html"
+  to = "/offline.html"
+  status = 200
+  force = false
+
+[[redirects]]
   from = "/api/whatsapp/webhook"
   to = "/.netlify/functions/main"
   status = 200
@@ -34,4 +64,15 @@
   from = "/*"
   to = "/.netlify/functions/main"
   status = 200
-  force = true
+  force = false
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    cache-control = "no-cache"
+
+[[headers]]
+  for = "/*.webmanifest"
+  [headers.values]
+    content-type = "application/manifest+json; charset=utf-8"
+    cache-control = "no-cache"
