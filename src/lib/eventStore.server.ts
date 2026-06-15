@@ -18,6 +18,7 @@ export type BotlyEventType =
   | "botly_customer_session"
   | "botly_fitter"
   | "botly_fitter_session"
+  | "botly_fitter_order"
   | "botly_fitter_sale"
   | "botly_fitter_reset"
   | "botly_outbound_guard"

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   deleteFitterByAdmin,
   listFitters,
@@ -23,6 +24,28 @@ export const Route = createFileRoute("/admin/fitters")({
   head: () => ({ meta: [{ title: "فيتر — Botly Admin" }] }),
   component: AdminFittersPage,
 });
+
+const IRAQI_GOVERNORATES = [
+  "بغداد",
+  "نينوى",
+  "البصرة",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "الأنبار",
+  "صلاح الدين",
+  "ديالى",
+  "واسط",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "الديوانية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "حلبجة",
+];
 
 function AdminFittersPage() {
   const session = readAdminSession();
@@ -148,7 +171,7 @@ function AdminFittersPage() {
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                   <EditField label="الاسم" value={current.name} onChange={(value) => patch(row.fitterId, row, { name: value })} />
                   <EditField label="واتساب" dir="ltr" value={current.whatsapp} onChange={(value) => patch(row.fitterId, row, { whatsapp: value })} />
-                  <EditField label="المدينة" value={current.city} onChange={(value) => patch(row.fitterId, row, { city: value })} />
+                  <EditCity value={current.city} onChange={(value) => patch(row.fitterId, row, { city: value })} />
                   <EditField label="العنوان" value={current.address} onChange={(value) => patch(row.fitterId, row, { address: value })} />
                   <EditField label="رقم الفيزا" dir="ltr" icon={<CreditCard className="h-3.5 w-3.5" />} value={current.visaNumber} onChange={(value) => patch(row.fitterId, row, { visaNumber: value })} />
                   <EditField label="نسبة العمولة %" dir="ltr" type="number" value={String(current.commissionPercent)} onChange={(value) => patch(row.fitterId, row, { commissionPercent: Number(value) || 0 })} />
@@ -161,6 +184,26 @@ function AdminFittersPage() {
         </div>
       )}
     </AdminLayout>
+  );
+}
+
+function EditCity({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1 text-sm">
+      <span className="text-xs text-muted-foreground">المدينة</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="اختر المحافظة" />
+        </SelectTrigger>
+        <SelectContent>
+          {IRAQI_GOVERNORATES.map((governorate) => (
+            <SelectItem key={governorate} value={governorate}>
+              {governorate}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
   );
 }
 

@@ -745,15 +745,29 @@ async function currentFitterProfit(fitterId: string) {
   const resetRows = await listEvents("botly_fitter_reset");
   const reset = resetRows.find((row) => getString(row.payload?.fitterId) === fitterId);
   const resetAt = reset ? new Date(getString(reset.payload?.createdAt) || eventTime(reset)).getTime() : 0;
-  const sales = (await listEvents("botly_fitter_sale")).filter((row) => {
+  const orderRows = await listEvents("botly_fitter_order");
+  const latestOrders = new Map<string, EventRow>();
+  for (const row of orderRows) {
+    if (getString(row.payload?.fitterId) !== fitterId) continue;
+    const orderId = getString(row.payload?.orderId) || row.id;
+    if (!latestOrders.has(orderId)) latestOrders.set(orderId, row);
+  }
+  const confirmedOrders = [...latestOrders.values()].filter((row) => {
+    if (getString(row.payload?.status) !== "confirmed") return false;
+    return new Date(getString(row.payload?.updatedAt) || getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
+  });
+  const legacySales = (await listEvents("botly_fitter_sale")).filter((row) => {
     if (getString(row.payload?.fitterId) !== fitterId) return false;
+    if (getString(row.payload?.orderId)) return false;
     return new Date(getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
   });
   return {
     totalProfit: Number(
-      sales.reduce((sum, row) => sum + (getNumber(row.payload?.commissionAmount) ?? 0), 0).toFixed(2),
+      [...confirmedOrders, ...legacySales]
+        .reduce((sum, row) => sum + (getNumber(row.payload?.commissionAmount) ?? 0), 0)
+        .toFixed(2),
     ),
-    salesCount: sales.length,
+    salesCount: confirmedOrders.length + legacySales.length,
   };
 }
 

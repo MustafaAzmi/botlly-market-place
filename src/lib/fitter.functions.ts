@@ -41,12 +41,33 @@ export type FitterSale = {
   createdAt: string;
 };
 
+export type FitterOrderStatus = "requested" | "confirmed" | "cancelled";
+
+export type FitterOrder = {
+  id: string;
+  fitterId: string;
+  productId: string;
+  productTitle: string;
+  productPrice: number;
+  currency: string;
+  merchantId: string;
+  merchantStoreName: string;
+  merchantWhatsapp: string;
+  merchantAddress: string;
+  commissionPercent: number;
+  commissionAmount: number;
+  status: FitterOrderStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type FitterSummary = {
   fitter: FitterProfile;
   totalProfit: number;
   currency: string;
   salesCount: number;
   sales: FitterSale[];
+  orders: FitterOrder[];
 };
 
 const authInput = z.object({
@@ -78,8 +99,12 @@ const profileInput = tokenInput.extend({
   visaNumber: z.string().trim().max(80),
 });
 
-const confirmSaleInput = tokenInput.extend({
+const productOrderInput = tokenInput.extend({
   productId: z.string().trim().min(1),
+});
+
+const orderActionInput = tokenInput.extend({
+  orderId: z.string().trim().min(1),
 });
 
 async function hashPassword(password: string, salt: string) {
@@ -252,14 +277,16 @@ async function resolveProduct(productId: string) {
 async function resolveMerchantContact(merchantId: string, fallbackWhatsapp = "") {
   let whatsapp = fallbackWhatsapp;
   let storeName = "";
-  if (!merchantId) return { whatsapp, storeName };
+  let address = "";
+  if (!merchantId) return { whatsapp, storeName, address };
   const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
   const row = merchants.find((event) => (getString(event.payload?.merchantId) || event.id) === merchantId);
   if (row) {
     whatsapp = getString(row.payload?.whatsapp) || getString(row.payload?.whatsappNormalized) || whatsapp;
     storeName = getString(row.payload?.storeName);
+    address = getString(row.payload?.address);
   }
-  return { whatsapp, storeName };
+  return { whatsapp, storeName, address };
 }
 
 function normalizeMediatorPhones(values: string[]): string[] {
@@ -307,7 +334,7 @@ function fitterLocationLink(fitter: EventRow): string {
 function buildFitterMediatorMessage(args: {
   fitter: EventRow;
   product: Awaited<ReturnType<typeof resolveProduct>>;
-  merchant: { whatsapp: string; storeName: string };
+  merchant: { whatsapp: string; storeName: string; address: string };
   commissionPercent: number;
   commissionAmount: number;
 }) {
@@ -328,6 +355,7 @@ function buildFitterMediatorMessage(args: {
     `عمولة الفيتر: ${args.commissionPercent}% = ${args.commissionAmount.toLocaleString()} ${args.product.currency}`,
   );
   if (args.merchant.storeName) lines.push(`المتجر: ${args.merchant.storeName}`);
+  if (args.merchant.address) lines.push(`عنوان التاجر: ${args.merchant.address}`);
   lines.push(
     `واتساب التاجر: ${args.merchant.whatsapp || "غير متوفر"}`,
     "",
@@ -336,8 +364,39 @@ function buildFitterMediatorMessage(args: {
   return lines.join("\n");
 }
 
+function buildFitterCancelMessage(args: {
+  order: FitterOrder;
+  fitter: EventRow;
+}) {
+  const p = args.fitter.payload ?? {};
+  const mapLink = fitterLocationLink(args.fitter);
+  const lines = [
+    "إلغاء طلبية فيتر:",
+    `الطلبية: ${args.order.productTitle}`,
+    `السعر: ${args.order.productPrice.toLocaleString()} ${args.order.currency}`,
+    "",
+    `اسم الفيتر: ${getString(p.name) || "فيتر"}`,
+    `رقم الفيتر: ${getString(p.whatsapp)}`,
+    `المدينة: ${getString(p.city) || "-"}`,
+    `عنوان الفيتر: ${getString(p.address) || "-"}`,
+  ];
+  if (mapLink) lines.push(`لوكيشن الفيتر: ${mapLink}`);
+  lines.push(
+    "",
+    `المتجر: ${args.order.merchantStoreName || "-"}`,
+    `عنوان التاجر: ${args.order.merchantAddress || "-"}`,
+    `واتساب التاجر: ${args.order.merchantWhatsapp || "غير متوفر"}`,
+    "",
+    "تم إلغاء الطلبية من جهة الفيتر. لا تحتسب عمولة هذا الطلب.",
+  );
+  return lines.join("\n");
+}
+
 async function sendFitterOrderToMediators(message: string) {
   const mediatorPhones = await readMediatorPhones();
+  if (mediatorPhones.length === 0) {
+    throw new Error("أرقام الوسطاء غير مسجلة حالياً.");
+  }
   const results = [];
   for (const phone of mediatorPhones) {
     const recipient = toWhatsAppRecipient(phone);
@@ -354,6 +413,10 @@ async function sendFitterOrderToMediators(message: string) {
     }
   }
   return results;
+}
+
+function hasSuccessfulWhatsAppSend(results: Array<{ ok?: unknown }>) {
+  return results.some((result) => Boolean(result.ok));
 }
 
 function saleIdentity(row: EventRow) {
@@ -375,6 +438,92 @@ function toSale(row: EventRow): FitterSale {
   };
 }
 
+function orderIdentity(row: EventRow) {
+  return getString(row.payload?.orderId) || row.id;
+}
+
+function toOrder(row: EventRow): FitterOrder {
+  const p = row.payload ?? {};
+  const status = getString(p.status);
+  return {
+    id: orderIdentity(row),
+    fitterId: getString(p.fitterId),
+    productId: getString(p.productId),
+    productTitle: getString(p.productTitle),
+    productPrice: getNumber(p.productPrice) ?? 0,
+    currency: getString(p.currency) || "IQD",
+    merchantId: getString(p.merchantId),
+    merchantStoreName: getString(p.merchantStoreName),
+    merchantWhatsapp: getString(p.merchantWhatsapp),
+    merchantAddress: getString(p.merchantAddress),
+    commissionPercent: getNumber(p.commissionPercent) ?? 0,
+    commissionAmount: getNumber(p.commissionAmount) ?? 0,
+    status:
+      status === "confirmed" || status === "cancelled" || status === "requested"
+        ? status
+        : "requested",
+    createdAt: getString(p.createdAt) || eventTime(row),
+    updatedAt: getString(p.updatedAt) || getString(p.createdAt) || eventTime(row),
+  };
+}
+
+async function latestFitterOrders(fitterId: string): Promise<FitterOrder[]> {
+  const rows = await listEvents("botly_fitter_order");
+  const latest = new Map<string, FitterOrder>();
+  for (const row of rows) {
+    if (getString(row.payload?.fitterId) !== fitterId) continue;
+    const orderId = orderIdentity(row);
+    if (!latest.has(orderId)) latest.set(orderId, toOrder(row));
+  }
+  return [...latest.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+async function latestFitterOrder(fitterId: string, orderId: string): Promise<FitterOrder | null> {
+  const orders = await latestFitterOrders(fitterId);
+  return orders.find((order) => order.id === orderId) ?? null;
+}
+
+function buildOrderPayload(args: {
+  orderId: string;
+  fitter: EventRow;
+  product: Awaited<ReturnType<typeof resolveProduct>>;
+  merchant: Awaited<ReturnType<typeof resolveMerchantContact>>;
+  status: FitterOrderStatus;
+  commissionPercent: number;
+  commissionAmount: number;
+  mediatorMessage?: string;
+  whatsappSendResults?: unknown[];
+}) {
+  const now = new Date().toISOString();
+  return {
+    orderId: args.orderId,
+    fitterId: fitterIdentity(args.fitter),
+    fitterWhatsapp: getString(args.fitter.payload?.whatsapp),
+    fitterName: getString(args.fitter.payload?.name),
+    fitterCity: getString(args.fitter.payload?.city),
+    fitterAddress: getString(args.fitter.payload?.address),
+    fitterLocationLink: fitterLocationLink(args.fitter),
+    productId: args.product.id,
+    productTitle: args.product.title,
+    productPrice: args.product.price,
+    currency: args.product.currency,
+    merchantId: args.product.merchantId,
+    merchantStoreName: args.merchant.storeName,
+    merchantWhatsapp: args.merchant.whatsapp,
+    merchantAddress: args.merchant.address,
+    commissionPercent: args.commissionPercent,
+    commissionAmount: args.commissionAmount,
+    status: args.status,
+    mediatorMessage: args.mediatorMessage ?? "",
+    whatsappSent: (args.whatsappSendResults ?? []).some(
+      (result) => Boolean((result as { ok?: unknown }).ok),
+    ),
+    whatsappSendResults: args.whatsappSendResults ?? [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 async function latestResetTime(fitterId: string): Promise<number> {
   const rows = await listEvents("botly_fitter_reset");
   const latest = rows.find((row) => getString(row.payload?.fitterId) === fitterId);
@@ -382,14 +531,15 @@ async function latestResetTime(fitterId: string): Promise<number> {
   return new Date(getString(latest.payload?.createdAt) || eventTime(latest)).getTime();
 }
 
-export const confirmFitterReceipt = createServerFn({ method: "POST" })
-  .inputValidator((d) => confirmSaleInput.parse(d))
+export const requestFitterProduct = createServerFn({ method: "POST" })
+  .inputValidator((d) => productOrderInput.parse(d))
   .handler(async ({ data }) => {
     const fitter = await authorizeFitter(data.token);
     const product = await resolveProduct(data.productId);
     const merchant = await resolveMerchantContact(product.merchantId, product.merchantWhatsapp);
     const commissionPercent = getNumber(fitter.payload?.commissionPercent) ?? 0;
     const commissionAmount = Number(((product.price * commissionPercent) / 100).toFixed(2));
+    const orderId = crypto.randomUUID();
     const mediatorMessage = buildFitterMediatorMessage({
       fitter,
       product,
@@ -398,29 +548,118 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       commissionAmount,
     });
     const whatsappSendResults = await sendFitterOrderToMediators(mediatorMessage);
+    if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
+      throw new Error("تعذر إرسال طلب المنتج إلى الوسيط عبر واتساب.");
+    }
+    const row = await appendEvent("botly_fitter_order", buildOrderPayload({
+      orderId,
+      fitter,
+      product,
+      merchant,
+      status: "requested",
+      commissionPercent,
+      commissionAmount,
+      mediatorMessage,
+      whatsappSendResults,
+    }));
+    return { ok: true, order: toOrder(row) };
+  });
+
+export const confirmFitterReceipt = createServerFn({ method: "POST" })
+  .inputValidator((d) => orderActionInput.parse(d))
+  .handler(async ({ data }) => {
+    const fitter = await authorizeFitter(data.token);
+    const fitterId = fitterIdentity(fitter);
+    const order = await latestFitterOrder(fitterId, data.orderId);
+    if (!order) throw new Error("الطلبية غير موجودة.");
+    if (order.status === "confirmed") throw new Error("تم تأكيد هذه الطلبية سابقاً.");
+    if (order.status === "cancelled") throw new Error("هذه الطلبية ملغية ولا يمكن تأكيدها.");
+
+    const product = {
+      id: order.productId,
+      title: order.productTitle,
+      price: order.productPrice,
+      currency: order.currency,
+      merchantId: order.merchantId,
+      merchantWhatsapp: order.merchantWhatsapp,
+    };
+    const merchant = {
+      whatsapp: order.merchantWhatsapp,
+      storeName: order.merchantStoreName,
+      address: order.merchantAddress,
+    };
+    await appendEvent("botly_fitter_order", buildOrderPayload({
+      orderId: order.id,
+      fitter,
+      product,
+      merchant,
+      status: "confirmed",
+      commissionPercent: order.commissionPercent,
+      commissionAmount: order.commissionAmount,
+    }));
     await appendEvent("botly_fitter_sale", {
       saleId: crypto.randomUUID(),
-      fitterId: fitterIdentity(fitter),
+      orderId: order.id,
+      fitterId,
       fitterWhatsapp: getString(fitter.payload?.whatsapp),
       fitterName: getString(fitter.payload?.name),
       fitterCity: getString(fitter.payload?.city),
       fitterAddress: getString(fitter.payload?.address),
       fitterLocationLink: fitterLocationLink(fitter),
-      productId: product.id,
-      productTitle: product.title,
-      productPrice: product.price,
-      currency: product.currency,
-      merchantId: product.merchantId,
-      merchantStoreName: merchant.storeName,
-      merchantWhatsapp: merchant.whatsapp,
-      commissionPercent,
-      commissionAmount,
-      mediatorMessage,
-      whatsappSent: whatsappSendResults.some((result) => result.ok),
-      whatsappSendResults,
+      productId: order.productId,
+      productTitle: order.productTitle,
+      productPrice: order.productPrice,
+      currency: order.currency,
+      merchantId: order.merchantId,
+      merchantStoreName: order.merchantStoreName,
+      merchantWhatsapp: order.merchantWhatsapp,
+      merchantAddress: order.merchantAddress,
+      commissionPercent: order.commissionPercent,
+      commissionAmount: order.commissionAmount,
       createdAt: new Date().toISOString(),
     });
-    return { ok: true, commissionAmount, currency: product.currency };
+    return { ok: true, commissionAmount: order.commissionAmount, currency: order.currency };
+  });
+
+export const cancelFitterOrder = createServerFn({ method: "POST" })
+  .inputValidator((d) => orderActionInput.parse(d))
+  .handler(async ({ data }) => {
+    const fitter = await authorizeFitter(data.token);
+    const fitterId = fitterIdentity(fitter);
+    const order = await latestFitterOrder(fitterId, data.orderId);
+    if (!order) throw new Error("الطلبية غير موجودة.");
+    if (order.status === "cancelled") throw new Error("تم إلغاء هذه الطلبية سابقاً.");
+
+    const message = buildFitterCancelMessage({ order, fitter });
+    const whatsappSendResults = await sendFitterOrderToMediators(message);
+    if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
+      throw new Error("تعذر إرسال إلغاء الطلبية إلى الوسيط عبر واتساب.");
+    }
+    const product = {
+      id: order.productId,
+      title: order.productTitle,
+      price: order.productPrice,
+      currency: order.currency,
+      merchantId: order.merchantId,
+      merchantWhatsapp: order.merchantWhatsapp,
+    };
+    const merchant = {
+      whatsapp: order.merchantWhatsapp,
+      storeName: order.merchantStoreName,
+      address: order.merchantAddress,
+    };
+    const row = await appendEvent("botly_fitter_order", buildOrderPayload({
+      orderId: order.id,
+      fitter,
+      product,
+      merchant,
+      status: "cancelled",
+      commissionPercent: order.commissionPercent,
+      commissionAmount: order.commissionAmount,
+      mediatorMessage: message,
+      whatsappSendResults,
+    }));
+    return { ok: true, order: toOrder(row) };
   });
 
 export const getFitterSummary = createServerFn({ method: "POST" })
@@ -429,10 +668,27 @@ export const getFitterSummary = createServerFn({ method: "POST" })
     const fitterRow = await authorizeFitter(data.token);
     const fitter = toFitter(fitterRow);
     const resetAt = await latestResetTime(fitter.id);
-    const sales = (await listEvents("botly_fitter_sale"))
+    const orders = (await latestFitterOrders(fitter.id)).filter(
+      (order) => new Date(order.updatedAt).getTime() > resetAt,
+    );
+    const confirmedOrders = orders.filter((order) => order.status === "confirmed");
+    const legacySales = (await listEvents("botly_fitter_sale"))
       .filter((row) => getString(row.payload?.fitterId) === fitter.id)
+      .filter((row) => !getString(row.payload?.orderId))
       .map(toSale)
       .filter((sale) => new Date(sale.createdAt).getTime() > resetAt);
+    const orderSales: FitterSale[] = confirmedOrders.map((order) => ({
+      id: order.id,
+      fitterId: order.fitterId,
+      productId: order.productId,
+      productTitle: order.productTitle,
+      productPrice: order.productPrice,
+      currency: order.currency,
+      commissionPercent: order.commissionPercent,
+      commissionAmount: order.commissionAmount,
+      createdAt: order.updatedAt,
+    }));
+    const sales = [...orderSales, ...legacySales];
     const totalProfit = Number(sales.reduce((sum, sale) => sum + sale.commissionAmount, 0).toFixed(2));
     return {
       fitter,
@@ -440,5 +696,6 @@ export const getFitterSummary = createServerFn({ method: "POST" })
       currency: sales[0]?.currency ?? "IQD",
       salesCount: sales.length,
       sales,
+      orders,
     };
   });
