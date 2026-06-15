@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MerchantAppRouteImport } from './routes/merchant-app'
+import { Route as FRouteImport } from './routes/f'
 import { Route as DataDeletionRouteImport } from './routes/data-deletion'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -27,6 +28,7 @@ import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminMediatorsRouteImport } from './routes/admin/mediators'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
+import { Route as AdminFittersRouteImport } from './routes/admin/fitters'
 import { Route as AdminDeliveryRouteImport } from './routes/admin/delivery'
 import { Route as AdminCustomersRouteImport } from './routes/admin/customers'
 import { Route as AdminCurrenciesRouteImport } from './routes/admin/currencies'
@@ -56,6 +58,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const MerchantAppRoute = MerchantAppRouteImport.update({
   id: '/merchant-app',
   path: '/merchant-app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FRoute = FRouteImport.update({
+  id: '/f',
+  path: '/f',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DataDeletionRoute = DataDeletionRouteImport.update({
@@ -131,6 +138,11 @@ const AdminMediatorsRoute = AdminMediatorsRouteImport.update({
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFittersRoute = AdminFittersRouteImport.update({
+  id: '/admin/fitters',
+  path: '/admin/fitters',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminDeliveryRoute = AdminDeliveryRouteImport.update({
@@ -214,6 +226,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
   '/merchant-app': typeof MerchantAppRoute
+  '/f': typeof FRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -223,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/fitters': typeof AdminFittersRoute
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
@@ -249,6 +263,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
   '/merchant-app': typeof MerchantAppRoute
+  '/f': typeof FRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -258,6 +273,7 @@ export interface FileRoutesByTo {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/fitters': typeof AdminFittersRoute
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
@@ -284,6 +300,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
   '/merchant-app': typeof MerchantAppRoute
+  '/f': typeof FRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
@@ -293,6 +310,7 @@ export interface FileRoutesById {
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/delivery': typeof AdminDeliveryRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/fitters': typeof AdminFittersRoute
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/stores': typeof AdminStoresRoute
@@ -321,6 +339,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/data-deletion'
     | '/merchant-app'
+    | '/f'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -330,6 +349,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/fitters'
     | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
@@ -356,6 +376,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/data-deletion'
     | '/merchant-app'
+    | '/f'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -365,6 +386,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/fitters'
     | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
@@ -390,6 +412,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/data-deletion'
     | '/merchant-app'
+    | '/f'
     | '/privacy'
     | '/terms'
     | '/admin/bot'
@@ -399,6 +422,7 @@ export interface FileRouteTypes {
     | '/admin/customers'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/fitters'
     | '/admin/mediators'
     | '/admin/packages'
     | '/admin/stores'
@@ -426,6 +450,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   DataDeletionRoute: typeof DataDeletionRoute
   MerchantAppRoute: typeof MerchantAppRoute
+  FRoute: typeof FRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
@@ -435,6 +460,7 @@ export interface RootRouteChildren {
   AdminCustomersRoute: typeof AdminCustomersRoute
   AdminDeliveryRoute: typeof AdminDeliveryRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminFittersRoute: typeof AdminFittersRoute
   AdminMediatorsRoute: typeof AdminMediatorsRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminStoresRoute: typeof AdminStoresRoute
@@ -478,6 +504,13 @@ declare module '@tanstack/react-router' {
       path: '/merchant-app'
       fullPath: '/merchant-app'
       preLoaderRoute: typeof MerchantAppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/f': {
+      id: '/f'
+      path: '/f'
+      fullPath: '/f'
+      preLoaderRoute: typeof FRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/data-deletion': {
@@ -576,6 +609,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/login'
       fullPath: '/admin/login'
       preLoaderRoute: typeof AdminLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/fitters': {
+      id: '/admin/fitters'
+      path: '/admin/fitters'
+      fullPath: '/admin/fitters'
+      preLoaderRoute: typeof AdminFittersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/mediators': {
@@ -698,6 +738,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   DataDeletionRoute: DataDeletionRoute,
   MerchantAppRoute: MerchantAppRoute,
+  FRoute: FRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
@@ -707,6 +748,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminCustomersRoute: AdminCustomersRoute,
   AdminDeliveryRoute: AdminDeliveryRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminFittersRoute: AdminFittersRoute,
   AdminMediatorsRoute: AdminMediatorsRoute,
   AdminPackagesRoute: AdminPackagesRoute,
   AdminStoresRoute: AdminStoresRoute,

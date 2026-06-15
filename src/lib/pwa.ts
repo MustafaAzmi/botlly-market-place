@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 
-export type PwaApp = "customer" | "merchant";
+export type PwaApp = "customer" | "merchant" | "fitter";
 
 export const PWA_APPS: Record<
   PwaApp,
@@ -27,6 +27,13 @@ export const PWA_APPS: Record<
     startUrl: "/auth",
     themeColor: "#0d7490",
     icon: "/icons/merchant.svg",
+  },
+  fitter: {
+    name: "بوتلي فيتر",
+    manifest: "/manifest-fitter.webmanifest",
+    startUrl: "/f",
+    themeColor: "#2563eb",
+    icon: "/icons/fitter.svg",
   },
 };
 

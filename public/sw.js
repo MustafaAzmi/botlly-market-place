@@ -8,7 +8,7 @@
 //   - /api/*       : network only (never cached — auth + live data)
 //   - push         : show a notification, focus/open the target URL on click
 
-const VERSION = "botly-pwa-v3";
+const VERSION = "botly-pwa-v4";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";
@@ -17,12 +17,16 @@ const PRECACHE = [
   OFFLINE_URL,
   "/manifest-customer.webmanifest",
   "/manifest-merchant.webmanifest",
+  "/manifest-fitter.webmanifest",
   "/icons/customer.svg",
   "/icons/merchant.svg",
+  "/icons/fitter.svg",
   "/icons/customer-192.png",
   "/icons/customer-512.png",
   "/icons/merchant-192.png",
   "/icons/merchant-512.png",
+  "/icons/fitter-192.png",
+  "/icons/fitter-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -114,11 +118,13 @@ self.addEventListener("push", (event) => {
   }
   const title = payload.title || "Botly";
   const isMerchant = (payload.app || "") === "merchant";
+  const isFitter = (payload.app || "") === "fitter";
+  const icon = isFitter ? "/icons/fitter-192.png" : isMerchant ? "/icons/merchant-192.png" : "/icons/customer-192.png";
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || "",
-      icon: isMerchant ? "/icons/merchant-192.png" : "/icons/customer-192.png",
-      badge: isMerchant ? "/icons/merchant-192.png" : "/icons/customer-192.png",
+      icon,
+      badge: icon,
       dir: "rtl",
       lang: "ar",
       data: { url: payload.url || "/" },

@@ -665,6 +665,21 @@ export interface CustomerAdminView {
   createdAt: string;
 }
 
+export interface FitterAdminView {
+  fitterId: string;
+  name: string;
+  whatsapp: string;
+  city: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+  visaNumber: string;
+  commissionPercent: number;
+  totalProfit: number;
+  salesCount: number;
+  createdAt: string;
+}
+
 function customerIdentity(row: EventRow) {
   return getString(row.payload?.customerId) || row.id;
 }
@@ -694,6 +709,128 @@ export const listCustomers = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+  });
+
+// ---------------------------------------------------------------------------
+// Fitters
+// ---------------------------------------------------------------------------
+
+const fitterAdminActionInput = tokenInput.extend({
+  fitterId: z.string().trim().min(1),
+});
+
+const fitterAdminUpdateInput = fitterAdminActionInput.extend({
+  name: z.string().trim().min(2).max(100),
+  whatsapp: z.string().trim().min(6).max(40),
+  city: z.string().trim().min(2).max(100),
+  address: z.string().trim().min(2).max(200),
+  visaNumber: z.string().trim().max(80),
+  commissionPercent: z.number().min(0).max(100),
+});
+
+function fitterIdentity(row: EventRow) {
+  return getString(row.payload?.fitterId) || row.id;
+}
+
+function latestFitterRows(rows: EventRow[]) {
+  const seen = new Map<string, EventRow>();
+  for (const row of rows) {
+    const id = fitterIdentity(row);
+    if (!seen.has(id)) seen.set(id, row);
+  }
+  return [...seen.values()].filter((row) => !getString(row.payload?.deletedAt));
+}
+
+async function currentFitterProfit(fitterId: string) {
+  const resetRows = await listEvents("botly_fitter_reset");
+  const reset = resetRows.find((row) => getString(row.payload?.fitterId) === fitterId);
+  const resetAt = reset ? new Date(getString(reset.payload?.createdAt) || eventTime(reset)).getTime() : 0;
+  const sales = (await listEvents("botly_fitter_sale")).filter((row) => {
+    if (getString(row.payload?.fitterId) !== fitterId) return false;
+    return new Date(getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
+  });
+  return {
+    totalProfit: Number(
+      sales.reduce((sum, row) => sum + (getNumber(row.payload?.commissionAmount) ?? 0), 0).toFixed(2),
+    ),
+    salesCount: sales.length,
+  };
+}
+
+export const listFitters = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<FitterAdminView[]> => {
+    await authorizeAdmin(data.token);
+    const fitters = latestFitterRows(await listEvents("botly_fitter"));
+    return Promise.all(
+      fitters.map(async (row) => {
+        const p = row.payload ?? {};
+        const fitterId = fitterIdentity(row);
+        const profit = await currentFitterProfit(fitterId);
+        return {
+          fitterId,
+          name: getString(p.name) || "فيتر",
+          whatsapp: getString(p.whatsapp),
+          city: getString(p.city),
+          address: getString(p.address),
+          latitude: getNumber(p.latitude),
+          longitude: getNumber(p.longitude),
+          visaNumber: getString(p.visaNumber),
+          commissionPercent: getNumber(p.commissionPercent) ?? 0,
+          totalProfit: profit.totalProfit,
+          salesCount: profit.salesCount,
+          createdAt: getString(p.createdAt) || eventTime(row),
+        };
+      }),
+    );
+  });
+
+export const updateFitterByAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => fitterAdminUpdateInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const rows = latestFitterRows(await listEvents("botly_fitter"));
+    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    if (!row) throw new Error("لم يتم العثور على الفيتر.");
+    await appendEvent("botly_fitter", {
+      ...(row.payload ?? {}),
+      fitterId: data.fitterId,
+      name: data.name,
+      whatsapp: data.whatsapp,
+      city: data.city,
+      address: data.address,
+      visaNumber: data.visaNumber,
+      commissionPercent: data.commissionPercent,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  });
+
+export const deleteFitterByAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => fitterAdminActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const rows = latestFitterRows(await listEvents("botly_fitter"));
+    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    if (!row) throw new Error("لم يتم العثور على الفيتر.");
+    await appendEvent("botly_fitter", {
+      ...(row.payload ?? {}),
+      fitterId: data.fitterId,
+      deletedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  });
+
+export const resetFitterProfitByAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => fitterAdminActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    await appendEvent("botly_fitter_reset", {
+      resetId: crypto.randomUUID(),
+      fitterId: data.fitterId,
+      createdAt: new Date().toISOString(),
+    });
+    return { ok: true };
   });
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,12 @@
   force = false
 
 [[redirects]]
+  from = "/manifest-fitter.webmanifest"
+  to = "/manifest-fitter.webmanifest"
+  status = 200
+  force = false
+
+[[redirects]]
   from = "/sw.js"
   to = "/sw.js"
   status = 200

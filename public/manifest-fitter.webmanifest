@@ -1,0 +1,23 @@
+{
+  "id": "botly-fitter",
+  "name": "بوتلي فيتر",
+  "short_name": "فيتر",
+  "description": "تطبيق الفيتر للبحث عن قطع السيارات وتأكيد استلام الطلبات وحساب العمولة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/f",
+  "scope": "/f",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "categories": ["business", "shopping"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/icons/fitter.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/fitter-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" },
+    { "src": "/icons/fitter-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/fitter-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/fitter-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
