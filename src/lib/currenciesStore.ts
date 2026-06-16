@@ -1,72 +1,131 @@
-// Shared currencies store. Admin manages this list; merchants read it when
-// adding products. Persisted in localStorage so admin edits propagate to the
-// merchant dashboard within the same browser.
-// TODO(supabase): replace with a `platform_currencies` table + realtime sync.
-import { useSyncExternalStore } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { createServerFn, useServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import { appendEvent, getString, listEvents, sha256 } from "@/lib/eventStore.server";
 
 export interface Currency {
-  code: string; // e.g. "IQD", "USD"
-  label: string; // display name e.g. "دينار عراقي"
+  code: string;
+  label: string;
   active: boolean;
 }
 
-const STORAGE_KEY = "botly.currencies.v1";
-const EVENT = "botly:currencies-changed";
-
-const DEFAULTS: Currency[] = [
+export const DEFAULT_CURRENCIES: Currency[] = [
   { code: "IQD", label: "دينار عراقي", active: true },
   { code: "USD", label: "دولار أمريكي", active: true },
   { code: "SAR", label: "ريال سعودي", active: true },
   { code: "AED", label: "درهم إماراتي", active: true },
 ];
 
-function read(): Currency[] {
-  if (typeof window === "undefined") return DEFAULTS;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULTS;
-    const parsed = JSON.parse(raw) as Currency[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULTS;
-  } catch {
-    return DEFAULTS;
-  }
-}
+const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
+const currencyInput = z.object({
+  code: z.string().trim().min(2).max(8).regex(/^[A-Za-z]+$/),
+  label: z.string().trim().min(1).max(60),
+  active: z.boolean(),
+});
 
-function write(next: Currency[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  window.dispatchEvent(new Event(EVENT));
-}
-
-function subscribe(cb: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(EVENT, cb);
-  window.addEventListener("storage", cb);
-  return () => {
-    window.removeEventListener(EVENT, cb);
-    window.removeEventListener("storage", cb);
+function normalizeCurrency(input: Currency): Currency {
+  return {
+    code: input.code.trim().toUpperCase(),
+    label: input.label.trim(),
+    active: input.active,
   };
 }
 
+async function authorizeCurrencyAdmin(token: string): Promise<void> {
+  const tokenHash = await sha256(token);
+  const sessions = await listEvents("botly_admin_session");
+  const activeSession = sessions.find((row) => {
+    const payload = row.payload ?? {};
+    return (
+      getString(payload.tokenHash) === tokenHash &&
+      new Date(getString(payload.expiresAt)).getTime() > Date.now()
+    );
+  });
+  if (!activeSession) throw new Error("انتهت جلسة الأدمن. سجّل الدخول مرة ثانية.");
+}
+
+async function readCurrenciesFromDb(): Promise<Currency[]> {
+  const rows = await listEvents("botly_currency");
+  const saved = new Map<string, Currency | null>();
+
+  for (const row of rows) {
+    const code = getString(row.payload?.code).trim().toUpperCase();
+    if (!code || saved.has(code)) continue;
+    if (row.payload?.deleted === true) {
+      saved.set(code, null);
+      continue;
+    }
+    saved.set(code, {
+      code,
+      label: getString(row.payload?.label) || code,
+      active: row.payload?.active !== false,
+    });
+  }
+
+  const merged = new Map<string, Currency | null>(
+    DEFAULT_CURRENCIES.map((currency) => [currency.code, currency]),
+  );
+  for (const [code, currency] of saved) {
+    merged.set(code, currency);
+  }
+
+  const currencies = [...merged.values()].filter((currency): currency is Currency =>
+    Boolean(currency),
+  );
+
+  return saved.size === 0 ? DEFAULT_CURRENCIES : currencies;
+}
+
+export const listPlatformCurrencies = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Currency[]> => readCurrenciesFromDb(),
+);
+
+export const savePlatformCurrency = createServerFn({ method: "POST" })
+  .inputValidator((data) =>
+    tokenInput
+      .extend({
+        currency: currencyInput,
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<Currency[]> => {
+    await authorizeCurrencyAdmin(data.token);
+    const currency = normalizeCurrency(data.currency);
+    await appendEvent("botly_currency", {
+      ...currency,
+      deleted: false,
+      updatedAt: new Date().toISOString(),
+    });
+    return readCurrenciesFromDb();
+  });
+
+export const deletePlatformCurrency = createServerFn({ method: "POST" })
+  .inputValidator((data) =>
+    tokenInput
+      .extend({
+        code: z.string().trim().min(2).max(8),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<Currency[]> => {
+    await authorizeCurrencyAdmin(data.token);
+    await appendEvent("botly_currency", {
+      code: data.code.trim().toUpperCase(),
+      deleted: true,
+      updatedAt: new Date().toISOString(),
+    });
+    return readCurrenciesFromDb();
+  });
+
 export function useCurrencies(): Currency[] {
-  return useSyncExternalStore(subscribe, read, () => DEFAULTS);
-}
+  const listCurrencies = useServerFn(listPlatformCurrencies);
+  const { data } = useQuery({
+    queryKey: ["platform-currencies"],
+    queryFn: () => listCurrencies(),
+    initialData: DEFAULT_CURRENCIES,
+    staleTime: 30_000,
+  });
 
-export function getCurrencies(): Currency[] {
-  return read();
-}
-
-export function addCurrency(c: Currency) {
-  const list = read();
-  if (list.some((x) => x.code.toUpperCase() === c.code.toUpperCase())) return false;
-  write([...list, { ...c, code: c.code.toUpperCase() }]);
-  return true;
-}
-
-export function updateCurrency(code: string, patch: Partial<Currency>) {
-  write(read().map((c) => (c.code === code ? { ...c, ...patch } : c)));
-}
-
-export function removeCurrency(code: string) {
-  write(read().filter((c) => c.code !== code));
+  return data ?? DEFAULT_CURRENCIES;
 }
