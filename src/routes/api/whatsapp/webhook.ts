@@ -1239,9 +1239,6 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             });
           }
 
-          let sendResult: Awaited<ReturnType<typeof sendWhatsAppText>> | null = null;
-          let workflowResponse: WorkflowResponse = { kind: "none" };
-
           const isCustomerMessage =
             Boolean(incoming.from) && summary.eventType.startsWith("message.");
 
@@ -1252,7 +1249,6 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             (incoming.actionId === ACTION_CONFIRM_ORDER ||
               incoming.actionId === ACTION_PRODUCT_OUT_OF_STOCK)
           ) {
-            const phoneNumberId = summary.phoneNumberId ?? undefined;
             // The webhook `from` is a wa_id (9647...), while merchantWhatsapp
             // is stored as the merchant typed it (07... / +9647...), so match
             // by format-independent phone key over the recent orders.
@@ -1277,11 +1273,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
 
             if (orderRow) {
               const order = orderRow.payload ?? {};
-              const customerNumber = getString(order.customerNumber);
               const productTitle = getString(order.productTitle) || "المنتج";
-              const storeName = getString(order.storeName) || "المتجر";
               const isConfirmed = incoming.actionId === ACTION_CONFIRM_ORDER;
-              const sourceContext = getString(order.sourceContext);
               const mediatorResults = await notifyMediatorsOfMerchantAvailability({
                 order,
                 isAvailable: isConfirmed,
@@ -1290,168 +1283,25 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 return [];
               });
 
-              if (customerNumber && sourceContext !== "customer_site" && sourceContext !== "fitter_site") {
-                const responseMsg = isConfirmed
-                  ? `✅ تم تأكيد طلبك من ${storeName}\nالمنتج: ${productTitle}\nراح يوصلك بأقرب وقت إن شاء الله 🚚`
-                  : `للأسف المنتج «${productTitle}» منتهي حالياً من ${storeName} ❌\nراح يتم إعلامك حال توفره مرة ثانية. تحب تدور على منتج بديل؟ اكتب اسمه وأبحثلك.`;
-
-                const sentToCustomer = await sendWhatsAppText(
-                  customerNumber,
-                  responseMsg,
-                  phoneNumberId,
-                ).catch((error) => {
-                  console.error("[Merchant] Failed to notify customer:", error);
-                  return { ok: false as const, status: 0, error: String(error) };
-                });
-
-                // Record the response on the same orderId (newest event wins —
-                // the dashboard dedupes by orderId so this updates the status).
-                await appendEvent("botly_order", {
-                  ...order,
-                  orderId: getString(order.orderId) || orderRow.id,
-                  merchantResponse: incoming.actionId,
-                  merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
-                  status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
-                  customerNotifiedOfStatus: sentToCustomer.ok,
-                  mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
-                  mediatorNotificationResults: mediatorResults,
-                  respondedAt: new Date().toISOString(),
-                }).catch((error) =>
-                  console.error("[Merchant] Failed to record merchant response:", error),
-                );
-
-                // Acknowledge to the merchant so the button press isn't silent.
-                await sendWhatsAppText(
-                  incoming.from,
-                  sentToCustomer.ok
-                    ? isConfirmed
-                      ? `تم ✅ بلغنا الزبون بتأكيد طلب «${productTitle}».`
-                      : `تم ✅ بلغنا الزبون أن «${productTitle}» منتهي حالياً.`
-                    : "سجلنا ردك، بس صار خلل بإيصال الرسالة للزبون. جرب تراسله مباشرة.",
-                  phoneNumberId,
-                ).catch((error) => console.error("[Merchant] Failed to ack merchant:", error));
-              } else {
-                await appendEvent("botly_order", {
-                  ...order,
-                  orderId: getString(order.orderId) || orderRow.id,
-                  merchantResponse: incoming.actionId,
-                  merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
-                  status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
-                  customerNotifiedOfStatus: false,
-                  mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
-                  mediatorNotificationResults: mediatorResults,
-                  respondedAt: new Date().toISOString(),
-                }).catch((error) =>
-                  console.error("[Merchant] Failed to record merchant response:", error),
-                );
-                await sendWhatsAppText(
-                  incoming.from,
-                  mediatorResults.some((result) => result.ok)
-                    ? `تم ✅ أبلغنا الوسيط بردك على «${productTitle}».`
-                    : "سجلنا ردك، بس تعذر إرسال الإشعار للوسيط. راجع إعدادات أرقام الوسطاء.",
-                  phoneNumberId,
-                ).catch((error) => console.error("[Merchant] Failed to ack merchant:", error));
-              }
+              await appendEvent("botly_order", {
+                ...order,
+                orderId: getString(order.orderId) || orderRow.id,
+                merchantResponse: incoming.actionId,
+                merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
+                status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
+                customerNotifiedOfStatus: false,
+                mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
+                mediatorNotificationResults: mediatorResults,
+                respondedAt: new Date().toISOString(),
+              }).catch((error) =>
+                console.error("[Merchant] Failed to record merchant response:", error),
+              );
+              console.log("[Merchant] Availability response recorded:", productTitle);
             } else {
               console.warn("[Merchant] No pending order found for:", incoming.from);
-              await sendWhatsAppText(
-                incoming.from,
-                "ما لكينا طلب جديد مرتبط بهذا الزر — يمكن تم الرد عليه سابقاً.",
-                phoneNumberId,
-              ).catch(() => {});
             }
           } else if (isCustomerMessage && incoming.from) {
-            // Product photos go through the vision → catalogue-search flow.
-            if (incoming.imageId) {
-              try {
-                workflowResponse = await runImageProductSearch(
-                  incoming.from,
-                  incoming.imageId,
-                  incoming.imageCaption,
-                );
-                console.log("[Webhook] Image search response:", workflowResponse.kind);
-              } catch (err) {
-                console.error("[Webhook] runImageProductSearch threw:", err);
-                workflowResponse = textResponse(
-                  "صار خلل وأني أحلل الصورة 😕 جرب مرة ثانية أو اكتب اسم القطعة.",
-                  "image_search_failed",
-                );
-              }
-            } else if (incoming.audioId) {
-              // Search is by text or photo: voice notes get a polite redirect.
-              workflowResponse = textResponse(
-                "البحث يكون بالكتابة أو بالصورة ✍️📷\nاكتب اسم القطعة الي تدور عليها أو دز صورتها.",
-                "voice_not_supported",
-              );
-            } else {
-              try {
-                workflowResponse = await handleButtonWorkflow(
-                  incoming.from,
-                  incoming.text,
-                  incoming.actionId,
-                );
-                console.log("[Webhook] Workflow response:", workflowResponse.kind);
-              } catch (err) {
-                console.error("[Webhook] handleButtonWorkflow threw:", err);
-                await writeCustomerSession(
-                  incoming.from,
-                  [],
-                  null,
-                  null,
-                  3,
-                  null,
-                  "awaiting_product_query",
-                ).catch(() => {});
-                workflowResponse = startWorkflowResponse();
-              }
-            }
-
-            if (workflowResponse.kind === "none") {
-              workflowResponse = startWorkflowResponse();
-            }
-
-            if (workflowResponse.kind !== "none") {
-              const replyText = workflowResponse.body;
-              const phoneNumberId = summary.phoneNumberId ?? undefined;
-              try {
-                const duplicateWindowMinutes = workflowResponse.duplicateWindowMinutes ?? 10;
-                if (
-                  await wasOutboundReplySentRecently(
-                    incoming.from,
-                    replyText,
-                    duplicateWindowMinutes,
-                  )
-                ) {
-                  console.log("[Webhook] Duplicate outbound reply suppressed for:", incoming.from);
-                } else {
-                  await recordOutboundReply(
-                    incoming.from,
-                    replyText,
-                    workflowResponse.guardReason ?? `workflow_${workflowResponse.kind}`,
-                  );
-                  if (workflowResponse.kind === "buttons") {
-                    sendResult = await sendWhatsAppButtons(
-                      incoming.from,
-                      replyText,
-                      workflowResponse.buttons,
-                      phoneNumberId,
-                    );
-                    if (!sendResult.ok) {
-                      console.warn(
-                        "[Webhook] Button send failed, falling back to text:",
-                        sendResult,
-                      );
-                      sendResult = await sendWhatsAppText(incoming.from, replyText, phoneNumberId);
-                    }
-                  } else {
-                    sendResult = await sendWhatsAppText(incoming.from, replyText, phoneNumberId);
-                  }
-                }
-                console.log("[Webhook] sendResult:", JSON.stringify(sendResult).slice(0, 200));
-              } catch (err) {
-                console.error("[Webhook] sendWhatsAppText threw:", err);
-              }
-            }
+            console.log("[Webhook] WhatsApp bot workflow disabled; inbound message ignored:", incoming.from);
           } else {
             console.log("[Webhook] No customer message — status update, skipping reply");
           }
