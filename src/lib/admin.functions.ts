@@ -678,6 +678,10 @@ function orderGross(p: Record<string, unknown>) {
   return getNumber(p.productPrice) ?? getNumber(p.price) ?? 0;
 }
 
+function orderCurrency(p: Record<string, unknown>) {
+  return (getString(p.currency) || "IQD").trim().toUpperCase();
+}
+
 function orderCurrentPrice(p: Record<string, unknown>, fallback: number) {
   return getNumber(p.productCurrentPrice) ?? getNumber(p.currentPrice) ?? fallback;
 }
@@ -738,11 +742,13 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       const p = row.payload ?? {};
       const id = getString(p.orderId) || row.id;
       const grossSales = orderGross(p);
+      const currency = orderCurrency(p);
       const currentPrice = orderCurrentPrice(p, grossSales);
       const fitterCommission = orderCommission(p);
       counted.set(id, {
         orderId: id,
         governorate: orderGovernorate(p),
+        currency,
         source: getString(p.sourceContext) || "customer_site",
         productTitle: getString(p.productTitle) || "منتج",
         grossSales,
@@ -756,11 +762,13 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       const p = row.payload ?? {};
       const id = getString(p.orderId) || row.id;
       const grossSales = orderGross(p);
+      const currency = orderCurrency(p);
       const currentPrice = orderCurrentPrice(p, grossSales);
       const fitterCommission = orderCommission(p);
       counted.set(id, {
         orderId: id,
         governorate: orderGovernorate(p),
+        currency,
         source: "fitter_site",
         productTitle: getString(p.productTitle) || "منتج",
         grossSales,
@@ -773,24 +781,47 @@ export const getAdminOverview = createServerFn({ method: "POST" })
 
     const recentOrders = [...counted.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const byGovernorateMap = new Map<string, AdminGovernorateSales>();
+    const byCurrencyMap = new Map<string, AdminCurrencySales>();
     for (const order of recentOrders) {
+      const governorateKey = `${order.governorate}::${order.currency}`;
       const current =
-        byGovernorateMap.get(order.governorate) ??
+        byGovernorateMap.get(governorateKey) ??
         ({
           governorate: order.governorate,
+          currency: order.currency,
           orders: 0,
           grossSales: 0,
+          currentPrice: 0,
           fitterCommission: 0,
           netProfit: 0,
         } satisfies AdminGovernorateSales);
       current.orders += 1;
       current.grossSales += order.grossSales;
+      current.currentPrice += order.currentPrice;
       current.fitterCommission += order.fitterCommission;
       current.netProfit += order.netProfit;
-      byGovernorateMap.set(order.governorate, current);
+      byGovernorateMap.set(governorateKey, current);
+
+      const byCurrency =
+        byCurrencyMap.get(order.currency) ??
+        ({
+          currency: order.currency,
+          orders: 0,
+          grossSales: 0,
+          currentPrice: 0,
+          fitterCommission: 0,
+          netProfit: 0,
+        } satisfies AdminCurrencySales);
+      byCurrency.orders += 1;
+      byCurrency.grossSales += order.grossSales;
+      byCurrency.currentPrice += order.currentPrice;
+      byCurrency.fitterCommission += order.fitterCommission;
+      byCurrency.netProfit += order.netProfit;
+      byCurrencyMap.set(order.currency, byCurrency);
     }
 
     const grossSales = recentOrders.reduce((sum, order) => sum + order.grossSales, 0);
+    const currentPrice = recentOrders.reduce((sum, order) => sum + order.currentPrice, 0);
     const fitterCommission = recentOrders.reduce((sum, order) => sum + order.fitterCommission, 0);
     const netProfit = recentOrders.reduce((sum, order) => sum + order.netProfit, 0);
 
@@ -804,10 +835,12 @@ export const getAdminOverview = createServerFn({ method: "POST" })
         fitters: fitters.length,
         orders: recentOrders.length,
         grossSales,
+        currentPrice,
         fitterCommission,
         netProfit,
       },
       byGovernorate: [...byGovernorateMap.values()].sort((a, b) => b.netProfit - a.netProfit),
+      byCurrency: [...byCurrencyMap.values()].sort((a, b) => b.netProfit - a.netProfit),
       recentOrders: recentOrders.slice(0, 12),
     };
   });
@@ -823,8 +856,19 @@ export interface CustomerAdminView {
 
 export interface AdminGovernorateSales {
   governorate: string;
+  currency: string;
   orders: number;
   grossSales: number;
+  currentPrice: number;
+  fitterCommission: number;
+  netProfit: number;
+}
+
+export interface AdminCurrencySales {
+  currency: string;
+  orders: number;
+  grossSales: number;
+  currentPrice: number;
   fitterCommission: number;
   netProfit: number;
 }
@@ -839,13 +883,16 @@ export interface AdminOverviewStats {
     fitters: number;
     orders: number;
     grossSales: number;
+    currentPrice: number;
     fitterCommission: number;
     netProfit: number;
   };
   byGovernorate: AdminGovernorateSales[];
+  byCurrency: AdminCurrencySales[];
   recentOrders: Array<{
     orderId: string;
     governorate: string;
+    currency: string;
     source: string;
     productTitle: string;
     grossSales: number;

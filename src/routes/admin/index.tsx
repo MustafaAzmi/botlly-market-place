@@ -1,12 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, PackageSearch, PhoneCall, ShoppingBag, Store, Users, Wrench } from "lucide-react";
+import {
+  Loader2,
+  PackageSearch,
+  PhoneCall,
+  ShoppingBag,
+  Store,
+  Users,
+  Wrench,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import type React from "react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getAdminOverview } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
 import { readAdminSession } from "@/lib/adminSession";
@@ -17,8 +31,17 @@ export const Route = createFileRoute("/admin/")({
   component: AdminDashboard,
 });
 
-function money(value: number) {
-  return `${Math.round(value).toLocaleString("ar-IQ")} IQD`;
+type CurrencySales = {
+  currency: string;
+  orders: number;
+  grossSales: number;
+  currentPrice: number;
+  fitterCommission: number;
+  netProfit: number;
+};
+
+function money(value: number, currency: string) {
+  return `${Math.round(value).toLocaleString("ar-IQ")} ${currency}`;
 }
 
 function AdminDashboard() {
@@ -29,17 +52,16 @@ function AdminDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-overview"],
     queryFn: async () =>
-      session?.token
-        ? overviewFn({ data: { token: session.token } })
-        : null,
+      session?.token ? overviewFn({ data: { token: session.token } }) : null,
     enabled: Boolean(session?.token),
     retry: 1,
   });
 
-  const governorates = useMemo(
-    () => data?.byGovernorate.map((row) => row.governorate).filter(Boolean) ?? [],
-    [data],
-  );
+  const governorates = useMemo(() => {
+    const names = data?.byGovernorate.map((row) => row.governorate).filter(Boolean) ?? [];
+    return [...new Set(names)];
+  }, [data]);
+
   const selectedRows = useMemo(() => {
     if (!data) return [];
     return governorate === "all"
@@ -47,15 +69,28 @@ function AdminDashboard() {
       : data.byGovernorate.filter((row) => row.governorate === governorate);
   }, [data, governorate]);
 
-  const sales = selectedRows.reduce(
-    (acc, row) => ({
-      orders: acc.orders + row.orders,
-      grossSales: acc.grossSales + row.grossSales,
-      fitterCommission: acc.fitterCommission + row.fitterCommission,
-      netProfit: acc.netProfit + row.netProfit,
-    }),
-    { orders: 0, grossSales: 0, fitterCommission: 0, netProfit: 0 },
-  );
+  const selectedCurrencySales = useMemo(() => {
+    const byCurrency = new Map<string, CurrencySales>();
+    for (const row of selectedRows) {
+      const current = byCurrency.get(row.currency) ?? {
+        currency: row.currency,
+        orders: 0,
+        grossSales: 0,
+        currentPrice: 0,
+        fitterCommission: 0,
+        netProfit: 0,
+      };
+      current.orders += row.orders;
+      current.grossSales += row.grossSales;
+      current.currentPrice += row.currentPrice;
+      current.fitterCommission += row.fitterCommission;
+      current.netProfit += row.netProfit;
+      byCurrency.set(row.currency, current);
+    }
+    return [...byCurrency.values()].sort((a, b) => b.netProfit - a.netProfit);
+  }, [selectedRows]);
+
+  const totalOrders = selectedRows.reduce((sum, row) => sum + row.orders, 0);
 
   return (
     <AdminLayout
@@ -86,25 +121,36 @@ function AdminDashboard() {
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
             <StatCard icon={PhoneCall} label="الوسطاء" value={data.totals.mediators} />
-            <StatCard icon={Store} label="التجار" value={data.totals.merchants} hint={`${data.totals.visibleMerchants} ظاهر`} />
+            <StatCard
+              icon={Store}
+              label="التجار"
+              value={data.totals.merchants}
+              hint={`${data.totals.visibleMerchants} ظاهر`}
+            />
             <StatCard icon={Users} label="الزبائن" value={data.totals.customers} />
             <StatCard icon={PackageSearch} label="المنتجات" value={data.totals.products} />
             <StatCard icon={Wrench} label="فيتر" value={data.totals.fitters} />
-            <StatCard icon={ShoppingBag} label="الطلبات" value={sales.orders} />
+            <StatCard icon={ShoppingBag} label="الطلبات" value={totalOrders} />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MoneyCard title="إجمالي المبيعات" value={money(sales.grossSales)} />
-            <MoneyCard title="نسبة الفيتر المدفوعة" value={money(sales.fitterCommission)} />
-            <MoneyCard title="صافي الربح" value={money(sales.netProfit)} highlight />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {selectedCurrencySales.map((row) => (
+              <CurrencyProfitCard key={row.currency} row={row} />
+            ))}
+            {selectedCurrencySales.length === 0 ? (
+              <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground shadow-soft">
+                لا توجد مبيعات محتسبة لهذه الفلترة.
+              </div>
+            ) : null}
           </div>
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold">ملخص المبيعات حسب المحافظة</h2>
+                <h2 className="text-lg font-semibold">ملخص المبيعات حسب المحافظة والعملة</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  صافي الربح = السعر النهائي للمنتج ناقص السعر الحالي وعمولة الفيتر إن وجدت.
+                  صافي الربح = السعر النهائي للمنتج ناقص السعر الحالي وعمولة الفيتر.
+                  كل عملة محسوبة لوحدها، لذلك الدولار لا يختلط مع الدينار.
                 </p>
               </div>
               <span className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">
@@ -116,25 +162,34 @@ function AdminDashboard() {
                 <thead className="border-b border-border text-right text-muted-foreground">
                   <tr>
                     <Th>المحافظة</Th>
+                    <Th>العملة</Th>
                     <Th>الطلبات</Th>
                     <Th>إجمالي المبيعات</Th>
+                    <Th>السعر الحالي</Th>
                     <Th>عمولة الفيتر</Th>
                     <Th>صافي الربح</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedRows.map((row) => (
-                    <tr key={row.governorate} className="border-b border-border/60 last:border-0">
+                    <tr
+                      key={`${row.governorate}-${row.currency}`}
+                      className="border-b border-border/60 last:border-0"
+                    >
                       <Td className="font-medium">{row.governorate}</Td>
+                      <Td>{row.currency}</Td>
                       <Td>{row.orders.toLocaleString("ar-IQ")}</Td>
-                      <Td>{money(row.grossSales)}</Td>
-                      <Td>{money(row.fitterCommission)}</Td>
-                      <Td className="font-semibold text-primary">{money(row.netProfit)}</Td>
+                      <Td>{money(row.grossSales, row.currency)}</Td>
+                      <Td>{money(row.currentPrice, row.currency)}</Td>
+                      <Td>{money(row.fitterCommission, row.currency)}</Td>
+                      <Td className="font-semibold text-primary">
+                        {money(row.netProfit, row.currency)}
+                      </Td>
                     </tr>
                   ))}
                   {selectedRows.length === 0 ? (
                     <tr>
-                      <Td className="py-8 text-center text-muted-foreground" colSpan={5}>
+                      <Td className="py-8 text-center text-muted-foreground" colSpan={7}>
                         لا توجد مبيعات لهذه المحافظة حالياً.
                       </Td>
                     </tr>
@@ -148,14 +203,20 @@ function AdminDashboard() {
             <h2 className="text-lg font-semibold">آخر الطلبات المحتسبة</h2>
             <div className="mt-4 divide-y divide-border">
               {data.recentOrders.map((order) => (
-                <div key={order.orderId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div
+                  key={order.orderId}
+                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div>
                     <div className="font-medium">{order.productTitle}</div>
                     <div className="text-xs text-muted-foreground">
-                      {order.governorate} · {order.source === "fitter_site" ? "فيتر" : "زبون"}
+                      {order.governorate} · {order.source === "fitter_site" ? "فيتر" : "زبون"} ·{" "}
+                      {order.currency}
                     </div>
                   </div>
-                  <div className="text-sm font-semibold text-primary">{money(order.netProfit)}</div>
+                  <div className="text-sm font-semibold text-primary">
+                    {money(order.netProfit, order.currency)}
+                  </div>
                 </div>
               ))}
             </div>
@@ -187,11 +248,43 @@ function StatCard({
   );
 }
 
-function MoneyCard({ title, value, highlight = false }: { title: string; value: string; highlight?: boolean }) {
+function CurrencyProfitCard({ row }: { row: CurrencySales }) {
   return (
-    <div className={`rounded-2xl border p-5 shadow-soft ${highlight ? "border-primary/30 bg-primary-soft" : "border-border bg-card"}`}>
-      <div className="text-sm text-muted-foreground">{title}</div>
-      <div className="mt-3 text-2xl font-bold">{value}</div>
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm text-muted-foreground">ملخص الربح حسب العملة</div>
+          <div className="mt-1 text-xl font-semibold">{row.currency}</div>
+        </div>
+        <span className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">
+          {row.orders.toLocaleString("ar-IQ")} طلب
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <MiniMoney label="إجمالي المبيعات" value={money(row.grossSales, row.currency)} />
+        <MiniMoney label="السعر الحالي" value={money(row.currentPrice, row.currency)} />
+        <MiniMoney label="عمولة الفيتر" value={money(row.fitterCommission, row.currency)} />
+        <MiniMoney label="صافي الربح" value={money(row.netProfit, row.currency)} strong />
+      </div>
+    </div>
+  );
+}
+
+function MiniMoney({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className={strong ? "rounded-xl bg-primary-soft p-3" : "rounded-xl bg-secondary/60 p-3"}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={strong ? "mt-1 text-lg font-bold text-primary" : "mt-1 font-semibold"}>
+        {value}
+      </div>
     </div>
   );
 }
