@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type React from "react";
 import { translations, type Locale, type TranslationKey } from "./translations";
 
 interface LanguageContextValue {
@@ -14,7 +15,7 @@ const STORAGE_KEY = "botly.locale";
 function applyDocumentLocale(locale: Locale) {
   if (typeof document === "undefined") return;
   document.documentElement.lang = locale;
-  document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+  document.documentElement.dir = locale === "ar" || locale === "ku" ? "rtl" : "ltr";
 }
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
@@ -24,7 +25,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(STORAGE_KEY) as Locale | null;
-    if (stored === "ar" || stored === "en") {
+    if (stored === "ar" || stored === "en" || stored === "ku") {
       setLocaleState(stored);
       applyDocumentLocale(stored);
     } else {
@@ -53,7 +54,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<LanguageContextValue>(
-    () => ({ locale, dir: locale === "ar" ? "rtl" : "ltr", setLocale, t }),
+    () => ({ locale, dir: locale === "ar" || locale === "ku" ? "rtl" : "ltr", setLocale, t }),
     [locale, setLocale, t],
   );
 

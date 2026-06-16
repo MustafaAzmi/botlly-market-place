@@ -47,6 +47,17 @@ const copy = {
     merchantApp: "Get the Botly Merchant app",
     rights: "All rights reserved",
   },
+  ku: {
+    title: "Botly ناوبژیوانی نێوان فرۆشیار و کڕیارە",
+    subtitle: "ئەو بەرهەمەی دەتەوێت بۆت دەدۆزینەوە و دەگەیەنینە دەرگای ماڵەکەت.",
+    tagline: "ئارام بە و Botly بەکاربهێنە.",
+    customer: "چوونەژوورەوەی کڕیار",
+    merchantLogin: "چوونەژوورەوەی فرۆشیار",
+    createStore: "دروستکردنی فرۆشگای نوێ",
+    customerApp: "داگرتنی ئەپی Botly بۆ کڕیار",
+    merchantApp: "داگرتنی ئەپی Botly بۆ فرۆشیار",
+    rights: "هەموو مافەکان پارێزراون",
+  },
 } as const;
 
 function LandingPage() {

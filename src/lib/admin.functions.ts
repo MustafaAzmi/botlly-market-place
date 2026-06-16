@@ -656,6 +656,154 @@ export const listAdminMessages = createServerFn({ method: "POST" })
 // Customers (الزبائن) + purchase report
 // ---------------------------------------------------------------------------
 
+function latestByPayloadId(rows: EventRow[], payloadKey: string): EventRow[] {
+  const latest = new Map<string, EventRow>();
+  for (const row of rows) {
+    const id = getString(row.payload?.[payloadKey]) || row.id;
+    if (!latest.has(id)) latest.set(id, row);
+  }
+  return [...latest.values()];
+}
+
+function orderGovernorate(p: Record<string, unknown>) {
+  return (
+    getString(p.merchantGovernorate) ||
+    getString(p.customerGovernorate) ||
+    getString(p.fitterCity) ||
+    "غير محدد"
+  );
+}
+
+function orderGross(p: Record<string, unknown>) {
+  return getNumber(p.productPrice) ?? getNumber(p.price) ?? 0;
+}
+
+function orderCommission(p: Record<string, unknown>) {
+  return getNumber(p.commissionAmount) ?? 0;
+}
+
+export const getAdminOverview = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<AdminOverviewStats> => {
+    await authorizeAdmin(data.token);
+    const [
+      merchantRows,
+      productRows,
+      customerRows,
+      fitterRows,
+      orderRows,
+      fitterOrderRows,
+      settingsRows,
+    ] = await Promise.all([
+      latestMerchants(),
+      listEvents("botly_product"),
+      listEvents("botly_customer"),
+      listEvents("botly_fitter"),
+      listEvents("botly_order"),
+      listEvents("botly_fitter_order"),
+      listEvents("botly_settings"),
+    ]);
+
+    const merchants = merchantRows.filter((row) => !getString(row.payload?.deletedAt));
+    const products = latestByPayloadId(productRows, "productId").filter((row) => {
+      const p = row.payload ?? {};
+      return getString(p.status) !== "rejected" && getString(p.availability) !== "out_of_stock";
+    });
+    const customers = latestByPayloadId(customerRows, "customerId");
+    const fitters = latestFitterRows(fitterRows);
+    const latestOrders = latestByPayloadId(orderRows, "orderId");
+    const confirmedFitterOrders = latestByPayloadId(fitterOrderRows, "orderId").filter(
+      (row) => getString(row.payload?.status) === "confirmed",
+    );
+
+    const settings = settingsRows[0]?.payload ?? {};
+    const mediatorContacts = normalizeMediatorContacts(settings.mediatorContacts);
+    const legacyMediatorPhones = Array.isArray(settings.mediatorPhones)
+      ? (settings.mediatorPhones as unknown[]).filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    const mediators =
+      mediatorContacts.length > 0
+        ? mediatorContacts.length
+        : normalizeMediatorPhones([...legacyMediatorPhones, getString(settings.mediatorPhone)])
+            .length;
+
+    const counted = new Map<string, AdminOverviewStats["recentOrders"][number]>();
+    for (const row of latestOrders) {
+      const p = row.payload ?? {};
+      const id = getString(p.orderId) || row.id;
+      const grossSales = orderGross(p);
+      const fitterCommission = orderCommission(p);
+      counted.set(id, {
+        orderId: id,
+        governorate: orderGovernorate(p),
+        source: getString(p.sourceContext) || "customer_site",
+        productTitle: getString(p.productTitle) || "منتج",
+        grossSales,
+        fitterCommission,
+        netProfit: Math.max(0, grossSales - fitterCommission),
+        createdAt: getString(p.createdAt) || eventTime(row),
+      });
+    }
+    for (const row of confirmedFitterOrders) {
+      const p = row.payload ?? {};
+      const id = getString(p.orderId) || row.id;
+      const grossSales = orderGross(p);
+      const fitterCommission = orderCommission(p);
+      counted.set(id, {
+        orderId: id,
+        governorate: orderGovernorate(p),
+        source: "fitter_site",
+        productTitle: getString(p.productTitle) || "منتج",
+        grossSales,
+        fitterCommission,
+        netProfit: Math.max(0, grossSales - fitterCommission),
+        createdAt: getString(p.updatedAt) || getString(p.createdAt) || eventTime(row),
+      });
+    }
+
+    const recentOrders = [...counted.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const byGovernorateMap = new Map<string, AdminGovernorateSales>();
+    for (const order of recentOrders) {
+      const current =
+        byGovernorateMap.get(order.governorate) ??
+        ({
+          governorate: order.governorate,
+          orders: 0,
+          grossSales: 0,
+          fitterCommission: 0,
+          netProfit: 0,
+        } satisfies AdminGovernorateSales);
+      current.orders += 1;
+      current.grossSales += order.grossSales;
+      current.fitterCommission += order.fitterCommission;
+      current.netProfit += order.netProfit;
+      byGovernorateMap.set(order.governorate, current);
+    }
+
+    const grossSales = recentOrders.reduce((sum, order) => sum + order.grossSales, 0);
+    const fitterCommission = recentOrders.reduce((sum, order) => sum + order.fitterCommission, 0);
+    const netProfit = recentOrders.reduce((sum, order) => sum + order.netProfit, 0);
+
+    return {
+      totals: {
+        mediators,
+        merchants: merchants.length,
+        visibleMerchants: merchants.filter((row) => isVisibleInSearch(row.payload ?? {})).length,
+        customers: customers.length,
+        products: products.length,
+        fitters: fitters.length,
+        orders: recentOrders.length,
+        grossSales,
+        fitterCommission,
+        netProfit,
+      },
+      byGovernorate: [...byGovernorateMap.values()].sort((a, b) => b.netProfit - a.netProfit),
+      recentOrders: recentOrders.slice(0, 12),
+    };
+  });
+
 export interface CustomerAdminView {
   customerId: string;
   name: string;
@@ -663,6 +811,40 @@ export interface CustomerAdminView {
   landmark: string;
   governorate: string;
   createdAt: string;
+}
+
+export interface AdminGovernorateSales {
+  governorate: string;
+  orders: number;
+  grossSales: number;
+  fitterCommission: number;
+  netProfit: number;
+}
+
+export interface AdminOverviewStats {
+  totals: {
+    mediators: number;
+    merchants: number;
+    visibleMerchants: number;
+    customers: number;
+    products: number;
+    fitters: number;
+    orders: number;
+    grossSales: number;
+    fitterCommission: number;
+    netProfit: number;
+  };
+  byGovernorate: AdminGovernorateSales[];
+  recentOrders: Array<{
+    orderId: string;
+    governorate: string;
+    source: string;
+    productTitle: string;
+    grossSales: number;
+    fitterCommission: number;
+    netProfit: number;
+    createdAt: string;
+  }>;
 }
 
 export interface MediatorContact {

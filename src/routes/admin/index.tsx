@@ -1,258 +1,217 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { Loader2, PackageSearch, PhoneCall, ShoppingBag, Store, Users, Wrench } from "lucide-react";
 import { useMemo, useState } from "react";
+import type React from "react";
+
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getAdminOverview } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { adminStores, broadcastHistory, iraqiCities } from "@/lib/adminMockData";
-import { Store, Search, ShoppingBag, Bot, Ban, TrendingUp, MapPin } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { readAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/")({
   beforeLoad: () => requireAdminClient(),
-  head: () => ({ meta: [{ title: "لوحة الأدمن — Botly" }] }),
+  head: () => ({ meta: [{ title: "نظرة عامة - Botly Admin" }] }),
   component: AdminDashboard,
 });
 
-// Mock 14-day trend per city. TODO(supabase): replace with aggregated query
-// from `bot_events` / `orders` filtered by city.
-type DayPoint = { day: string; searches: number; orders: number };
-
-const CITY_TRENDS: Record<string, DayPoint[]> = (() => {
-  const cities = ["all", ...iraqiCities];
-  const days = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (13 - i));
-    return `${d.getMonth() + 1}/${d.getDate()}`;
-  });
-  const out: Record<string, DayPoint[]> = {};
-  cities.forEach((c) => {
-    out[c] = days.map((day) => ({ day, searches: 0, orders: 0 }));
-  });
-  return out;
-})();
+function money(value: number) {
+  return `${Math.round(value).toLocaleString("ar-IQ")} IQD`;
+}
 
 function AdminDashboard() {
-  const [city, setCity] = useState<string>("all");
+  const session = readAdminSession();
+  const overviewFn = useServerFn(getAdminOverview);
+  const [governorate, setGovernorate] = useState("all");
 
-  const cityStores = useMemo(
-    () => (city === "all" ? adminStores : adminStores.filter((s) => s.city === city)),
-    [city],
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-overview"],
+    queryFn: async () =>
+      session?.token
+        ? overviewFn({ data: { token: session.token } })
+        : null,
+    enabled: Boolean(session?.token),
+    retry: 1,
+  });
+
+  const governorates = useMemo(
+    () => data?.byGovernorate.map((row) => row.governorate).filter(Boolean) ?? [],
+    [data],
   );
+  const selectedRows = useMemo(() => {
+    if (!data) return [];
+    return governorate === "all"
+      ? data.byGovernorate
+      : data.byGovernorate.filter((row) => row.governorate === governorate);
+  }, [data, governorate]);
 
-  const trend = CITY_TRENDS[city] ?? CITY_TRENDS.all;
-
-  const totals = useMemo(() => {
-    const searches = trend.reduce((a, p) => a + p.searches, 0);
-    const orders = trend.reduce((a, p) => a + p.orders, 0);
-    const banned = cityStores.filter((s) => s.bannedFromBot).length;
-    const botActive = cityStores.length - banned;
-    const botUptime = cityStores.length ? Math.round((botActive / cityStores.length) * 100) : 0;
-    const prevSearches = trend.slice(0, 7).reduce((a, p) => a + p.searches, 0);
-    const lastSearches = trend.slice(7).reduce((a, p) => a + p.searches, 0);
-    const delta = prevSearches
-      ? Math.round(((lastSearches - prevSearches) / prevSearches) * 100)
-      : 0;
-    return { searches, orders, banned, botUptime, delta };
-  }, [trend, cityStores]);
-
-  const kpis = [
-    {
-      label: "المتاجر",
-      value: cityStores.length,
-      hint: city === "all" ? "كل المدن" : city,
-      icon: Store,
-      tone: "bg-blue-500/10 text-blue-600",
-    },
-    {
-      label: "عمليات بحث (14 يوم)",
-      value: totals.searches.toLocaleString("ar-EG"),
-      hint: `${totals.delta >= 0 ? "+" : ""}${totals.delta}% أسبوعياً`,
-      icon: Search,
-      tone: "bg-emerald-500/10 text-emerald-600",
-    },
-    {
-      label: "الطلبات (14 يوم)",
-      value: totals.orders.toLocaleString("ar-EG"),
-      hint: "من بوت واتساب",
-      icon: ShoppingBag,
-      tone: "bg-amber-500/10 text-amber-600",
-    },
-    {
-      label: "حالة البوت",
-      value: `${totals.botUptime}%`,
-      hint: `${totals.banned} متجر محظور`,
-      icon: Bot,
-      tone:
-        totals.botUptime >= 90
-          ? "bg-success/10 text-success"
-          : "bg-destructive/10 text-destructive",
-    },
-  ];
+  const sales = selectedRows.reduce(
+    (acc, row) => ({
+      orders: acc.orders + row.orders,
+      grossSales: acc.grossSales + row.grossSales,
+      fitterCommission: acc.fitterCommission + row.fitterCommission,
+      netProfit: acc.netProfit + row.netProfit,
+    }),
+    { orders: 0, grossSales: 0, fitterCommission: 0, netProfit: 0 },
+  );
 
   return (
     <AdminLayout
       title="نظرة عامة"
-      subtitle="ملخّص أداء المنصة عبر المدن خلال آخر 14 يوماً."
+      subtitle="أرقام حقيقية محدثة من قاعدة البيانات للوسطاء، التجار، الزبائن، المنتجات، الفيتر، والمبيعات."
       actions={
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-muted-foreground" />
-          <Select value={city} onValueChange={setCity}>
-            <SelectTrigger className="h-10 w-48">
-              <SelectValue placeholder="المدينة" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">كل المدن</SelectItem>
-              {iraqiCities.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={governorate} onValueChange={setGovernorate}>
+          <SelectTrigger className="h-10 w-56">
+            <SelectValue placeholder="فلترة حسب المحافظة" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل المحافظات</SelectItem>
+            {governorates.map((city) => (
+              <SelectItem key={city} value={city}>
+                {city}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       }
     >
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.label} className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-            <div
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${k.tone}`}
-            >
-              <k.icon className="h-5 w-5" />
+      {isLoading || !data ? (
+        <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+          <p className="mt-3 text-sm">جاري تحميل بيانات النظرة العامة...</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            <StatCard icon={PhoneCall} label="الوسطاء" value={data.totals.mediators} />
+            <StatCard icon={Store} label="التجار" value={data.totals.merchants} hint={`${data.totals.visibleMerchants} ظاهر`} />
+            <StatCard icon={Users} label="الزبائن" value={data.totals.customers} />
+            <StatCard icon={PackageSearch} label="المنتجات" value={data.totals.products} />
+            <StatCard icon={Wrench} label="فيتر" value={data.totals.fitters} />
+            <StatCard icon={ShoppingBag} label="الطلبات" value={sales.orders} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <MoneyCard title="إجمالي المبيعات" value={money(sales.grossSales)} />
+            <MoneyCard title="نسبة الفيتر المدفوعة" value={money(sales.fitterCommission)} />
+            <MoneyCard title="صافي الربح" value={money(sales.netProfit)} highlight />
+          </div>
+
+          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">ملخص المبيعات حسب المحافظة</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  صافي الربح = السعر النهائي للمنتج ناقص عمولة الفيتر إن وجدت.
+                </p>
+              </div>
+              <span className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">
+                {governorate === "all" ? "كل المحافظات" : governorate}
+              </span>
             </div>
-            <div className="mt-4 text-3xl font-bold tracking-tight">{k.value}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{k.label}</div>
-            <div className="mt-1 text-[11px] text-muted-foreground/80">{k.hint}</div>
-          </div>
-        ))}
-      </div>
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border text-right text-muted-foreground">
+                  <tr>
+                    <Th>المحافظة</Th>
+                    <Th>الطلبات</Th>
+                    <Th>إجمالي المبيعات</Th>
+                    <Th>عمولة الفيتر</Th>
+                    <Th>صافي الربح</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedRows.map((row) => (
+                    <tr key={row.governorate} className="border-b border-border/60 last:border-0">
+                      <Td className="font-medium">{row.governorate}</Td>
+                      <Td>{row.orders.toLocaleString("ar-IQ")}</Td>
+                      <Td>{money(row.grossSales)}</Td>
+                      <Td>{money(row.fitterCommission)}</Td>
+                      <Td className="font-semibold text-primary">{money(row.netProfit)}</Td>
+                    </tr>
+                  ))}
+                  {selectedRows.length === 0 ? (
+                    <tr>
+                      <Td className="py-8 text-center text-muted-foreground" colSpan={5}>
+                        لا توجد مبيعات لهذه المحافظة حالياً.
+                      </Td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-      {/* Trend chart */}
-      <div className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-soft">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">اتجاه النشاط</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              عمليات البحث والطلبات اليومية{city !== "all" ? ` — ${city}` : ""}
-            </p>
-          </div>
-          <Badge
-            variant="outline"
-            className={
-              totals.delta >= 0
-                ? "border-success/30 bg-success/15 text-success"
-                : "border-destructive/30 bg-destructive/15 text-destructive"
-            }
-          >
-            <TrendingUp className="me-1 h-3 w-3" />
-            {totals.delta >= 0 ? "+" : ""}
-            {totals.delta}%
-          </Badge>
-        </div>
-        <ChartContainer
-          className="h-64 w-full"
-          config={{
-            searches: { label: "بحث", color: "hsl(var(--primary))" },
-            orders: { label: "طلبات", color: "hsl(var(--success))" },
-          }}
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-              <defs>
-                <linearGradient id="g-searches" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="g-orders" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--success))" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="hsl(var(--success))" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
-              <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} />
-              <YAxis tickLine={false} axisLine={false} fontSize={11} width={32} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Area
-                type="monotone"
-                dataKey="searches"
-                stroke="hsl(var(--primary))"
-                strokeWidth={2}
-                fill="url(#g-searches)"
-              />
-              <Area
-                type="monotone"
-                dataKey="orders"
-                stroke="hsl(var(--success))"
-                strokeWidth={2}
-                fill="url(#g-orders)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </ChartContainer>
-      </div>
-
-      {/* Side lists */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-          <h3 className="text-sm font-semibold">
-            آخر المتاجر{city !== "all" ? ` في ${city}` : ""}
-          </h3>
-          <div className="mt-4 divide-y divide-border">
-            {cityStores.slice(0, 6).map((s) => (
-              <div key={s.id} className="flex items-center justify-between py-3">
-                <div>
-                  <div className="text-sm font-medium">{s.storeName}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {s.city} · {s.category}
+          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+            <h2 className="text-lg font-semibold">آخر الطلبات المحتسبة</h2>
+            <div className="mt-4 divide-y divide-border">
+              {data.recentOrders.map((order) => (
+                <div key={order.orderId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-medium">{order.productTitle}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {order.governorate} · {order.source === "fitter_site" ? "فيتر" : "زبون"}
+                    </div>
                   </div>
+                  <div className="text-sm font-semibold text-primary">{money(order.netProfit)}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {s.bannedFromBot && (
-                    <Badge
-                      variant="outline"
-                      className="gap-1 border-destructive/30 bg-destructive/10 text-destructive"
-                    >
-                      <Ban className="h-3 w-3" /> محظور
-                    </Badge>
-                  )}
-                  <span className="text-xs text-muted-foreground">{s.createdAt}</span>
-                </div>
-              </div>
-            ))}
-            {cityStores.length === 0 && (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                لا توجد متاجر في هذه المدينة بعد.
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          </section>
         </div>
-
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-          <h3 className="text-sm font-semibold">آخر الرسائل الجماعية</h3>
-          <div className="mt-4 divide-y divide-border">
-            {broadcastHistory.map((b) => (
-              <div key={b.id} className="py-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">{b.title}</div>
-                  <span className="text-xs text-muted-foreground">{b.sentAt}</span>
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {b.audienceLabel} · {b.recipients.toLocaleString("ar-EG")} مستلم
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      )}
     </AdminLayout>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+      <Icon className="h-5 w-5 text-primary" />
+      <div className="mt-4 text-2xl font-bold">{value.toLocaleString("ar-IQ")}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{label}</div>
+      {hint ? <div className="mt-1 text-[11px] text-primary">{hint}</div> : null}
+    </div>
+  );
+}
+
+function MoneyCard({ title, value, highlight = false }: { title: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-2xl border p-5 shadow-soft ${highlight ? "border-primary/30 bg-primary-soft" : "border-border bg-card"}`}>
+      <div className="text-sm text-muted-foreground">{title}</div>
+      <div className="mt-3 text-2xl font-bold">{value}</div>
+    </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="whitespace-nowrap px-4 py-3 text-xs font-medium">{children}</th>;
+}
+
+function Td({
+  children,
+  className = "",
+  colSpan,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  colSpan?: number;
+}) {
+  return (
+    <td colSpan={colSpan} className={`whitespace-nowrap px-4 py-3 ${className}`}>
+      {children}
+    </td>
   );
 }

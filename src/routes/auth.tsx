@@ -123,6 +123,44 @@ const copy = {
     pointTwo: "Email stays optional on signup",
     pointThree: "Reset password through WhatsApp or email",
   },
+  ku: {
+    title: "چوونەژوورەوەی فرۆشیار",
+    subtitle: "بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە، یان هەژماری فرۆشگای نوێ دروست بکە.",
+    login: "چوونەژوورەوە",
+    signup: "دروستکردنی هەژمار",
+    whatsapp: "ژمارەی تەلەفۆن / واتساپ",
+    whatsappPlaceholder: "07XX XXX XXXX",
+    storeName: "ناوی شوێن یان کۆمپانیا",
+    storeNamePlaceholder: "نموونە: Botly Store",
+    city: "پارێزگا",
+    cityPlaceholder: "پارێزگای فرۆشگا هەڵبژێرە",
+    email: "ئیمەیڵ",
+    emailOptional: "ئیمەیڵ (ئارەزوومەندانە)",
+    emailPlaceholder: "name@example.com",
+    password: "وشەی نهێنی",
+    passwordPlaceholder: "وشەی نهێنی بنووسە",
+    loginSubmit: "کردنەوەی داشبۆرد",
+    signupSubmit: "دروستکردنی هەژمار",
+    forgotPassword: "وشەی نهێنیت لەبیر کردووە؟",
+    resetTitle: "گۆڕینی وشەی نهێنی",
+    resetSubtitle: "شوێنی وەرگرتنی کۆد یان بەستەری گۆڕین هەڵبژێرە.",
+    resetByWhatsapp: "ژمارەی واتساپ",
+    resetByEmail: "ئیمەیڵ",
+    sendReset: "ناردنی گۆڕین",
+    backToLogin: "گەڕانەوە بۆ چوونەژوورەوە",
+    terms: "بە بەردەوامبوونت ڕازی دەبیت بە مەرجەکانی بەکارهێنان و سیاسەتی تایبەتمەندی.",
+    required: "تکایە خانە پێویستەکان پڕ بکە",
+    passwordShort: "وشەی نهێنی دەبێت لانیکەم 6 پیت بێت",
+    emailRequired: "ئیمەیڵ بنووسە بۆ وەرگرتنی گۆڕینی وشەی نهێنی",
+    loginSuccess: "چوویتە ژوورەوە",
+    signupSuccess: "هەژمار دروست کرا",
+    resetSentWhatsapp: "نامەی گۆڕینی وشەی نهێنی بۆ واتساپ ئامادە کرا",
+    resetSentEmail: "نامەی گۆڕینی وشەی نهێنی بۆ ئیمەیڵ ئامادە کرا",
+    secure: "چوونەژوورەوەی کورت و پارێزراو بۆ فرۆشیار",
+    pointOne: "دواتر بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە",
+    pointTwo: "ئیمەیڵ لە هەژماردا ئارەزوومەندانە دەمێنێت",
+    pointThree: "گۆڕینی وشەی نهێنی لە ڕێی واتساپ یان ئیمەیڵ",
+  },
 } as const;
 
 const IRAQI_GOVERNORATES = [
@@ -601,7 +639,7 @@ function previewStoreSlug(name: string): string {
 }
 
 // Live hint under the store-name field showing the store's URL identifier.
-function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" }) {
+function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" | "ku" }) {
   if (!storeName.trim()) {
     return (
       <p className="mt-1.5 text-xs text-muted-foreground">
