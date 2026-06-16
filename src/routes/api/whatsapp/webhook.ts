@@ -222,6 +222,92 @@ const ACTION_SEARCH_ALTERNATIVE = "search_alternative";
 const ACTION_CONFIRM_ORDER = "merchant_confirm_order";
 const ACTION_PRODUCT_OUT_OF_STOCK = "merchant_product_out_of_stock";
 
+function toWhatsAppRecipient(phone: string): string {
+  return normalizePhone(phone).replace(/^\+/, "");
+}
+
+function normalizeMediatorPhones(values: string[]): string[] {
+  const seen = new Set<string>();
+  const phones: string[] = [];
+  for (const value of values) {
+    const phone = value.trim();
+    if (!phone) continue;
+    const key = phoneKey(phone);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    phones.push(phone);
+  }
+  return phones;
+}
+
+async function readMediatorPhonesFromSettings(): Promise<string[]> {
+  const rows = await listEvents("botly_settings").catch(() => []);
+  for (const row of rows) {
+    const storedPhones = Array.isArray(row.payload?.mediatorPhones)
+      ? (row.payload?.mediatorPhones as unknown[]).filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    const phones = normalizeMediatorPhones([
+      ...storedPhones,
+      getString(row.payload?.mediatorPhone),
+    ]);
+    if (phones.length > 0) return phones;
+  }
+  return [];
+}
+
+async function notifyMediatorsOfMerchantAvailability(args: {
+  order: Record<string, unknown>;
+  isAvailable: boolean;
+}) {
+  const storedPhones = Array.isArray(args.order.mediatorPhones)
+    ? (args.order.mediatorPhones as unknown[]).filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+  const mediatorPhones = normalizeMediatorPhones([
+    ...storedPhones,
+    ...(await readMediatorPhonesFromSettings()),
+  ]);
+  if (mediatorPhones.length === 0) return [];
+
+  const productTitle = getString(args.order.productTitle) || "المنتج";
+  const storeName = getString(args.order.merchantStoreName) || getString(args.order.storeName) || "المتجر";
+  const merchantWhatsapp = getString(args.order.merchantWhatsapp) || "-";
+  const currentPrice = getNumber(args.order.currentPrice) ?? getNumber(args.order.price) ?? 0;
+  const currency = getString(args.order.currency) || "IQD";
+  const requester =
+    getString(args.order.sourceContext) === "fitter_site"
+      ? `الفيتر: ${getString(args.order.fitterName) || "-"} / ${getString(args.order.fitterWhatsapp) || "-"}`
+      : `الزبون: ${getString(args.order.customerName) || "-"} / ${getString(args.order.customerPhone) || getString(args.order.customerNumber) || "-"}`;
+
+  const message = [
+    args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
+    `المنتج: ${productTitle}`,
+    `السعر الحالي: ${currentPrice.toLocaleString()} ${currency}`,
+    `المتجر: ${storeName}`,
+    `واتساب التاجر: ${merchantWhatsapp}`,
+    requester,
+  ].join("\n");
+
+  const results = [];
+  for (const phone of mediatorPhones) {
+    const recipient = toWhatsAppRecipient(phone);
+    try {
+      results.push({ phone: recipient, ...(await sendWhatsAppText(recipient, message)) });
+    } catch (error) {
+      results.push({
+        phone: recipient,
+        ok: false,
+        status: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
 function buttonResponse(
   body: string,
   buttons: Array<{ id: string; title: string }>,
@@ -1195,8 +1281,16 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               const productTitle = getString(order.productTitle) || "المنتج";
               const storeName = getString(order.storeName) || "المتجر";
               const isConfirmed = incoming.actionId === ACTION_CONFIRM_ORDER;
+              const sourceContext = getString(order.sourceContext);
+              const mediatorResults = await notifyMediatorsOfMerchantAvailability({
+                order,
+                isAvailable: isConfirmed,
+              }).catch((error) => {
+                console.error("[Merchant] Failed to notify mediators:", error);
+                return [];
+              });
 
-              if (customerNumber) {
+              if (customerNumber && sourceContext !== "customer_site" && sourceContext !== "fitter_site") {
                 const responseMsg = isConfirmed
                   ? `✅ تم تأكيد طلبك من ${storeName}\nالمنتج: ${productTitle}\nراح يوصلك بأقرب وقت إن شاء الله 🚚`
                   : `للأسف المنتج «${productTitle}» منتهي حالياً من ${storeName} ❌\nراح يتم إعلامك حال توفره مرة ثانية. تحب تدور على منتج بديل؟ اكتب اسمه وأبحثلك.`;
@@ -1219,6 +1313,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                   merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
                   status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
                   customerNotifiedOfStatus: sentToCustomer.ok,
+                  mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
+                  mediatorNotificationResults: mediatorResults,
                   respondedAt: new Date().toISOString(),
                 }).catch((error) =>
                   console.error("[Merchant] Failed to record merchant response:", error),
@@ -1235,7 +1331,26 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                   phoneNumberId,
                 ).catch((error) => console.error("[Merchant] Failed to ack merchant:", error));
               } else {
-                console.warn("[Merchant] Order has no customer number:", orderRow.id);
+                await appendEvent("botly_order", {
+                  ...order,
+                  orderId: getString(order.orderId) || orderRow.id,
+                  merchantResponse: incoming.actionId,
+                  merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
+                  status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
+                  customerNotifiedOfStatus: false,
+                  mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
+                  mediatorNotificationResults: mediatorResults,
+                  respondedAt: new Date().toISOString(),
+                }).catch((error) =>
+                  console.error("[Merchant] Failed to record merchant response:", error),
+                );
+                await sendWhatsAppText(
+                  incoming.from,
+                  mediatorResults.some((result) => result.ok)
+                    ? `تم ✅ أبلغنا الوسيط بردك على «${productTitle}».`
+                    : "سجلنا ردك، بس تعذر إرسال الإشعار للوسيط. راجع إعدادات أرقام الوسطاء.",
+                  phoneNumberId,
+                ).catch((error) => console.error("[Merchant] Failed to ack merchant:", error));
               }
             } else {
               console.warn("[Merchant] No pending order found for:", incoming.from);

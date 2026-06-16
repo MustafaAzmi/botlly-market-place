@@ -30,7 +30,11 @@ import {
   toEnabledCatalogue,
   type CarMake,
 } from "@/lib/car-data";
-import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import {
+  buildAvailabilityButtons,
+  sendWhatsAppButtons,
+  sendWhatsAppText,
+} from "@/lib/whatsapp/send.server";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -403,10 +407,34 @@ async function resolveMerchantContact(
   return { whatsapp, storeName, merchantId };
 }
 
+async function sendMerchantAvailabilityQuestion(args: {
+  merchantWhatsapp: string;
+  productTitle: string;
+  currentPrice: number;
+  currency: string;
+  requesterLabel: string;
+}) {
+  if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
+  const body = [
+    "يوجد طلب على منتج من Botly:",
+    `المنتج: ${args.productTitle}`,
+    `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
+    `نوع الطلب: ${args.requesterLabel}`,
+    "",
+    "هل لا يزال المنتج متوفر؟",
+  ].join("\n");
+  return sendWhatsAppButtons(
+    normalizePhone(args.merchantWhatsapp).replace(/^\+/, ""),
+    body,
+    buildAvailabilityButtons(),
+  );
+}
+
 async function resolveOrderProduct(productId: string): Promise<{
   id: string;
   title: string;
   price: number;
+  currentPrice: number;
   currency: string;
   merchantId: string;
 }> {
@@ -423,13 +451,15 @@ async function resolveOrderProduct(productId: string): Promise<{
     throw new Error("هذا المنتج نفدت كميته حالياً.");
   }
 
-  const price = getNumber(p.discountPrice) ?? getNumber(p.currentPrice);
+  const currentPrice = getNumber(p.currentPrice);
+  const price = getNumber(p.discountPrice) ?? currentPrice;
   if (price === undefined) throw new Error("سعر المنتج غير واضح حالياً.");
 
   return {
     id: getString(p.productId) || row.id,
     title: getString(p.title) || getString(p.description) || "منتج",
     price,
+    currentPrice: currentPrice ?? price,
     currency: getString(p.currency) || "IQD",
     merchantId: getString(p.merchantId),
   };
@@ -485,19 +515,37 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     const message = lines.join("\n");
 
     const orderId = crypto.randomUUID();
+    const merchantAvailabilityResult = merchant.whatsapp
+      ? await sendMerchantAvailabilityQuestion({
+          merchantWhatsapp: merchant.whatsapp,
+          productTitle: product.title,
+          currentPrice: product.currentPrice,
+          currency: product.currency,
+          requesterLabel: "زبون",
+        }).catch((error) => ({
+          ok: false,
+          status: 0,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : { ok: false, status: 0, error: "Missing merchant phone" };
 
     // Store the order in the event store for history/admin view (optional).
     await appendEvent("botly_order", {
       orderId,
+      sourceContext: "customer_site",
       productId: product.id,
       productTitle: product.title,
       price: product.price,
+      currentPrice: product.currentPrice,
       currency: product.currency,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
+      merchantAvailabilityAsked: merchantAvailabilityResult.ok,
+      merchantAvailabilityResult,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
+      customerNumber: data.customerPhone,
       customerGovernorate: data.customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
@@ -524,15 +572,20 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     const sentCount = sendResults.filter((result) => result.ok).length;
     await appendEvent("botly_order", {
       orderId,
+      sourceContext: "customer_site",
       productId: product.id,
       productTitle: product.title,
       price: product.price,
+      currentPrice: product.currentPrice,
       currency: product.currency,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
+      merchantAvailabilityAsked: merchantAvailabilityResult.ok,
+      merchantAvailabilityResult,
       customerName: data.customerName,
       customerPhone: data.customerPhone,
+      customerNumber: data.customerPhone,
       customerGovernorate: data.customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],

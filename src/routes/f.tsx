@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Car, CheckCircle2, CreditCard, Loader2, LogOut, MapPin, Search, UserRound, Wrench } from "lucide-react";
+import { Car, CheckCircle2, Loader2, LogOut, MapPin, Search, Settings, UserRound, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,7 +18,6 @@ import {
   loginFitter,
   requestFitterProduct,
   signupFitter,
-  updateFitterProfile,
   type FitterOrder,
   type FitterSummary,
 } from "@/lib/fitter.functions";
@@ -155,41 +154,10 @@ function FitterPage() {
 
 function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnType<typeof readFitterSession>>; onLogout: () => void }) {
   const [summary, setSummary] = useState<FitterSummary | null>(null);
-  const [visaNumber, setVisaNumber] = useState(session.fitter.visaNumber);
-  const [name, setName] = useState(session.fitter.name);
-  const [city, setCity] = useState(session.fitter.city);
-  const [address, setAddress] = useState(session.fitter.address);
-  const [latitude, setLatitude] = useState(session.fitter.latitude);
-  const [longitude, setLongitude] = useState(session.fitter.longitude);
   const summaryFn = useServerFn(getFitterSummary);
-  const updateFn = useServerFn(updateFitterProfile);
 
   const refresh = async () => setSummary(await summaryFn({ data: { token: session.token } }));
   useEffect(() => { refresh().catch(() => {}); }, []);
-
-  const saveProfile = async () => {
-    try {
-      const result = await updateFn({ data: { token: session.token, name, city, address, latitude, longitude, visaNumber } });
-      writeFitterSession(result.fitter, session.token);
-      toast.success("تم حفظ بيانات الفيتر");
-      await refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "فشل الحفظ");
-    }
-  };
-
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) return toast.error("الموقع غير مدعوم بهذا المتصفح");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLatitude(pos.coords.latitude);
-        setLongitude(pos.coords.longitude);
-        setAddress(`${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
-        toast.success("تم تحديث الموقع الحالي");
-      },
-      () => toast.error("تعذر تحديد الموقع"),
-    );
-  };
 
   return (
     <div className="min-h-screen bg-secondary/30 pb-10">
@@ -199,10 +167,18 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
             <h1 className="text-xl font-bold">لوحة الفيتر</h1>
             <p className="text-xs text-muted-foreground">{session.fitter.whatsapp}</p>
           </div>
-          <Button variant="ghost" className="gap-2" onClick={onLogout}>
-            <LogOut className="h-4 w-4" />
-            خروج
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" className="gap-2">
+              <Link to="/f/settings">
+                <Settings className="h-4 w-4" />
+                الإعدادات
+              </Link>
+            </Button>
+            <Button variant="ghost" className="gap-2" onClick={onLogout}>
+              <LogOut className="h-4 w-4" />
+              خروج
+            </Button>
+          </div>
         </div>
       </header>
       <main className="mx-auto grid max-w-6xl gap-5 px-4 py-6 lg:grid-cols-[320px_1fr]">
@@ -215,20 +191,6 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
             <div className="mt-1 text-xs text-muted-foreground">عدد الطلبات المؤكدة: {summary?.salesCount ?? 0}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               نسبة العمولة: {summary?.fitter.commissionPercent ?? session.fitter.commissionPercent ?? 0}%
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-            <h2 className="mb-4 flex items-center gap-2 font-semibold"><CreditCard className="h-4 w-4" /> بيانات الفيتر</h2>
-            <div className="space-y-3">
-              <Field label="الاسم" value={name} onChange={setName} />
-              <CitySelect value={city} onChange={setCity} />
-              <Field label="العنوان" value={address} onChange={setAddress} />
-              <Field label="رقم الفيزا" value={visaNumber} onChange={setVisaNumber} dir="ltr" />
-              <Button type="button" variant="outline" className="w-full gap-2" onClick={useCurrentLocation}>
-                <MapPin className="h-4 w-4" />
-                موقعي الحالي
-              </Button>
-              <Button className="w-full" onClick={saveProfile}>حفظ بياناتي</Button>
             </div>
           </div>
           <InstallAppCard app="fitter" />
@@ -390,7 +352,7 @@ function FitterProduct({
   const cancelling = order ? busyOrderKey === `cancel:${order.id}` : false;
   const isConfirmed = order?.status === "confirmed";
   const isCancelled = order?.status === "cancelled";
-  const hasOrder = Boolean(order);
+  const canRequestAgain = !order || isConfirmed || isCancelled;
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
@@ -401,10 +363,10 @@ function FitterProduct({
         <div className="text-xs text-muted-foreground">
           يتم احتساب عمولتك تلقائياً حسب النسبة المحددة من الأدمن.
         </div>
-        {!hasOrder && (
+        {canRequestAgain && (
           <Button className="w-full gap-2" disabled={requesting} onClick={() => onRequest(product)}>
             {requesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Car className="h-4 w-4" />}
-            طلب المنتج
+            {order ? "طلب المنتج مرة ثانية" : "طلب المنتج"}
           </Button>
         )}
         {order && (

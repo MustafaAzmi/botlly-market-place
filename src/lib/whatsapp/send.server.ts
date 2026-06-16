@@ -91,6 +91,13 @@ export async function sendWhatsAppButtons(
   };
 }
 
+export function buildAvailabilityButtons() {
+  return [
+    { id: "merchant_confirm_order", title: "نعم متوفر" },
+    { id: "merchant_product_out_of_stock", title: "لا غير متوفر" },
+  ];
+}
+
 // Send a product image with an optional caption. WhatsApp requires a PUBLIC
 // https URL — data: URLs (manually uploaded images stored as base64) cannot be
 // sent and the caller must skip them.

@@ -8,7 +8,7 @@
 //   - /api/*       : network only (never cached — auth + live data)
 //   - push         : show a notification, focus/open the target URL on click
 
-const VERSION = "botly-pwa-v4";
+const VERSION = "botly-pwa-v5";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";

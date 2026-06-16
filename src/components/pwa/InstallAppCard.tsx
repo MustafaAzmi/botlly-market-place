@@ -8,12 +8,18 @@
 //   the website opens directly — exactly the required fallback.
 
 import { Bell, CheckCircle2, Download, ExternalLink, Share, SquarePlus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/LanguageProvider";
-import { PWA_APPS, requestNotificationPermission, usePwaInstall, type PwaApp } from "@/lib/pwa";
+import {
+  PWA_APPS,
+  registerServiceWorker,
+  requestNotificationPermission,
+  usePwaInstall,
+  type PwaApp,
+} from "@/lib/pwa";
 
 export function InstallAppCard({ app }: { app: PwaApp }) {
   const t = useT();
@@ -22,6 +28,10 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [showManualInstall, setShowManualInstall] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
 
   const enableDebug = () => {
     (window as any).__PWA_DEBUG__ = true;
@@ -34,6 +44,7 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
     if (!canInstall) {
       setShowManualInstall(true);
       toast.info("إذا ما ظهرت نافذة التنصيب، استخدم قائمة المتصفح ثم اختر تثبيت التطبيق.");
+      registerServiceWorker();
       return;
     }
 

@@ -13,7 +13,11 @@ import {
   sha256,
   type EventRow,
 } from "@/lib/eventStore.server";
-import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import {
+  buildAvailabilityButtons,
+  sendWhatsAppButtons,
+  sendWhatsAppText,
+} from "@/lib/whatsapp/send.server";
 
 export type FitterProfile = {
   id: string;
@@ -35,6 +39,7 @@ export type FitterSale = {
   productId: string;
   productTitle: string;
   productPrice: number;
+  productCurrentPrice: number;
   currency: string;
   commissionPercent: number;
   commissionAmount: number;
@@ -262,16 +267,42 @@ async function resolveProduct(productId: string) {
   if (getString(p.status) !== "active" || getString(p.availability) === "out_of_stock") {
     throw new Error("المنتج غير متوفر حالياً.");
   }
-  const price = getNumber(p.discountPrice) ?? getNumber(p.currentPrice);
+  const currentPrice = getNumber(p.currentPrice);
+  const price = getNumber(p.discountPrice) ?? currentPrice;
   if (price === undefined) throw new Error("سعر المنتج غير واضح حالياً.");
   return {
     id: getString(p.productId) || row.id,
     title: getString(p.title) || getString(p.description) || "منتج",
     price,
+    currentPrice: currentPrice ?? price,
     currency: getString(p.currency) || "IQD",
     merchantId: getString(p.merchantId),
     merchantWhatsapp: getString(p.whatsapp),
   };
+}
+
+async function sendMerchantAvailabilityQuestion(args: {
+  merchantWhatsapp: string;
+  productTitle: string;
+  currentPrice: number;
+  currency: string;
+  fitterName: string;
+}) {
+  if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
+  const body = [
+    "يوجد طلب على منتج من Botly:",
+    `المنتج: ${args.productTitle}`,
+    `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
+    "نوع الطلب: فيتر",
+    `اسم الفيتر: ${args.fitterName || "فيتر"}`,
+    "",
+    "هل لا يزال المنتج متوفر؟",
+  ].join("\n");
+  return sendWhatsAppButtons(
+    normalizePhone(args.merchantWhatsapp).replace(/^\+/, ""),
+    body,
+    buildAvailabilityButtons(),
+  );
 }
 
 async function resolveMerchantContact(merchantId: string, fallbackWhatsapp = "") {
@@ -431,6 +462,7 @@ function toSale(row: EventRow): FitterSale {
     productId: getString(p.productId),
     productTitle: getString(p.productTitle),
     productPrice: getNumber(p.productPrice) ?? 0,
+    productCurrentPrice: getNumber(p.productCurrentPrice) ?? getNumber(p.productPrice) ?? 0,
     currency: getString(p.currency) || "IQD",
     commissionPercent: getNumber(p.commissionPercent) ?? 0,
     commissionAmount: getNumber(p.commissionAmount) ?? 0,
@@ -506,6 +538,7 @@ function buildOrderPayload(args: {
     productId: args.product.id,
     productTitle: args.product.title,
     productPrice: args.product.price,
+    productCurrentPrice: args.product.currentPrice ?? args.product.price,
     currency: args.product.currency,
     merchantId: args.product.merchantId,
     merchantStoreName: args.merchant.storeName,
@@ -551,6 +584,46 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
       throw new Error("تعذر إرسال طلب المنتج إلى الوسيط عبر واتساب.");
     }
+    const merchantAvailabilityResult = merchant.whatsapp
+      ? await sendMerchantAvailabilityQuestion({
+          merchantWhatsapp: merchant.whatsapp,
+          productTitle: product.title,
+          currentPrice: product.currentPrice,
+          currency: product.currency,
+          fitterName: getString(fitter.payload?.name),
+        }).catch((error) => ({
+          ok: false,
+          status: 0,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : { ok: false, status: 0, error: "Missing merchant phone" };
+    await appendEvent("botly_order", {
+      orderId,
+      sourceContext: "fitter_site",
+      fitterOrderId: orderId,
+      fitterId: fitterIdentity(fitter),
+      fitterName: getString(fitter.payload?.name),
+      fitterWhatsapp: getString(fitter.payload?.whatsapp),
+      fitterCity: getString(fitter.payload?.city),
+      fitterAddress: getString(fitter.payload?.address),
+      fitterLocationLink: fitterLocationLink(fitter),
+      productId: product.id,
+      productTitle: product.title,
+      price: product.price,
+      currentPrice: product.currentPrice,
+      currency: product.currency,
+      merchantId: product.merchantId,
+      merchantStoreName: merchant.storeName,
+      storeName: merchant.storeName,
+      merchantWhatsapp: merchant.whatsapp,
+      merchantAddress: merchant.address,
+      mediatorPhones: await readMediatorPhones().catch(() => []),
+      merchantAvailabilityAsked: merchantAvailabilityResult.ok,
+      merchantAvailabilityResult,
+      createdAt: new Date().toISOString(),
+    }).catch((error) =>
+      console.error("[Fitter] Failed to record merchant availability order", error),
+    );
     const row = await appendEvent("botly_fitter_order", buildOrderPayload({
       orderId,
       fitter,
@@ -579,6 +652,7 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       id: order.productId,
       title: order.productTitle,
       price: order.productPrice,
+      currentPrice: order.productCurrentPrice || order.productPrice,
       currency: order.currency,
       merchantId: order.merchantId,
       merchantWhatsapp: order.merchantWhatsapp,
@@ -609,6 +683,7 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       productId: order.productId,
       productTitle: order.productTitle,
       productPrice: order.productPrice,
+      productCurrentPrice: order.productCurrentPrice,
       currency: order.currency,
       merchantId: order.merchantId,
       merchantStoreName: order.merchantStoreName,
@@ -639,6 +714,7 @@ export const cancelFitterOrder = createServerFn({ method: "POST" })
       id: order.productId,
       title: order.productTitle,
       price: order.productPrice,
+      currentPrice: order.productCurrentPrice || order.productPrice,
       currency: order.currency,
       merchantId: order.merchantId,
       merchantWhatsapp: order.merchantWhatsapp,
@@ -683,6 +759,7 @@ export const getFitterSummary = createServerFn({ method: "POST" })
       productId: order.productId,
       productTitle: order.productTitle,
       productPrice: order.productPrice,
+      productCurrentPrice: order.productCurrentPrice,
       currency: order.currency,
       commissionPercent: order.commissionPercent,
       commissionAmount: order.commissionAmount,
