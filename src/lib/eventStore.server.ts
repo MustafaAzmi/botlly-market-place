@@ -23,6 +23,7 @@ export type BotlyEventType =
   | "botly_fitter_reset"
   | "botly_outbound_guard"
   | "botly_order"
+  | "botly_order_counter_reset"
   | "botly_admin"
   | "botly_admin_session"
   | "botly_admin_password_reset"

@@ -1,19 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Loader2,
   PackageSearch,
   PhoneCall,
+  RotateCcw,
   ShoppingBag,
   Store,
   Users,
   Wrench,
+  Download,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type React from "react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -21,9 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAdminOverview } from "@/lib/admin.functions";
+import { getAdminOverview, resetAdminOrderCounter } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
 import { readAdminSession } from "@/lib/adminSession";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/")({
   beforeLoad: () => requireAdminClient(),
@@ -44,10 +48,17 @@ function money(value: number, currency: string) {
   return `${Math.round(value).toLocaleString("ar-IQ")} ${currency}`;
 }
 
+function excelCell(value: string | number) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function AdminDashboard() {
   const session = readAdminSession();
   const overviewFn = useServerFn(getAdminOverview);
+  const resetOrderCounterFn = useServerFn(resetAdminOrderCounter);
+  const queryClient = useQueryClient();
   const [governorate, setGovernorate] = useState("all");
+  const [resetting, setResetting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-overview"],
@@ -92,24 +103,137 @@ function AdminDashboard() {
 
   const totalOrders = selectedRows.reduce((sum, row) => sum + row.orders, 0);
 
+  const resetOrderCounter = async () => {
+    if (!session?.token) {
+      toast.error("انتهت جلسة الأدمن. سجل الدخول مرة ثانية.");
+      return;
+    }
+    setResetting(true);
+    try {
+      await resetOrderCounterFn({ data: { token: session.token } });
+      await queryClient.invalidateQueries({ queryKey: ["admin-overview"] });
+      toast.success("تم تصفير عداد الطلبات");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تصفير عداد الطلبات");
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const downloadSalesExcel = () => {
+    const currencyRows = selectedCurrencySales
+      .map(
+        (row) => `
+          <tr>
+            <td>${excelCell(row.currency)}</td>
+            <td>${excelCell(row.orders)}</td>
+            <td>${excelCell(row.grossSales)}</td>
+            <td>${excelCell(row.currentPrice)}</td>
+            <td>${excelCell(row.fitterCommission)}</td>
+            <td>${excelCell(row.netProfit)}</td>
+          </tr>`,
+      )
+      .join("");
+    const governorateRows = selectedRows
+      .map(
+        (row) => `
+          <tr>
+            <td>${excelCell(row.governorate)}</td>
+            <td>${excelCell(row.currency)}</td>
+            <td>${excelCell(row.orders)}</td>
+            <td>${excelCell(row.grossSales)}</td>
+            <td>${excelCell(row.currentPrice)}</td>
+            <td>${excelCell(row.fitterCommission)}</td>
+            <td>${excelCell(row.netProfit)}</td>
+          </tr>`,
+      )
+      .join("");
+    const html = `
+      <html dir="rtl">
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <h2>ملخص المبيعات حسب العملة</h2>
+          <table border="1">
+            <thead>
+              <tr>
+                <th>العملة</th>
+                <th>الطلبات بعد التصفير</th>
+                <th>إجمالي المبيعات</th>
+                <th>السعر الحالي</th>
+                <th>عمولة الفيتر</th>
+                <th>صافي الربح</th>
+              </tr>
+            </thead>
+            <tbody>${currencyRows}</tbody>
+          </table>
+          <h2>ملخص المبيعات حسب المحافظة والعملة</h2>
+          <table border="1">
+            <thead>
+              <tr>
+                <th>المحافظة</th>
+                <th>العملة</th>
+                <th>الطلبات بعد التصفير</th>
+                <th>إجمالي المبيعات</th>
+                <th>السعر الحالي</th>
+                <th>عمولة الفيتر</th>
+                <th>صافي الربح</th>
+              </tr>
+            </thead>
+            <tbody>${governorateRows}</tbody>
+          </table>
+        </body>
+      </html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `botly-sales-summary-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <AdminLayout
       title="نظرة عامة"
       subtitle="أرقام حقيقية محدثة من قاعدة البيانات للوسطاء، التجار، الزبائن، المنتجات، الفيتر، والمبيعات."
       actions={
-        <Select value={governorate} onValueChange={setGovernorate}>
-          <SelectTrigger className="h-10 w-56">
-            <SelectValue placeholder="فلترة حسب المحافظة" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">كل المحافظات</SelectItem>
-            {governorates.map((city) => (
-              <SelectItem key={city} value={city}>
-                {city}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2"
+            onClick={downloadSalesExcel}
+            disabled={!data}
+          >
+            <Download className="h-4 w-4" />
+            تنزيل Excel
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2 text-destructive"
+            onClick={resetOrderCounter}
+            disabled={resetting || !data}
+          >
+            <RotateCcw className="h-4 w-4" />
+            تصفير الطلبات
+          </Button>
+          <Select value={governorate} onValueChange={setGovernorate}>
+            <SelectTrigger className="h-10 w-56">
+              <SelectValue placeholder="فلترة حسب المحافظة" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المحافظات</SelectItem>
+              {governorates.map((city) => (
+                <SelectItem key={city} value={city}>
+                  {city}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       }
     >
       {isLoading || !data ? (

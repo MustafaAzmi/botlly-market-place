@@ -702,6 +702,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       orderRows,
       fitterOrderRows,
       settingsRows,
+      resetRows,
     ] = await Promise.all([
       latestMerchants(),
       listEvents("botly_product"),
@@ -710,6 +711,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       listEvents("botly_order"),
       listEvents("botly_fitter_order"),
       listEvents("botly_settings"),
+      listEvents("botly_order_counter_reset"),
     ]);
 
     const merchants = merchantRows.filter((row) => !getString(row.payload?.deletedAt));
@@ -780,9 +782,13 @@ export const getAdminOverview = createServerFn({ method: "POST" })
     }
 
     const recentOrders = [...counted.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const orderCounterResetAt = getString(resetRows[0]?.payload?.createdAt);
+    const orderCounterResetMs = orderCounterResetAt ? new Date(orderCounterResetAt).getTime() : 0;
     const byGovernorateMap = new Map<string, AdminGovernorateSales>();
     const byCurrencyMap = new Map<string, AdminCurrencySales>();
     for (const order of recentOrders) {
+      const countOrder =
+        !orderCounterResetMs || new Date(order.createdAt).getTime() > orderCounterResetMs ? 1 : 0;
       const governorateKey = `${order.governorate}::${order.currency}`;
       const current =
         byGovernorateMap.get(governorateKey) ??
@@ -795,7 +801,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
           fitterCommission: 0,
           netProfit: 0,
         } satisfies AdminGovernorateSales);
-      current.orders += 1;
+      current.orders += countOrder;
       current.grossSales += order.grossSales;
       current.currentPrice += order.currentPrice;
       current.fitterCommission += order.fitterCommission;
@@ -812,7 +818,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
           fitterCommission: 0,
           netProfit: 0,
         } satisfies AdminCurrencySales);
-      byCurrency.orders += 1;
+      byCurrency.orders += countOrder;
       byCurrency.grossSales += order.grossSales;
       byCurrency.currentPrice += order.currentPrice;
       byCurrency.fitterCommission += order.fitterCommission;
@@ -824,6 +830,9 @@ export const getAdminOverview = createServerFn({ method: "POST" })
     const currentPrice = recentOrders.reduce((sum, order) => sum + order.currentPrice, 0);
     const fitterCommission = recentOrders.reduce((sum, order) => sum + order.fitterCommission, 0);
     const netProfit = recentOrders.reduce((sum, order) => sum + order.netProfit, 0);
+    const ordersAfterReset = recentOrders.filter(
+      (order) => !orderCounterResetMs || new Date(order.createdAt).getTime() > orderCounterResetMs,
+    ).length;
 
     return {
       totals: {
@@ -833,16 +842,28 @@ export const getAdminOverview = createServerFn({ method: "POST" })
         customers: customers.length,
         products: products.length,
         fitters: fitters.length,
-        orders: recentOrders.length,
+        orders: ordersAfterReset,
         grossSales,
         currentPrice,
         fitterCommission,
         netProfit,
+        orderCounterResetAt,
       },
       byGovernorate: [...byGovernorateMap.values()].sort((a, b) => b.netProfit - a.netProfit),
       byCurrency: [...byCurrencyMap.values()].sort((a, b) => b.netProfit - a.netProfit),
       recentOrders: recentOrders.slice(0, 12),
     };
+  });
+
+export const resetAdminOrderCounter = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const createdAt = new Date().toISOString();
+    await appendEvent("botly_order_counter_reset", {
+      createdAt,
+    });
+    return { ok: true, createdAt };
   });
 
 export interface CustomerAdminView {
@@ -886,6 +907,7 @@ export interface AdminOverviewStats {
     currentPrice: number;
     fitterCommission: number;
     netProfit: number;
+    orderCounterResetAt?: string;
   };
   byGovernorate: AdminGovernorateSales[];
   byCurrency: AdminCurrencySales[];
