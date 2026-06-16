@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPlatformSettings, setMediatorPhone } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
@@ -17,12 +18,39 @@ export const Route = createFileRoute("/admin/mediators")({
   component: AdminMediatorsPage,
 });
 
+type MediatorRow = {
+  phone: string;
+  city: string;
+};
+
+const IRAQI_GOVERNORATES = [
+  "بغداد",
+  "نينوى",
+  "البصرة",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "الأنبار",
+  "صلاح الدين",
+  "ديالى",
+  "واسط",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "الديوانية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "حلبجة",
+];
+
 function AdminMediatorsPage() {
   const session = readAdminSession();
   const getSettingsFn = useServerFn(getPlatformSettings);
   const setMediatorFn = useServerFn(setMediatorPhone);
 
-  const [mediators, setMediators] = useState<string[]>([""]);
+  const [mediators, setMediators] = useState<MediatorRow[]>([{ phone: "", city: "" }]);
   const [loading, setLoading] = useState(true);
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
 
@@ -31,8 +59,13 @@ function AdminMediatorsPage() {
     setLoading(true);
     getSettingsFn({ data: { token: session.token } })
       .then((settings) => {
-        const phones = (settings.mediatorPhones ?? [settings.mediatorPhone]).filter(Boolean);
-        setMediators(phones.length > 0 ? phones : [""]);
+        const contacts =
+          settings.mediatorContacts?.length
+            ? settings.mediatorContacts
+            : (settings.mediatorPhones ?? [settings.mediatorPhone])
+                .filter((phone): phone is string => Boolean(phone))
+                .map((phone) => ({ phone, city: "" }));
+        setMediators(contacts.length > 0 ? contacts : [{ phone: "", city: "" }]);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل الوسطاء");
@@ -42,19 +75,21 @@ function AdminMediatorsPage() {
   }, []);
 
   const cleanPhones = useMemo(
-    () => mediators.map((phone) => phone.trim()).filter(Boolean),
+    () => mediators.map((mediator) => mediator.phone.trim()).filter(Boolean),
     [mediators],
   );
 
-  const updateMediator = (index: number, value: string) => {
-    setMediators((current) => current.map((phone, i) => (i === index ? value : phone)));
+  const updateMediator = (index: number, patch: Partial<MediatorRow>) => {
+    setMediators((current) =>
+      current.map((mediator, i) => (i === index ? { ...mediator, ...patch } : mediator)),
+    );
   };
 
-  const addMediator = () => setMediators((current) => [...current, ""]);
+  const addMediator = () => setMediators((current) => [...current, { phone: "", city: "" }]);
 
   const removeMediator = async (index: number) => {
     const next = mediators.filter((_, i) => i !== index);
-    setMediators(next.length > 0 ? next : [""]);
+    setMediators(next.length > 0 ? next : [{ phone: "", city: "" }]);
     await saveAll(next);
   };
 
@@ -62,10 +97,16 @@ function AdminMediatorsPage() {
     if (!session?.token) return;
     setSavingIndex(index);
     try {
-      const mediatorPhones = phones.map((phone) => phone.trim()).filter(Boolean);
-      await setMediatorFn({ data: { token: session.token, mediatorPhones } });
+      const mediatorContacts = phones
+        .map((mediator) => ({ phone: mediator.phone.trim(), city: mediator.city.trim() }))
+        .filter((mediator) => mediator.phone && mediator.city);
+      if (phones.some((mediator) => mediator.phone.trim() && !mediator.city.trim())) {
+        toast.error("اختار محافظة لكل وسيط قبل الحفظ");
+        return;
+      }
+      await setMediatorFn({ data: { token: session.token, mediatorContacts } });
       toast.success("تم حفظ الوسطاء");
-      setMediators(mediatorPhones.length > 0 ? mediatorPhones : [""]);
+      setMediators(mediatorContacts.length > 0 ? mediatorContacts : [{ phone: "", city: "" }]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "فشل حفظ الوسطاء");
     } finally {
@@ -99,19 +140,34 @@ function AdminMediatorsPage() {
               جاري تحميل الوسطاء...
             </div>
           ) : (
-            mediators.map((phone, index) => (
+            mediators.map((mediator, index) => (
               <div
                 key={index}
-                className="grid gap-2 rounded-xl border border-border bg-background p-3 sm:grid-cols-[1fr_auto_auto]"
+                className="grid gap-2 rounded-xl border border-border bg-background p-3 sm:grid-cols-[1fr_14rem_auto_auto]"
               >
                 <Input
                   dir="ltr"
                   inputMode="tel"
                   placeholder="07XX XXX XXXX"
-                  value={phone}
-                  onChange={(event) => updateMediator(index, event.target.value)}
+                  value={mediator.phone}
+                  onChange={(event) => updateMediator(index, { phone: event.target.value })}
                   className="h-11 text-start"
                 />
+                <Select
+                  value={mediator.city}
+                  onValueChange={(city) => updateMediator(index, { city })}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="المحافظة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IRAQI_GOVERNORATES.map((city) => (
+                      <SelectItem key={city} value={city}>
+                        {city}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   onClick={() => saveAll(mediators, index)}
                   disabled={savingIndex !== null}

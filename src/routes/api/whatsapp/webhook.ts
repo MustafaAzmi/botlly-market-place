@@ -240,9 +240,33 @@ function normalizeMediatorPhones(values: string[]): string[] {
   return phones;
 }
 
-async function readMediatorPhonesFromSettings(): Promise<string[]> {
+type MediatorContact = {
+  phone: string;
+  city: string;
+};
+
+function normalizeMediatorContacts(values: unknown): MediatorContact[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const contacts: MediatorContact[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const record = value as Record<string, unknown>;
+    const phone = getString(record.phone);
+    const city = getString(record.city);
+    const key = phoneKey(phone);
+    if (!phone || !city || !key || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ phone, city });
+  }
+  return contacts;
+}
+
+async function readMediatorContactsFromSettings(): Promise<MediatorContact[]> {
   const rows = await listEvents("botly_settings").catch(() => []);
   for (const row of rows) {
+    const contacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
+    if (contacts.length > 0) return contacts;
     const storedPhones = Array.isArray(row.payload?.mediatorPhones)
       ? (row.payload?.mediatorPhones as unknown[]).filter(
           (value): value is string => typeof value === "string",
@@ -252,7 +276,7 @@ async function readMediatorPhonesFromSettings(): Promise<string[]> {
       ...storedPhones,
       getString(row.payload?.mediatorPhone),
     ]);
-    if (phones.length > 0) return phones;
+    if (phones.length > 0) return phones.map((phone) => ({ phone, city: "" }));
   }
   return [];
 }
@@ -261,15 +285,26 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   order: Record<string, unknown>;
   isAvailable: boolean;
 }) {
+  const storedContacts = normalizeMediatorContacts(args.order.mediatorContacts);
   const storedPhones = Array.isArray(args.order.mediatorPhones)
     ? (args.order.mediatorPhones as unknown[]).filter(
         (value): value is string => typeof value === "string",
       )
     : [];
-  const mediatorPhones = normalizeMediatorPhones([
-    ...storedPhones,
-    ...(await readMediatorPhonesFromSettings()),
-  ]);
+  const orderGovernorate =
+    getString(args.order.merchantGovernorate) ||
+    getString(args.order.fitterCity) ||
+    getString(args.order.customerGovernorate);
+  const fallbackContacts = (await readMediatorContactsFromSettings()).filter(
+    (contact) => contact.city === orderGovernorate,
+  );
+  const mediatorPhones = normalizeMediatorPhones(
+    storedContacts.length > 0
+      ? storedContacts.map((contact) => contact.phone)
+      : storedPhones.length > 0
+        ? storedPhones
+        : fallbackContacts.map((contact) => contact.phone),
+  );
   if (mediatorPhones.length === 0) return [];
 
   const productTitle = getString(args.order.productTitle) || "المنتج";

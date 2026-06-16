@@ -665,6 +665,11 @@ export interface CustomerAdminView {
   createdAt: string;
 }
 
+export interface MediatorContact {
+  phone: string;
+  city: string;
+}
+
 export interface FitterAdminView {
   fitterId: string;
   name: string;
@@ -857,6 +862,7 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
     await authorizeAdmin(data.token);
     const rows = await listEvents("botly_settings");
     for (const row of rows) {
+      const mediatorContacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
       const storedPhones = Array.isArray(row.payload?.mediatorPhones)
         ? (row.payload?.mediatorPhones as unknown[]).filter(
             (value): value is string => typeof value === "string",
@@ -866,16 +872,37 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
         ...storedPhones,
         getString(row.payload?.mediatorPhone),
       ]);
-      if (mediatorPhones.length > 0) {
-        return { mediatorPhone: mediatorPhones[0], mediatorPhones };
+      const contacts =
+        mediatorContacts.length > 0
+          ? mediatorContacts
+          : mediatorPhones.map((phone) => ({ phone, city: "" }));
+      if (contacts.length > 0) {
+        return {
+          mediatorPhone: contacts[0].phone,
+          mediatorPhones: contacts.map((contact) => contact.phone),
+          mediatorContacts: contacts,
+        };
       }
     }
-    return { mediatorPhone: "", mediatorPhones: [] as string[] };
+    return {
+      mediatorPhone: "",
+      mediatorPhones: [] as string[],
+      mediatorContacts: [] as MediatorContact[],
+    };
   });
 
 const mediatorPhoneInput = tokenInput.extend({
   mediatorPhone: z.string().trim().max(40).optional().or(z.literal("")),
   mediatorPhones: z.array(z.string().trim().min(3).max(40)).max(20).optional(),
+  mediatorContacts: z
+    .array(
+      z.object({
+        phone: z.string().trim().min(3).max(40),
+        city: z.string().trim().min(2).max(100),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 function normalizeMediatorPhones(values: string[]): string[] {
@@ -892,17 +919,40 @@ function normalizeMediatorPhones(values: string[]): string[] {
   return phones;
 }
 
+function normalizeMediatorContacts(values: unknown): MediatorContact[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const contacts: MediatorContact[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const record = value as Record<string, unknown>;
+    const phone = getString(record.phone);
+    const city = getString(record.city);
+    const key = phoneKey(phone);
+    if (!phone || !city || !key || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ phone, city });
+  }
+  return contacts;
+}
+
 export const setMediatorPhone = createServerFn({ method: "POST" })
   .inputValidator((d) => mediatorPhoneInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
+    const mediatorContacts = normalizeMediatorContacts(data.mediatorContacts ?? []);
     const mediatorPhones = normalizeMediatorPhones([
+      ...mediatorContacts.map((contact) => contact.phone),
       ...(data.mediatorPhones ?? []),
       data.mediatorPhone ?? "",
     ]);
     await appendEvent("botly_settings", {
       mediatorPhone: mediatorPhones[0] ?? "",
       mediatorPhones,
+      mediatorContacts:
+        mediatorContacts.length > 0
+          ? mediatorContacts
+          : mediatorPhones.map((phone) => ({ phone, city: "" })),
       updatedAt: new Date().toISOString(),
     });
     return { ok: true };

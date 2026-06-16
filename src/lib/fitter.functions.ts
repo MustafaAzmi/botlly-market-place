@@ -59,6 +59,7 @@ export type FitterOrder = {
   merchantStoreName: string;
   merchantWhatsapp: string;
   merchantAddress: string;
+  merchantGovernorate: string;
   commissionPercent: number;
   commissionAmount: number;
   status: FitterOrderStatus;
@@ -278,6 +279,7 @@ async function resolveProduct(productId: string) {
     currency: getString(p.currency) || "IQD",
     merchantId: getString(p.merchantId),
     merchantWhatsapp: getString(p.whatsapp),
+    merchantGovernorate: getString(p.merchantCity),
   };
 }
 
@@ -309,15 +311,17 @@ async function resolveMerchantContact(merchantId: string, fallbackWhatsapp = "")
   let whatsapp = fallbackWhatsapp;
   let storeName = "";
   let address = "";
-  if (!merchantId) return { whatsapp, storeName, address };
+  let city = "";
+  if (!merchantId) return { whatsapp, storeName, address, city };
   const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
   const row = merchants.find((event) => (getString(event.payload?.merchantId) || event.id) === merchantId);
   if (row) {
     whatsapp = getString(row.payload?.whatsapp) || getString(row.payload?.whatsappNormalized) || whatsapp;
     storeName = getString(row.payload?.storeName);
     address = getString(row.payload?.address);
+    city = getString(row.payload?.city);
   }
-  return { whatsapp, storeName, address };
+  return { whatsapp, storeName, address, city };
 }
 
 function normalizeMediatorPhones(values: string[]): string[] {
@@ -334,9 +338,33 @@ function normalizeMediatorPhones(values: string[]): string[] {
   return phones;
 }
 
-async function readMediatorPhones(): Promise<string[]> {
+type MediatorContact = {
+  phone: string;
+  city: string;
+};
+
+function normalizeMediatorContacts(values: unknown): MediatorContact[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const contacts: MediatorContact[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const record = value as Record<string, unknown>;
+    const phone = getString(record.phone);
+    const city = getString(record.city);
+    const key = phoneKey(phone);
+    if (!phone || !city || !key || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ phone, city });
+  }
+  return contacts;
+}
+
+async function readMediatorContacts(): Promise<MediatorContact[]> {
   const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of rows) {
+    const contacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
+    if (contacts.length > 0) return contacts;
     const storedPhones = Array.isArray(row.payload?.mediatorPhones)
       ? (row.payload?.mediatorPhones as unknown[]).filter(
           (value): value is string => typeof value === "string",
@@ -346,9 +374,18 @@ async function readMediatorPhones(): Promise<string[]> {
       ...storedPhones,
       getString(row.payload?.mediatorPhone),
     ]);
-    if (phones.length > 0) return phones;
+    if (phones.length > 0) return phones.map((phone) => ({ phone, city: "" }));
   }
   return [];
+}
+
+function filterMediatorContactsByGovernorate(
+  contacts: MediatorContact[],
+  governorate: string,
+): MediatorContact[] {
+  const wanted = governorate.trim();
+  if (!wanted) return [];
+  return contacts.filter((contact) => contact.city === wanted);
 }
 
 function toWhatsAppRecipient(phone: string): string {
@@ -423,10 +460,15 @@ function buildFitterCancelMessage(args: {
   return lines.join("\n");
 }
 
-async function sendFitterOrderToMediators(message: string) {
-  const mediatorPhones = await readMediatorPhones();
-  if (mediatorPhones.length === 0) {
+async function sendFitterOrderToMediators(message: string, governorate: string) {
+  const allMediatorContacts = await readMediatorContacts();
+  const mediatorContacts = filterMediatorContactsByGovernorate(allMediatorContacts, governorate);
+  const mediatorPhones = mediatorContacts.map((contact) => contact.phone);
+  if (allMediatorContacts.length === 0) {
     throw new Error("أرقام الوسطاء غير مسجلة حالياً.");
+  }
+  if (mediatorPhones.length === 0) {
+    throw new Error(`لا يوجد وسيط مسجل لمحافظة ${governorate || "هذا المنتج"}.`);
   }
   const results = [];
   for (const phone of mediatorPhones) {
@@ -488,6 +530,7 @@ function toOrder(row: EventRow): FitterOrder {
     merchantStoreName: getString(p.merchantStoreName),
     merchantWhatsapp: getString(p.merchantWhatsapp),
     merchantAddress: getString(p.merchantAddress),
+    merchantGovernorate: getString(p.merchantGovernorate),
     commissionPercent: getNumber(p.commissionPercent) ?? 0,
     commissionAmount: getNumber(p.commissionAmount) ?? 0,
     status:
@@ -544,6 +587,7 @@ function buildOrderPayload(args: {
     merchantStoreName: args.merchant.storeName,
     merchantWhatsapp: args.merchant.whatsapp,
     merchantAddress: args.merchant.address,
+    merchantGovernorate: args.product.merchantGovernorate || args.merchant.city,
     commissionPercent: args.commissionPercent,
     commissionAmount: args.commissionAmount,
     status: args.status,
@@ -570,6 +614,7 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     const fitter = await authorizeFitter(data.token);
     const product = await resolveProduct(data.productId);
     const merchant = await resolveMerchantContact(product.merchantId, product.merchantWhatsapp);
+    const orderGovernorate = product.merchantGovernorate || merchant.city;
     const commissionPercent = getNumber(fitter.payload?.commissionPercent) ?? 0;
     const commissionAmount = Number(((product.price * commissionPercent) / 100).toFixed(2));
     const orderId = crypto.randomUUID();
@@ -580,10 +625,13 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
       commissionPercent,
       commissionAmount,
     });
-    const whatsappSendResults = await sendFitterOrderToMediators(mediatorMessage);
+    const whatsappSendResults = await sendFitterOrderToMediators(mediatorMessage, orderGovernorate);
     if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
       throw new Error("تعذر إرسال طلب المنتج إلى الوسيط عبر واتساب.");
     }
+    const scopedMediatorContacts = (await readMediatorContacts().catch(
+      () => [] as MediatorContact[],
+    )).filter((contact) => contact.city === orderGovernorate);
     const merchantAvailabilityResult = merchant.whatsapp
       ? await sendMerchantAvailabilityQuestion({
           merchantWhatsapp: merchant.whatsapp,
@@ -617,7 +665,9 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
       storeName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
       merchantAddress: merchant.address,
-      mediatorPhones: await readMediatorPhones().catch(() => []),
+      mediatorPhones: scopedMediatorContacts.map((contact) => contact.phone),
+      mediatorContacts: scopedMediatorContacts,
+      merchantGovernorate: orderGovernorate,
       merchantAvailabilityAsked: merchantAvailabilityResult.ok,
       merchantAvailabilityResult,
       createdAt: new Date().toISOString(),
@@ -656,11 +706,13 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       currency: order.currency,
       merchantId: order.merchantId,
       merchantWhatsapp: order.merchantWhatsapp,
+      merchantGovernorate: order.merchantGovernorate,
     };
     const merchant = {
       whatsapp: order.merchantWhatsapp,
       storeName: order.merchantStoreName,
       address: order.merchantAddress,
+      city: order.merchantGovernorate,
     };
     await appendEvent("botly_fitter_order", buildOrderPayload({
       orderId: order.id,
@@ -706,7 +758,7 @@ export const cancelFitterOrder = createServerFn({ method: "POST" })
     if (order.status === "cancelled") throw new Error("تم إلغاء هذه الطلبية سابقاً.");
 
     const message = buildFitterCancelMessage({ order, fitter });
-    const whatsappSendResults = await sendFitterOrderToMediators(message);
+    const whatsappSendResults = await sendFitterOrderToMediators(message, order.merchantGovernorate);
     if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
       throw new Error("تعذر إرسال إلغاء الطلبية إلى الوسيط عبر واتساب.");
     }
@@ -718,11 +770,13 @@ export const cancelFitterOrder = createServerFn({ method: "POST" })
       currency: order.currency,
       merchantId: order.merchantId,
       merchantWhatsapp: order.merchantWhatsapp,
+      merchantGovernorate: order.merchantGovernorate,
     };
     const merchant = {
       whatsapp: order.merchantWhatsapp,
       storeName: order.merchantStoreName,
       address: order.merchantAddress,
+      city: order.merchantGovernorate,
     };
     const row = await appendEvent("botly_fitter_order", buildOrderPayload({
       orderId: order.id,

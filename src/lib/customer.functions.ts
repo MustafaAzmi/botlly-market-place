@@ -326,6 +326,11 @@ export const browseCarProducts = createServerFn({ method: "POST" })
 // Mediator (الوسيط) contact — admin-managed number in botly_settings
 // ---------------------------------------------------------------------------
 
+type MediatorContact = {
+  phone: string;
+  city: string;
+};
+
 function normalizeMediatorPhones(values: string[]): string[] {
   const seen = new Set<string>();
   const phones: string[] = [];
@@ -340,9 +345,28 @@ function normalizeMediatorPhones(values: string[]): string[] {
   return phones;
 }
 
-async function readMediatorPhones(): Promise<string[]> {
+function normalizeMediatorContacts(values: unknown): MediatorContact[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const contacts: MediatorContact[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const record = value as Record<string, unknown>;
+    const phone = getString(record.phone);
+    const city = getString(record.city);
+    const key = phoneKey(phone);
+    if (!phone || !city || !key || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ phone, city });
+  }
+  return contacts;
+}
+
+async function readMediatorContacts(): Promise<MediatorContact[]> {
   const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of rows) {
+    const contacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
+    if (contacts.length > 0) return contacts;
     const storedPhones = Array.isArray(row.payload?.mediatorPhones)
       ? (row.payload?.mediatorPhones as unknown[]).filter(
           (value): value is string => typeof value === "string",
@@ -352,9 +376,18 @@ async function readMediatorPhones(): Promise<string[]> {
       ...storedPhones,
       getString(row.payload?.mediatorPhone),
     ]);
-    if (phones.length > 0) return phones;
+    if (phones.length > 0) return phones.map((phone) => ({ phone, city: "" }));
   }
   return [];
+}
+
+function filterMediatorContactsByGovernorate(
+  contacts: MediatorContact[],
+  governorate: string,
+): MediatorContact[] {
+  const wanted = governorate.trim();
+  if (!wanted) return [];
+  return contacts.filter((contact) => contact.city === wanted);
 }
 
 // WhatsApp Graph API expects the recipient number without a leading "+".
@@ -387,7 +420,8 @@ async function sendOrderToMediator(phone: string, message: string) {
 }
 
 export const getMediatorPhone = createServerFn({ method: "POST" }).handler(async () => {
-  const phones = await readMediatorPhones();
+  const contacts = await readMediatorContacts();
+  const phones = contacts.map((contact) => contact.phone);
   return { phone: phones[0] ?? "", phones };
 });
 
@@ -408,9 +442,10 @@ export type CustomerCarCatalogue = {
 async function resolveMerchantContact(
   productId: string,
   merchantIdHint: string,
-): Promise<{ whatsapp: string; storeName: string; merchantId: string }> {
+): Promise<{ whatsapp: string; storeName: string; merchantId: string; city: string }> {
   let whatsapp = "";
   let merchantId = merchantIdHint;
+  let city = "";
 
   const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
   for (const row of products) {
@@ -418,6 +453,7 @@ async function resolveMerchantContact(
     if ((getString(p.productId) || row.id) !== productId) continue;
     whatsapp = getString(p.whatsapp);
     merchantId = merchantId || getString(p.merchantId);
+    city = getString(p.merchantCity);
     break; // rows come newest first → first match is the latest version
   }
 
@@ -429,11 +465,12 @@ async function resolveMerchantContact(
       if ((getString(p.merchantId) || row.id) !== merchantId) continue;
       whatsapp = getString(p.whatsapp) || getString(p.whatsappNormalized) || whatsapp;
       storeName = getString(p.storeName);
+      city = city || getString(p.city);
       break;
     }
   }
 
-  return { whatsapp, storeName, merchantId };
+  return { whatsapp, storeName, merchantId, city };
 }
 
 async function sendMerchantAvailabilityQuestion(args: {
@@ -468,6 +505,7 @@ async function resolveOrderProduct(productId: string): Promise<{
   currentPrice: number;
   currency: string;
   merchantId: string;
+  merchantGovernorate: string;
 }> {
   const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
   const row = products.find((event) => (getString(event.payload?.productId) || event.id) === productId);
@@ -493,6 +531,7 @@ async function resolveOrderProduct(productId: string): Promise<{
     currentPrice: currentPrice ?? price,
     currency: getString(p.currency) || "IQD",
     merchantId: getString(p.merchantId),
+    merchantGovernorate: getString(p.merchantCity),
   };
 }
 
@@ -511,13 +550,23 @@ export const submitProductOrder = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const product = await resolveOrderProduct(data.productId);
-    const [mediatorPhones, merchant] = await Promise.all([
-      readMediatorPhones(),
+    const [allMediatorContacts, merchant] = await Promise.all([
+      readMediatorContacts(),
       resolveMerchantContact(product.id, product.merchantId),
     ]);
+    const orderGovernorate = product.merchantGovernorate || merchant.city;
+    const mediatorContacts = filterMediatorContactsByGovernorate(
+      allMediatorContacts,
+      orderGovernorate,
+    );
+    const mediatorPhones = mediatorContacts.map((contact) => contact.phone);
+
+    if (allMediatorContacts.length === 0) {
+      throw new Error("أرقام الوسطاء غير مسجلة حالياً. حاول لاحقاً.");
+    }
 
     if (mediatorPhones.length === 0) {
-      throw new Error("أرقام الوسطاء غير مسجلة حالياً. حاول لاحقاً.");
+      throw new Error(`لا يوجد وسيط مسجل لمحافظة ${orderGovernorate || "هذا المنتج"}.`);
     }
 
     // The order must never fail just because the merchant's number is missing
@@ -573,6 +622,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
+      merchantGovernorate: orderGovernorate,
       merchantAvailabilityAsked: merchantAvailabilityResult.ok,
       merchantAvailabilityResult,
       customerName: data.customerName,
@@ -582,6 +632,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,
+      mediatorContacts,
       message,
       createdAt: new Date().toISOString(),
     });
@@ -613,6 +664,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
+      merchantGovernorate: orderGovernorate,
       merchantAvailabilityAsked: merchantAvailabilityResult.ok,
       merchantAvailabilityResult,
       customerName: data.customerName,
@@ -622,6 +674,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,
+      mediatorContacts,
       message,
       whatsappSent: sentCount > 0,
       whatsappSentCount: sentCount,
