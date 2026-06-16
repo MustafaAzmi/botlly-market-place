@@ -64,6 +64,8 @@ export type CustomerProduct = {
   carMake?: string;
   carModel?: string;
   carYear?: string;
+  merchantGovernorate?: string;
+  deliveryEstimate?: string;
   quantity?: number;
 };
 
@@ -167,6 +169,7 @@ const browseInput = z.object({
   carModel: z.string().trim().max(60).optional().or(z.literal("")),
   carYear: z.string().trim().max(10).optional().or(z.literal("")),
   color: z.string().trim().max(60).optional().or(z.literal("")),
+  governorate: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 // Does this product fit the requested manufacture year?
@@ -222,18 +225,39 @@ async function loadHiddenMerchants(): Promise<Set<string>> {
   return hidden;
 }
 
+async function loadMerchantGovernorates(): Promise<Map<string, string>> {
+  const merchantGovernorates = new Map<string, string>();
+  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const p = row.payload ?? {};
+    const id = getString(p.merchantId) || row.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merchantGovernorates.set(id, getString(p.city) || getString(p.governorate));
+  }
+  return merchantGovernorates;
+}
+
+function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
+  if (!fromGovernorate || !toGovernorate) return "حسب ترتيب الوسيط";
+  return fromGovernorate === toGovernorate ? "تقريباً خلال 24-48 ساعة" : "تقريباً خلال 2-4 أيام";
+}
+
 export const browseCarProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => browseInput.parse(d))
   .handler(async ({ data }): Promise<CustomerProduct[]> => {
-    const [rows, hiddenMerchants] = await Promise.all([
+    const [rows, hiddenMerchants, merchantGovernorates] = await Promise.all([
       listEvents("botly_product"),
       loadHiddenMerchants(),
+      loadMerchantGovernorates(),
     ]);
 
     const wantMake = (data.carMake ?? "").trim();
     const wantModel = (data.carModel ?? "").trim();
     const wantYear = (data.carYear ?? "").trim();
     const wantColor = (data.color ?? "").trim();
+    const wantGovernorate = (data.governorate ?? "").trim();
 
     const results: CustomerProduct[] = [];
     const seen = new Set<string>();
@@ -253,8 +277,11 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       const carMake = getString(p.carMake);
       const carModel = getString(p.carModel);
       const color = getString(p.color);
+      const merchantId = getString(p.merchantId);
+      const merchantGovernorate = getString(p.merchantCity) || merchantGovernorates.get(merchantId) || "";
 
       // Universal parts ("عام") fit every car, so they pass any make filter.
+      if (wantGovernorate && merchantGovernorate !== wantGovernorate) continue;
       if (wantMake && carMake !== wantMake && carMake !== "عام") continue;
       if (
         wantModel &&
@@ -286,6 +313,8 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         carMake: carMake || undefined,
         carModel: carModel || undefined,
         carYear: getString(p.carYear) || undefined,
+        merchantGovernorate: merchantGovernorate || undefined,
+        deliveryEstimate: estimateDelivery(merchantGovernorate, wantGovernorate),
         quantity,
       });
     }
@@ -413,6 +442,7 @@ async function sendMerchantAvailabilityQuestion(args: {
   currentPrice: number;
   currency: string;
   requesterLabel: string;
+  requesterName: string;
 }) {
   if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
   const body = [
@@ -420,6 +450,7 @@ async function sendMerchantAvailabilityQuestion(args: {
     `المنتج: ${args.productTitle}`,
     `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
     `نوع الطلب: ${args.requesterLabel}`,
+    `اسم صاحب الطلب: ${args.requesterName || "-"}`,
     "",
     "هل لا يزال المنتج متوفر؟",
   ].join("\n");
@@ -522,6 +553,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
           currentPrice: product.currentPrice,
           currency: product.currency,
           requesterLabel: "زبون",
+          requesterName: data.customerName,
         }).catch((error) => ({
           ok: false,
           status: 0,

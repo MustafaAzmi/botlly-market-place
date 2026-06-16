@@ -222,10 +222,15 @@ function FitterShop({
   const [carModel, setCarModel] = useState("");
   const [carYear, setCarYear] = useState("");
   const [color, setColor] = useState("");
+  const [governorate, setGovernorate] = useState("");
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyOrderKey, setBusyOrderKey] = useState("");
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
+
+  useEffect(() => {
+    if (!governorate && summary?.fitter.city) setGovernorate(summary.fitter.city);
+  }, [governorate, summary?.fitter.city]);
 
   useEffect(() => {
     catalogFn({}).then((catalog) => {
@@ -238,7 +243,7 @@ function FitterShop({
   const search = async () => {
     setLoading(true);
     try {
-      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color } }));
+      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate } }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر البحث");
     } finally {
@@ -289,7 +294,11 @@ function FitterShop({
     <section className="space-y-5">
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <h2 className="flex items-center gap-2 font-semibold"><Car className="h-5 w-5 text-primary" /> بحث قطع السيارات</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <Select value={governorate} onValueChange={setGovernorate}>
+            <SelectTrigger><SelectValue placeholder="المحافظة" /></SelectTrigger>
+            <SelectContent>{IRAQI_GOVERNORATES.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
+          </Select>
           <Select value={carMake} onValueChange={(v) => { setCarMake(v); setCarModel(""); }}>
             <SelectTrigger><SelectValue placeholder="نوع السيارة" /></SelectTrigger>
             <SelectContent>{makes.map((m) => <SelectItem key={m.key} value={m.label}>{m.label}</SelectItem>)}</SelectContent>
@@ -359,6 +368,12 @@ function FitterProduct({
       {product.imageUrls[0] && <img src={product.imageUrls[0]} alt={product.title} className="mb-3 aspect-square w-full rounded-xl object-cover" />}
       <h3 className="font-semibold">{product.title}</h3>
       <div className="mt-2 text-lg font-bold">{product.price.toLocaleString()} {product.currency}</div>
+      {(product.merchantGovernorate || product.deliveryEstimate) && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {product.merchantGovernorate ? `المحافظة: ${product.merchantGovernorate}` : ""}
+          {product.deliveryEstimate ? ` · الوصول: ${product.deliveryEstimate}` : ""}
+        </p>
+      )}
       <div className="mt-3 space-y-2">
         <div className="text-xs text-muted-foreground">
           يتم احتساب عمولتك تلقائياً حسب النسبة المحددة من الأدمن.

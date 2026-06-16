@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
@@ -55,6 +56,8 @@ const copy = {
     whatsappPlaceholder: "07XX XXX XXXX",
     storeName: "اسم المحل أو الشركة",
     storeNamePlaceholder: "مثال: بوتلي ستور",
+    city: "المحافظة",
+    cityPlaceholder: "اختر محافظة المتجر",
     email: "الإيميل",
     emailOptional: "الإيميل (اختياري)",
     emailPlaceholder: "name@example.com",
@@ -91,6 +94,8 @@ const copy = {
     whatsappPlaceholder: "07XX XXX XXXX",
     storeName: "Store or company name",
     storeNamePlaceholder: "e.g. Botly Store",
+    city: "Governorate",
+    cityPlaceholder: "Choose store governorate",
     email: "Email",
     emailOptional: "Email (optional)",
     emailPlaceholder: "name@example.com",
@@ -120,6 +125,28 @@ const copy = {
   },
 } as const;
 
+const IRAQI_GOVERNORATES = [
+  "بغداد",
+  "نينوى",
+  "البصرة",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "الأنبار",
+  "صلاح الدين",
+  "ديالى",
+  "واسط",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "الديوانية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "حلبجة",
+];
+
 function AuthPage() {
   const { locale } = useLanguage();
   const text = copy[locale];
@@ -130,6 +157,7 @@ function AuthPage() {
   const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : "login");
   const [showReset, setShowReset] = useState(false);
   const [storeName, setStoreName] = useState("");
+  const [city, setCity] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -153,6 +181,7 @@ function AuthPage() {
       whatsapp: result.profile.whatsapp,
       email: result.profile.email,
       bio: result.profile.bio,
+      city: result.profile.city,
       deliveryPhone: result.profile.deliveryPhone,
       signedInAt: new Date().toISOString(),
     });
@@ -163,7 +192,7 @@ function AuthPage() {
   const onAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!whatsapp.trim() || !password.trim() || (mode === "signup" && !storeName.trim())) {
+    if (!whatsapp.trim() || !password.trim() || (mode === "signup" && (!storeName.trim() || !city))) {
       toast.error(text.required);
       return;
     }
@@ -180,6 +209,7 @@ function AuthPage() {
           ? await signupMerchantFn({
               data: {
                 storeName: storeName.trim(),
+                city,
                 whatsapp: whatsapp.trim(),
                 email: email.trim(),
                 password,
@@ -377,6 +407,12 @@ function AuthPage() {
                       />
                       <StoreSlugHint storeName={storeName} locale={locale} />
                     </div>
+                    <CitySelect
+                      label={text.city}
+                      placeholder={text.cityPlaceholder}
+                      value={city}
+                      onChange={setCity}
+                    />
                     <Field
                       icon={Mail}
                       id="email"
@@ -435,6 +471,36 @@ function AuthPage() {
           </div>
         </section>
       </main>
+    </div>
+  );
+}
+
+function CitySelect({
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-11">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {IRAQI_GOVERNORATES.map((governorate) => (
+            <SelectItem key={governorate} value={governorate}>
+              {governorate}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

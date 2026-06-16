@@ -34,6 +34,7 @@ export type MerchantProfile = {
   whatsapp: string;
   email?: string;
   bio?: string;
+  city?: string;
   address?: string;
   latitude?: number;
   longitude?: number;
@@ -85,6 +86,7 @@ const authInput = z.object({
 
 const signupInput = authInput.extend({
   storeName: z.string().trim().min(1).max(140),
+  city: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(200).optional().or(z.literal("")),
 });
 
@@ -96,6 +98,7 @@ const profileInput = tokenInput.extend({
   storeName: z.string().trim().min(1).max(140),
   whatsapp: z.string().trim().min(3).max(40),
   bio: z.string().trim().max(500).optional().or(z.literal("")),
+  city: z.string().trim().max(100).optional().or(z.literal("")),
   address: z.string().trim().max(500).optional().or(z.literal("")),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
@@ -232,6 +235,7 @@ function toProfile(row: EventRow): MerchantProfile {
     whatsapp: getString(payload.whatsapp),
     email: getString(payload.email) || undefined,
     bio: getString(payload.bio) || undefined,
+    city: getString(payload.city) || undefined,
     address: getString(payload.address) || undefined,
     latitude: getNumber(payload.latitude),
     longitude: getNumber(payload.longitude),
@@ -521,6 +525,7 @@ export const signupMerchant = createServerFn({ method: "POST" })
       passwordSalt: salt,
       passwordHash,
       bio: "",
+      city: data.city,
       address: "",
       latitude: undefined,
       longitude: undefined,
@@ -595,6 +600,7 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
       whatsapp: data.whatsapp,
       whatsappNormalized: nextPhone,
       bio: data.bio || "",
+      city: data.city || getString(currentPayload.city),
       address: data.address || "",
       latitude: data.latitude,
       longitude: data.longitude,
@@ -635,6 +641,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
     const row = await insertEvent(PRODUCT_PROVIDER, {
       productId: crypto.randomUUID(),
       merchantId: merchantIdentity(merchant),
+      merchantCity: getString(merchant.payload?.city),
       whatsapp: getString(merchant.payload?.whatsapp),
       source: "manual",
       platform: "manual",

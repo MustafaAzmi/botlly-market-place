@@ -294,7 +294,7 @@ async function sendMerchantAvailabilityQuestion(args: {
     `المنتج: ${args.productTitle}`,
     `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
     "نوع الطلب: فيتر",
-    `اسم الفيتر: ${args.fitterName || "فيتر"}`,
+    `اسم صاحب الطلب: ${args.fitterName || "-"}`,
     "",
     "هل لا يزال المنتج متوفر؟",
   ].join("\n");

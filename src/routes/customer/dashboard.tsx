@@ -55,6 +55,28 @@ export const Route = createFileRoute("/customer/dashboard")({
 
 type TabKey = "shop" | "profile";
 
+const IRAQI_GOVERNORATES = [
+  "بغداد",
+  "نينوى",
+  "البصرة",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "الأنبار",
+  "صلاح الدين",
+  "ديالى",
+  "واسط",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "الديوانية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "حلبجة",
+];
+
 // wa.me links need digits only (international format, no +).
 function toWhatsAppLink(phone: string) {
   const digits = phone.replace(/\D/g, "").replace(/^0/, "964");
@@ -169,6 +191,7 @@ function ShopTab({
   const [carModel, setCarModel] = useState("");
   const [carYear, setCarYear] = useState("");
   const [color, setColor] = useState("");
+  const [governorate, setGovernorate] = useState(customer.governorate);
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -194,7 +217,7 @@ function ShopTab({
     setSearched(true);
     try {
       const results = await browseFn({
-        data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color },
+        data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate },
       });
       setProducts(results);
     } catch (error) {
@@ -202,7 +225,7 @@ function ShopTab({
     } finally {
       setLoading(false);
     }
-  }, [browseFn, carMake, carModel, carYear, color, t]);
+  }, [browseFn, carMake, carModel, carYear, color, governorate, t]);
 
   return (
     <div className="space-y-6">
@@ -212,7 +235,22 @@ function ShopTab({
           <Car className="h-5 w-5 text-primary" />
           {t("customer.shop.title")}
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-2">
+            <Label>المحافظة</Label>
+            <Select value={governorate} onValueChange={setGovernorate}>
+              <SelectTrigger className="h-11">
+                <SelectValue placeholder="اختر المحافظة" />
+              </SelectTrigger>
+              <SelectContent>
+                {IRAQI_GOVERNORATES.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2">
             <Label>{t("customer.shop.carType")}</Label>
             <Select
@@ -431,6 +469,12 @@ function ProductCard({
               </Badge>
             ))}
           </div>
+        )}
+        {(product.merchantGovernorate || product.deliveryEstimate) && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {product.merchantGovernorate ? `المحافظة: ${product.merchantGovernorate}` : ""}
+            {product.deliveryEstimate ? ` · الوصول: ${product.deliveryEstimate}` : ""}
+          </p>
         )}
         <div className="mt-3 space-y-1">
           <div className="flex items-baseline gap-1.5">

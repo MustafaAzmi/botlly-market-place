@@ -8,6 +8,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getCurrentMerchant, updateMerchantProfile } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
@@ -17,12 +18,35 @@ export const Route = createFileRoute("/dashboard/store/")({
   component: StoreProfilePage,
 });
 
+const IRAQI_GOVERNORATES = [
+  "بغداد",
+  "نينوى",
+  "البصرة",
+  "أربيل",
+  "السليمانية",
+  "دهوك",
+  "كركوك",
+  "الأنبار",
+  "صلاح الدين",
+  "ديالى",
+  "واسط",
+  "بابل",
+  "كربلاء",
+  "النجف",
+  "الديوانية",
+  "المثنى",
+  "ذي قار",
+  "ميسان",
+  "حلبجة",
+];
+
 function StoreProfilePage() {
   const navigate = useNavigate();
   const getCurrentMerchantFn = useServerFn(getCurrentMerchant);
   const updateMerchantProfileFn = useServerFn(updateMerchantProfile);
   const [storeName, setStoreName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
+  const [city, setCity] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState("");
@@ -51,6 +75,7 @@ function StoreProfilePage() {
 
     setStoreName(merchantSession.storeName ?? "");
     setWhatsapp(merchantSession.whatsapp ?? "");
+    setCity(merchantSession.city ?? "");
     setBio(merchantSession.bio ?? "");
     setAddress(merchantSession.address ?? "");
     setLatitude(
@@ -66,6 +91,7 @@ function StoreProfilePage() {
       .then((profile) => {
         setStoreName(profile.storeName);
         setWhatsapp(profile.whatsapp);
+        setCity(profile.city ?? "");
         setBio(profile.bio ?? "");
         setAddress(profile.address ?? "");
         setLatitude(typeof profile.latitude === "number" ? String(profile.latitude) : "");
@@ -79,6 +105,7 @@ function StoreProfilePage() {
           storeSlug: profile.storeSlug,
           storeName: profile.storeName,
           whatsapp: profile.whatsapp,
+          city: profile.city,
           email: profile.email,
           bio: profile.bio,
           address: profile.address,
@@ -149,8 +176,8 @@ function StoreProfilePage() {
       return;
     }
 
-    if (!storeName.trim() || !whatsapp.trim()) {
-      toast.error("اسم المحل ورقم واتساب مطلوبة");
+    if (!storeName.trim() || !whatsapp.trim() || !city) {
+      toast.error("اسم المحل ورقم واتساب والمحافظة مطلوبة");
       return;
     }
     const latValue = latitude.trim() ? Number(latitude) : undefined;
@@ -170,6 +197,7 @@ function StoreProfilePage() {
           token: merchantSession.token,
           storeName: storeName.trim(),
           whatsapp: whatsapp.trim(),
+          city,
           bio: bio.trim(),
           address: address.trim(),
           latitude: latValue,
@@ -183,6 +211,7 @@ function StoreProfilePage() {
         merchantId: profile.id,
         storeName: profile.storeName,
         whatsapp: profile.whatsapp,
+        city: profile.city,
         bio: profile.bio,
         address: profile.address,
         latitude: profile.latitude,
@@ -300,6 +329,20 @@ function StoreProfilePage() {
                   className="h-11 text-start"
                   required
                 />
+              </Field>
+              <Field id="city" label="المحافظة">
+                <Select value={city} onValueChange={setCity} required>
+                  <SelectTrigger id="city" className="h-11">
+                    <SelectValue placeholder="اختار محافظة المتجر" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IRAQI_GOVERNORATES.map((governorate) => (
+                      <SelectItem key={governorate} value={governorate}>
+                        {governorate}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field id="bio" label="بايو المحل (اختياري)">
                 <Textarea
