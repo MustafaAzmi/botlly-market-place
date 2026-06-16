@@ -104,7 +104,7 @@ function AdminDashboard() {
               <div>
                 <h2 className="text-lg font-semibold">ملخص المبيعات حسب المحافظة</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  صافي الربح = السعر النهائي للمنتج ناقص عمولة الفيتر إن وجدت.
+                  صافي الربح = السعر النهائي للمنتج ناقص السعر الحالي وعمولة الفيتر إن وجدت.
                 </p>
               </div>
               <span className="rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary">

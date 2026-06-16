@@ -678,6 +678,10 @@ function orderGross(p: Record<string, unknown>) {
   return getNumber(p.productPrice) ?? getNumber(p.price) ?? 0;
 }
 
+function orderCurrentPrice(p: Record<string, unknown>, fallback: number) {
+  return getNumber(p.productCurrentPrice) ?? getNumber(p.currentPrice) ?? fallback;
+}
+
 function orderCommission(p: Record<string, unknown>) {
   return getNumber(p.commissionAmount) ?? 0;
 }
@@ -734,6 +738,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       const p = row.payload ?? {};
       const id = getString(p.orderId) || row.id;
       const grossSales = orderGross(p);
+      const currentPrice = orderCurrentPrice(p, grossSales);
       const fitterCommission = orderCommission(p);
       counted.set(id, {
         orderId: id,
@@ -741,8 +746,9 @@ export const getAdminOverview = createServerFn({ method: "POST" })
         source: getString(p.sourceContext) || "customer_site",
         productTitle: getString(p.productTitle) || "منتج",
         grossSales,
+        currentPrice,
         fitterCommission,
-        netProfit: Math.max(0, grossSales - fitterCommission),
+        netProfit: Math.max(0, grossSales - currentPrice - fitterCommission),
         createdAt: getString(p.createdAt) || eventTime(row),
       });
     }
@@ -750,6 +756,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
       const p = row.payload ?? {};
       const id = getString(p.orderId) || row.id;
       const grossSales = orderGross(p);
+      const currentPrice = orderCurrentPrice(p, grossSales);
       const fitterCommission = orderCommission(p);
       counted.set(id, {
         orderId: id,
@@ -757,8 +764,9 @@ export const getAdminOverview = createServerFn({ method: "POST" })
         source: "fitter_site",
         productTitle: getString(p.productTitle) || "منتج",
         grossSales,
+        currentPrice,
         fitterCommission,
-        netProfit: Math.max(0, grossSales - fitterCommission),
+        netProfit: Math.max(0, grossSales - currentPrice - fitterCommission),
         createdAt: getString(p.updatedAt) || getString(p.createdAt) || eventTime(row),
       });
     }
@@ -841,6 +849,7 @@ export interface AdminOverviewStats {
     source: string;
     productTitle: string;
     grossSales: number;
+    currentPrice: number;
     fitterCommission: number;
     netProfit: number;
     createdAt: string;
