@@ -1,0 +1,24 @@
+{
+  "packageId": "tech.botlly.merchant",
+  "host": "bot-lly.tech",
+  "name": "Botly Merchant",
+  "launcherName": "Botly Merchant",
+  "display": "standalone",
+  "themeColor": "#22c55e",
+  "themeColorDark": "#16a34a",
+  "navigationColor": "#ffffff",
+  "navigationColorDark": "#111827",
+  "backgroundColor": "#ffffff",
+  "startUrl": "/auth",
+  "iconUrl": "https://bot-lly.tech/icons/merchant-512.png",
+  "maskableIconUrl": "https://bot-lly.tech/icons/merchant-maskable-512.png",
+  "monochromeIconUrl": "https://bot-lly.tech/icons/merchant.svg",
+  "orientation": "portrait",
+  "fingerprints": [],
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./android-keystore.jks",
+    "alias": "botly-merchant"
+  }
+}

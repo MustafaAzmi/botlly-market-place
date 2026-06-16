@@ -286,21 +286,21 @@ function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="flex items-center justify-between border-b border-border bg-background px-4 py-4 sm:px-6">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f3fff7_0%,#ffffff_48%,#f6f7f6_100%)] text-foreground">
+      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border/70 bg-white/90 px-4 py-4 backdrop-blur sm:px-6">
         <Logo />
         <LanguageSwitcher />
       </header>
 
-      <main className="mx-auto grid min-h-[calc(100vh-73px)] w-full max-w-6xl gap-8 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_28rem] lg:px-6">
-        <section className="hidden flex-col justify-between rounded-lg border border-border bg-secondary/35 p-8 lg:flex">
-          <div className="flex items-center gap-2 text-sm font-medium text-primary">
+      <main className="mx-auto grid min-h-[calc(100vh-73px)] w-full max-w-6xl gap-8 px-4 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_27rem] lg:px-6">
+        <section className="hidden min-h-[34rem] flex-col justify-between overflow-hidden rounded-[2rem] border border-primary/15 bg-white p-8 shadow-elevated lg:flex">
+          <div className="flex w-fit items-center gap-2 rounded-full bg-primary-soft px-4 py-2 text-sm font-medium text-primary">
             <ShieldCheck className="h-4 w-4" />
             {text.secure}
           </div>
 
           <div className="max-w-xl">
-            <h1 className="text-balance text-5xl font-bold leading-tight tracking-normal">
+            <h1 className="text-balance text-5xl font-bold leading-tight tracking-normal text-slate-950">
               {text.title}
             </h1>
             <p className="mt-4 max-w-md text-base leading-7 text-muted-foreground">
@@ -308,7 +308,7 @@ function AuthPage() {
             </p>
           </div>
 
-          <div className="grid gap-3 text-sm text-muted-foreground">
+          <div className="grid gap-3 rounded-2xl bg-slate-950 p-5 text-sm text-white/78">
             {[text.pointOne, text.pointTwo, text.pointThree].map((point) => (
               <div key={point} className="flex items-center gap-3">
                 <CheckCircle2 className="h-4 w-4 text-primary" />
@@ -319,7 +319,7 @@ function AuthPage() {
         </section>
 
         <section className="flex items-center justify-center">
-          <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-soft sm:p-6">
+          <div className="w-full max-w-md rounded-[1.75rem] border border-border bg-white p-5 shadow-elevated sm:p-6">
             <div className="mb-6 lg:hidden">
               <h1 className="text-2xl font-bold tracking-normal">{text.title}</h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{text.subtitle}</p>
@@ -328,7 +328,7 @@ function AuthPage() {
             {showReset ? (
               <form onSubmit={onResetSubmit} className="space-y-5">
                 <div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-soft text-primary">
                     <KeyRound className="h-5 w-5" />
                   </div>
                   <h2 className="mt-4 text-xl font-semibold tracking-normal">{text.resetTitle}</h2>
@@ -488,7 +488,7 @@ function AuthPage() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="w-full gap-2 shadow-soft"
+                  className="w-full gap-2 rounded-xl shadow-soft"
                   disabled={loading}
                 >
                   {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
@@ -528,7 +528,7 @@ function CitySelect({
     <div className="space-y-2">
       <Label>{label}</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-11">
+        <SelectTrigger className="h-12 rounded-xl bg-white">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -574,7 +574,7 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           dir={dir}
-          className="h-11 ps-10"
+          className="h-12 rounded-xl bg-white ps-10"
         />
       </div>
     </div>
@@ -608,12 +608,12 @@ function PasswordField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           dir="ltr"
-          className="h-11 ps-10 pe-10"
+          className="h-12 rounded-xl bg-white ps-10 pe-10"
         />
         <button
           type="button"
           onClick={() => setVisible((v) => !v)}
-          className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+          className="absolute end-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
           tabIndex={-1}
         >
@@ -683,7 +683,7 @@ function ResetChoice({
   return (
     <Label
       htmlFor={id}
-      className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-secondary/50"
+      className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border bg-white px-3 py-2 text-sm transition-colors hover:bg-secondary/50"
     >
       <RadioGroupItem id={id} value={value} />
       <Icon className="h-4 w-4 text-muted-foreground" />

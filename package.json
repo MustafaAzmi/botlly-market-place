@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "android:merchant:init": "npx @bubblewrap/cli init --manifest=twa-manifest.json",
+    "android:merchant:build": "npx @bubblewrap/cli build",
     "check:botly": "node scripts/check-botly.mjs",
     "test:anthropic": "node scripts/test-anthropic.mjs",
     "lint": "eslint .",

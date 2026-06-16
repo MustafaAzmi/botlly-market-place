@@ -184,12 +184,13 @@ function renderIcon(size, bg, glyph, { rounded = false, zoom = 1 } = {}) {
 // --------------------------------------------------------------------------
 
 const WHITE = [255, 255, 255];
+const BLACK = [17, 24, 39]; // #111827
 const CUSTOMER_BG = [22, 163, 74]; // #16a34a
-const MERCHANT_BG = [13, 116, 144]; // #0d7490
+const MERCHANT_BG = [34, 197, 94]; // #22c55e
 
 const apps = [
   { key: "customer", bg: CUSTOMER_BG, glyph: customerGlyph(WHITE) },
-  { key: "merchant", bg: MERCHANT_BG, glyph: merchantGlyph(WHITE, MERCHANT_BG) },
+  { key: "merchant", bg: MERCHANT_BG, glyph: merchantGlyph(WHITE, BLACK) },
 ];
 
 mkdirSync(OUT_DIR, { recursive: true });

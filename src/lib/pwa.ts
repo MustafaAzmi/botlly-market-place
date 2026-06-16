@@ -25,7 +25,7 @@ export const PWA_APPS: Record<
     name: "بوتلي تاجر",
     manifest: "/manifest-merchant.webmanifest",
     startUrl: "/auth",
-    themeColor: "#0d7490",
+    themeColor: "#22c55e",
     icon: "/icons/merchant.svg",
   },
   fitter: {
