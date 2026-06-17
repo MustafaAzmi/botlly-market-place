@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -42,6 +43,9 @@ const apiBaseUrl = String.fromEnvironment(
 );
 const placeholderImage =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+const allYearsLabel = 'كل السنوات';
+const maxProductImages = 6;
+const _unset = Object();
 
 class BotlyMerchantApp extends StatefulWidget {
   const BotlyMerchantApp({super.key});
@@ -197,6 +201,7 @@ class MerchantProduct {
     required this.currency,
     required this.createdAt,
     this.imageUrl = '',
+    this.imageUrls = const [],
     this.discountPrice,
     this.quantity,
     this.color,
@@ -210,6 +215,7 @@ class MerchantProduct {
   final String title;
   final String description;
   final String imageUrl;
+  final List<String> imageUrls;
   final double currentPrice;
   final double? discountPrice;
   final String currency;
@@ -229,6 +235,7 @@ class MerchantProduct {
       title: _string(json['title'], fallback: 'منتج'),
       description: _string(json['description']),
       imageUrl: _string(json['imageUrl']),
+      imageUrls: _list(json['imageUrls']).whereType<String>().toList(),
       currentPrice: _double(json['currentPrice']),
       discountPrice: _nullableDouble(json['discountPrice']),
       currency: _string(json['currency'], fallback: 'IQD'),
@@ -243,13 +250,18 @@ class MerchantProduct {
   }
 
   Map<String, dynamic> toApiPayload(String token, {String? productId}) {
-    return _withoutEmpty({
+    final images = imageUrls.isNotEmpty
+        ? imageUrls
+        : imageUrl.isNotEmpty
+            ? [imageUrl]
+            : [placeholderImage];
+    return _withoutNull({
       'token': token,
       if (productId != null) 'productId': productId,
       'title': title,
       'description': description,
-      'imageUrl': imageUrl.isEmpty ? placeholderImage : imageUrl,
-      'imageUrls': [imageUrl.isEmpty ? placeholderImage : imageUrl],
+      'imageUrl': images.first,
+      'imageUrls': images.take(maxProductImages).toList(),
       'currentPrice': currentPrice,
       if (discountPrice != null) 'discountPrice': discountPrice,
       'currency': currency,
@@ -266,30 +278,32 @@ class MerchantProduct {
     String? title,
     String? description,
     String? imageUrl,
+    List<String>? imageUrls,
     double? currentPrice,
-    double? discountPrice,
+    Object? discountPrice = _unset,
     String? currency,
-    int? quantity,
-    String? color,
-    String? size,
-    String? carMake,
-    String? carModel,
-    String? carYear,
+    Object? quantity = _unset,
+    Object? color = _unset,
+    Object? size = _unset,
+    Object? carMake = _unset,
+    Object? carModel = _unset,
+    Object? carYear = _unset,
   }) {
     return MerchantProduct(
       id: id,
       title: title ?? this.title,
       description: description ?? this.description,
       imageUrl: imageUrl ?? this.imageUrl,
+      imageUrls: imageUrls ?? this.imageUrls,
       currentPrice: currentPrice ?? this.currentPrice,
-      discountPrice: discountPrice ?? this.discountPrice,
+      discountPrice: identical(discountPrice, _unset) ? this.discountPrice : discountPrice as double?,
       currency: currency ?? this.currency,
-      quantity: quantity ?? this.quantity,
-      color: color ?? this.color,
-      size: size ?? this.size,
-      carMake: carMake ?? this.carMake,
-      carModel: carModel ?? this.carModel,
-      carYear: carYear ?? this.carYear,
+      quantity: identical(quantity, _unset) ? this.quantity : quantity as int?,
+      color: identical(color, _unset) ? this.color : color as String?,
+      size: identical(size, _unset) ? this.size : size as String?,
+      carMake: identical(carMake, _unset) ? this.carMake : carMake as String?,
+      carModel: identical(carModel, _unset) ? this.carModel : carModel as String?,
+      carYear: identical(carYear, _unset) ? this.carYear : carYear as String?,
       createdAt: createdAt,
     );
   }
@@ -355,6 +369,48 @@ class MerchantDashboard {
   }
 }
 
+class CarMakeOption {
+  const CarMakeOption({
+    required this.key,
+    required this.label,
+    required this.models,
+  });
+
+  final String key;
+  final String label;
+  final List<String> models;
+
+  factory CarMakeOption.fromJson(Map<String, dynamic> json) {
+    return CarMakeOption(
+      key: _string(json['key']),
+      label: _string(json['label']),
+      models: _list(json['models']).whereType<String>().toList(),
+    );
+  }
+}
+
+class MerchantCatalogue {
+  const MerchantCatalogue({
+    required this.makes,
+    required this.colors,
+    required this.years,
+  });
+
+  final List<CarMakeOption> makes;
+  final List<String> colors;
+  final List<String> years;
+
+  factory MerchantCatalogue.fromJson(Map<String, dynamic> json) {
+    return MerchantCatalogue(
+      makes: _list(json['makes']).map((item) => CarMakeOption.fromJson(_map(item))).toList(),
+      colors: _list(json['colors']).whereType<String>().toList(),
+      years: _list(json['years']).whereType<String>().toList(),
+    );
+  }
+
+  static const empty = MerchantCatalogue(makes: [], colors: [], years: []);
+}
+
 String _string(Object? value, {String fallback = ''}) {
   return value is String && value.isNotEmpty ? value : fallback;
 }
@@ -397,11 +453,22 @@ Map<String, dynamic> _withoutEmpty(Map<String, dynamic> input) {
   return output;
 }
 
+Map<String, dynamic> _withoutNull(Map<String, dynamic> input) {
+  final output = <String, dynamic>{};
+  for (final entry in input.entries) {
+    if (entry.value != null) output[entry.key] = entry.value;
+  }
+  return output;
+}
+
 class MerchantRepository extends ChangeNotifier {
   MerchantProfile? _profile;
   String? _token;
   final _products = <MerchantProduct>[];
   final _orders = <MerchantOrder>[];
+  MerchantCatalogue? _catalogue;
+  bool _productsLoaded = false;
+  bool _ordersLoaded = false;
 
   MerchantProfile? get profile => _profile;
   String? get token => _token;
@@ -473,6 +540,11 @@ class MerchantRepository extends ChangeNotifier {
     await prefs.remove('merchant_token');
     _token = null;
     _profile = null;
+    _productsLoaded = false;
+    _ordersLoaded = false;
+    _products.clear();
+    _orders.clear();
+    _catalogue = null;
     notifyListeners();
   }
 
@@ -487,6 +559,8 @@ class MerchantRepository extends ChangeNotifier {
     _orders
       ..clear()
       ..addAll(orderRows.map((item) => MerchantOrder.fromJson(_map(item))));
+    _productsLoaded = true;
+    _ordersLoaded = true;
     return MerchantDashboard(
       profile: _profile!,
       products: List.unmodifiable(_products),
@@ -494,22 +568,34 @@ class MerchantRepository extends ChangeNotifier {
     );
   }
 
-  Future<List<MerchantProduct>> listProducts() async {
+  Future<List<MerchantProduct>> listProducts({bool force = false}) async {
     _requireSession();
+    if (!force && _productsLoaded) return List.unmodifiable(_products);
     final rows = await _postList('listProducts', {'token': _token});
     _products
       ..clear()
       ..addAll(rows.map((item) => MerchantProduct.fromJson(_map(item))));
+    _productsLoaded = true;
     return List.unmodifiable(_products);
   }
 
-  Future<List<MerchantOrder>> listOrders() async {
+  Future<List<MerchantOrder>> listOrders({bool force = false}) async {
     _requireSession();
+    if (!force && _ordersLoaded) return List.unmodifiable(_orders);
     final rows = await _postList('listOrders', {'token': _token});
     _orders
       ..clear()
       ..addAll(rows.map((item) => MerchantOrder.fromJson(_map(item))));
+    _ordersLoaded = true;
     return List.unmodifiable(_orders);
+  }
+
+  Future<MerchantCatalogue> getCatalogue({bool force = false}) async {
+    _requireSession();
+    if (!force && _catalogue != null) return _catalogue!;
+    final result = _map(await _post('catalogue', {'token': _token}));
+    _catalogue = MerchantCatalogue.fromJson(result);
+    return _catalogue!;
   }
 
   Future<void> saveProduct(MerchantProduct product) async {
@@ -526,6 +612,7 @@ class MerchantRepository extends ChangeNotifier {
     } else {
       _products.insert(0, nextProduct);
     }
+    _productsLoaded = true;
     notifyListeners();
   }
 
@@ -533,6 +620,7 @@ class MerchantRepository extends ChangeNotifier {
     _requireSession();
     await _post('deleteProduct', {'token': _token, 'productId': id});
     _products.removeWhere((item) => item.id == id);
+    _productsLoaded = true;
     notifyListeners();
   }
 
@@ -898,12 +986,29 @@ class ProductsScreen extends StatefulWidget {
 
 class _ProductsScreenState extends State<ProductsScreen> {
   var query = '';
+  late Future<List<MerchantProduct>> _productsFuture;
+  var _loadedProductsOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_loadedProductsOnce) {
+      _productsFuture = MerchantScope.of(context).listProducts();
+      _loadedProductsOnce = true;
+    }
+  }
+
+  void _refreshProducts() {
+    setState(() {
+      _productsFuture = MerchantScope.of(context).listProducts(force: true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final repository = MerchantScope.of(context);
     return FutureBuilder<List<MerchantProduct>>(
-      future: repository.listProducts(),
+      future: _productsFuture,
       builder: (context, snapshot) {
         final products = (snapshot.data ?? [])
             .where((product) => '${product.title} ${product.description} ${product.color ?? ''} ${product.size ?? ''}'.contains(query))
@@ -914,7 +1019,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
           actions: [
             IconButton.filled(
               tooltip: 'إضافة منتج',
-              onPressed: () => _openProductSheet(context),
+              onPressed: () => _openProductSheet(context).then((changed) {
+                if (changed == true && mounted) _refreshProducts();
+              }),
               icon: const Icon(Icons.add_rounded),
             ),
           ],
@@ -932,7 +1039,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   child: _EmptyHint(
                     text: 'لا توجد منتجات مطابقة. أضف منتج جديد حتى يقدر البوت يرشحه للزبائن.',
                     action: FilledButton.icon(
-                      onPressed: () => _openProductSheet(context),
+                      onPressed: () => _openProductSheet(context).then((changed) {
+                        if (changed == true && mounted) _refreshProducts();
+                      }),
                       icon: const Icon(Icons.add_rounded),
                       label: const Text('إضافة منتج'),
                     ),
@@ -947,10 +1056,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       final product = products[index];
                       return _ProductCard(
                         product: product,
-                        onEdit: () => _openProductSheet(context, product: product),
+                        onEdit: () => _openProductSheet(context, product: product).then((changed) {
+                          if (changed == true && mounted) _refreshProducts();
+                        }),
                         onDelete: () async {
                           await repository.deleteProduct(product.id);
                           if (context.mounted) _showMessage(context, 'تم حذف المنتج');
+                          if (mounted) _refreshProducts();
                         },
                       );
                     },
@@ -1301,6 +1413,7 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primaryImage = product.imageUrls.isNotEmpty ? product.imageUrls.first : product.imageUrl;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1309,9 +1422,18 @@ class _ProductCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: const Color(0xffdcfce7),
-                  child: Icon(Icons.directions_car_rounded, color: Theme.of(context).colorScheme.primary),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    height: 54,
+                    width: 54,
+                    child: primaryImage.isEmpty
+                        ? DecoratedBox(
+                            decoration: const BoxDecoration(color: Color(0xffdcfce7)),
+                            child: Icon(Icons.directions_car_rounded, color: Theme.of(context).colorScheme.primary),
+                          )
+                        : Image(image: _productImageProvider(primaryImage), fit: BoxFit.cover),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1379,106 +1501,304 @@ class _EmptyHint extends StatelessWidget {
   }
 }
 
-Future<void> _openProductSheet(BuildContext context, {MerchantProduct? product}) async {
+Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}) async {
   final repository = MerchantScope.of(context);
+  late final MerchantCatalogue catalogue;
+  try {
+    catalogue = await repository.getCatalogue();
+  } catch (error) {
+    if (context.mounted) {
+      _showMessage(context, error.toString().replaceFirst('Bad state: ', ''));
+    }
+    return false;
+  }
+
   final title = TextEditingController(text: product?.title ?? '');
   final description = TextEditingController(text: product?.description ?? '');
   final price = TextEditingController(text: product == null ? '' : product.currentPrice.toStringAsFixed(0));
   final discount = TextEditingController(text: product?.discountPrice?.toStringAsFixed(0) ?? '');
   final quantity = TextEditingController(text: product?.quantity?.toString() ?? '');
-  final color = TextEditingController(text: product?.color ?? '');
   final size = TextEditingController(text: product?.size ?? '');
-  final carMake = TextEditingController(text: product?.carMake ?? '');
-  final carModel = TextEditingController(text: product?.carModel ?? '');
-  final carYear = TextEditingController(text: product?.carYear ?? '');
+  var selectedColor = product?.color ?? '';
+  var selectedMake = product?.carMake ?? '';
+  var selectedModel = product?.carModel ?? '';
+  var selectedYear = product?.carYear ?? '';
+  var images = <String>[
+    ...product?.imageUrls ?? const <String>[],
+    if ((product?.imageUrls.isEmpty ?? true) && (product?.imageUrl.isNotEmpty ?? false))
+      product!.imageUrl,
+  ].where((image) => image.isNotEmpty).take(maxProductImages).toList();
+  var saving = false;
 
-  await showModalBottomSheet<void>(
+  return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) {
-      return Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Text(product == null ? 'إضافة منتج' : 'تعديل منتج', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 14),
-            TextField(controller: title, decoration: const InputDecoration(labelText: 'اسم المنتج')),
-            const SizedBox(height: 10),
-            TextField(controller: description, maxLines: 2, decoration: const InputDecoration(labelText: 'الوصف')),
-            const SizedBox(height: 10),
-            Row(
+      return StatefulBuilder(
+        builder: (context, setSheetState) {
+          final make = catalogue.makes.firstWhere(
+            (item) => item.label == selectedMake || item.key == selectedMake,
+            orElse: () => const CarMakeOption(key: '', label: '', models: []),
+          );
+          final models = make.models;
+
+          Future<void> addImages(ImageSource source) async {
+            final picked = await _pickProductImages(source, maxProductImages - images.length);
+            if (picked.isEmpty) return;
+            setSheetState(() {
+              images = [...images, ...picked].take(maxProductImages).toList();
+            });
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
+            child: ListView(
+              shrinkWrap: true,
               children: [
-                Expanded(child: TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر النهائي'))),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: discount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'سعر التخفيض'))),
+                Text(
+                  product == null ? 'إضافة منتج' : 'تعديل منتج',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 14),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('صور المنتج (${images.length}/$maxProductImages)', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: images.length >= maxProductImages ? null : () => addImages(ImageSource.camera),
+                                icon: const Icon(Icons.camera_alt_rounded),
+                                label: const Text('الكاميرا'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: images.length >= maxProductImages ? null : () => addImages(ImageSource.gallery),
+                                icon: const Icon(Icons.photo_library_rounded),
+                                label: const Text('الاستوديو'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        if (images.isEmpty)
+                          const _EmptyHint(text: 'أضف صورة واحدة على الأقل، وبحد أقصى 6 صور لكل منتج.')
+                        else
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
+                            itemCount: images.length,
+                            itemBuilder: (context, index) {
+                              return Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image(image: _productImageProvider(images[index]), fit: BoxFit.cover),
+                                  ),
+                                  if (index == 0)
+                                    Positioned(
+                                      bottom: 4,
+                                      right: 4,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          child: Text('الرئيسية', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    top: 2,
+                                    left: 2,
+                                    child: IconButton.filledTonal(
+                                      iconSize: 16,
+                                      onPressed: () => setSheetState(() => images.removeAt(index)),
+                                      icon: const Icon(Icons.close_rounded),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: title, decoration: const InputDecoration(labelText: 'اسم المنتج')),
+                const SizedBox(height: 10),
+                TextField(controller: description, maxLines: 2, decoration: const InputDecoration(labelText: 'الوصف')),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر الحالي'))),
+                    const SizedBox(width: 10),
+                    Expanded(child: TextField(controller: discount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر النهائي'))),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الكمية'))),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: catalogue.colors.contains(selectedColor) ? selectedColor : null,
+                        decoration: const InputDecoration(labelText: 'اللون'),
+                        items: catalogue.colors.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+                        onChanged: (value) => setSheetState(() => selectedColor = value ?? ''),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: size, decoration: const InputDecoration(labelText: 'الحجم/المقاس')),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: catalogue.makes.any((item) => item.label == selectedMake || item.key == selectedMake)
+                      ? selectedMake
+                      : null,
+                  decoration: const InputDecoration(labelText: 'نوع السيارة'),
+                  items: catalogue.makes.map((item) => DropdownMenuItem(value: item.label, child: Text(item.label))).toList(),
+                  onChanged: (value) => setSheetState(() {
+                    selectedMake = value ?? '';
+                    selectedModel = '';
+                  }),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: models.contains(selectedModel) ? selectedModel : null,
+                  decoration: const InputDecoration(labelText: 'الموديل'),
+                  items: models.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+                  onChanged: selectedMake.isEmpty ? null : (value) => setSheetState(() => selectedModel = value ?? ''),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: selectedYear.isNotEmpty && catalogue.years.contains(selectedYear) ? selectedYear : null,
+                  decoration: const InputDecoration(labelText: 'سنة الصنع'),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text(allYearsLabel)),
+                    ...catalogue.years.map((item) => DropdownMenuItem(value: item, child: Text(item))),
+                  ],
+                  onChanged: (value) => setSheetState(() => selectedYear = value ?? ''),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final parsedPrice = double.tryParse(price.text.trim()) ?? 0;
+                          if (images.isEmpty) {
+                            _showMessage(context, 'أضف صورة واحدة على الأقل للمنتج.');
+                            return;
+                          }
+                          if (title.text.trim().isEmpty || description.text.trim().isEmpty || parsedPrice <= 0) {
+                            _showMessage(context, 'اسم المنتج والوصف والسعر مطلوبة.');
+                            return;
+                          }
+                          setSheetState(() => saving = true);
+                          try {
+                            final next = (product ??
+                                    MerchantProduct(
+                                      id: 'p-${DateTime.now().millisecondsSinceEpoch}',
+                                      title: title.text.trim(),
+                                      description: description.text.trim(),
+                                      currentPrice: parsedPrice,
+                                      currency: 'IQD',
+                                      createdAt: DateTime.now(),
+                                    ))
+                                .copyWith(
+                              title: title.text.trim(),
+                              description: description.text.trim(),
+                              imageUrl: images.first,
+                              imageUrls: images,
+                              currentPrice: parsedPrice,
+                              discountPrice: double.tryParse(discount.text.trim()),
+                              currency: 'IQD',
+                              quantity: int.tryParse(quantity.text.trim()),
+                              color: selectedColor,
+                              size: size.text.trim(),
+                              carMake: selectedMake,
+                              carModel: selectedModel,
+                              carYear: selectedYear,
+                            );
+                            await repository.saveProduct(next);
+                            if (context.mounted) {
+                              Navigator.pop(context, true);
+                              _showMessage(context, 'تم حفظ المنتج');
+                            }
+                          } catch (error) {
+                            if (context.mounted) {
+                              _showMessage(context, error.toString().replaceFirst('Bad state: ', ''));
+                            }
+                          } finally {
+                            setSheetState(() => saving = false);
+                          }
+                        },
+                  icon: saving
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.save_rounded),
+                  label: const Text('حفظ المنتج'),
+                ),
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الكمية'))),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: color, decoration: const InputDecoration(labelText: 'اللون'))),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(controller: size, decoration: const InputDecoration(labelText: 'الحجم/المقاس')),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: TextField(controller: carMake, decoration: const InputDecoration(labelText: 'الشركة'))),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: carModel, decoration: const InputDecoration(labelText: 'الموديل'))),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(controller: carYear, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السنة')),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () async {
-                final parsedPrice = double.tryParse(price.text.trim()) ?? 0;
-                if (title.text.trim().isEmpty || description.text.trim().isEmpty || parsedPrice <= 0) {
-                  _showMessage(context, 'اسم المنتج والوصف والسعر مطلوبة.');
-                  return;
-                }
-                final next = (product ??
-                        MerchantProduct(
-                          id: 'p-${DateTime.now().millisecondsSinceEpoch}',
-                          title: title.text.trim(),
-                          description: description.text.trim(),
-                          currentPrice: parsedPrice,
-                          currency: 'IQD',
-                          createdAt: DateTime.now(),
-                        ))
-                    .copyWith(
-                  title: title.text.trim(),
-                  description: description.text.trim(),
-                  currentPrice: parsedPrice,
-                  discountPrice: double.tryParse(discount.text.trim()),
-                  currency: 'IQD',
-                  quantity: int.tryParse(quantity.text.trim()),
-                  color: color.text.trim(),
-                  size: size.text.trim(),
-                  carMake: carMake.text.trim(),
-                  carModel: carModel.text.trim(),
-                  carYear: carYear.text.trim(),
-                );
-                await repository.saveProduct(next);
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  _showMessage(context, 'تم حفظ المنتج');
-                }
-              },
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('حفظ المنتج'),
-            ),
-          ],
-        ),
+          );
+        },
       );
     },
   );
+}
+
+Future<List<String>> _pickProductImages(ImageSource source, int remainingSlots) async {
+  if (remainingSlots <= 0) return const [];
+  final picker = ImagePicker();
+  final List<XFile> files;
+  if (source == ImageSource.camera) {
+    final file = await picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1000,
+      maxHeight: 1000,
+      imageQuality: 78,
+    );
+    files = file == null ? const <XFile>[] : <XFile>[file];
+  } else {
+    files = await picker.pickMultiImage(
+      maxWidth: 1000,
+      maxHeight: 1000,
+      imageQuality: 78,
+    );
+  }
+  final images = <String>[];
+  for (final file in files.take(remainingSlots)) {
+    final bytes = await file.readAsBytes();
+    images.add('data:image/jpeg;base64,${base64Encode(bytes)}');
+  }
+  return images;
+}
+
+ImageProvider _productImageProvider(String image) {
+  if (image.startsWith('data:image/')) {
+    final encoded = image.substring(image.indexOf(',') + 1);
+    return MemoryImage(base64Decode(encoded));
+  }
+  return NetworkImage(image);
 }
 
 void _showMessage(BuildContext context, String message) {

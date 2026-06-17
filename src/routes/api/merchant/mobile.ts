@@ -4,6 +4,7 @@ import {
   createMerchantProduct,
   deleteMerchantProduct,
   getCurrentMerchant,
+  getEnabledCarCatalogueForMerchant,
   getMerchantDashboard,
   getMerchantProduct,
   listMerchantOrders,
@@ -30,7 +31,8 @@ type Action =
   | "createProduct"
   | "updateProduct"
   | "deleteProduct"
-  | "listOrders";
+  | "listOrders"
+  | "catalogue";
 
 function json(data: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(data), {
@@ -85,6 +87,11 @@ export const Route = createFileRoute("/api/merchant/mobile")({
               return json({ ok: true, result: await callServerFn(deleteMerchantProduct, data) });
             case "listOrders":
               return json({ ok: true, result: await callServerFn(listMerchantOrders, data) });
+            case "catalogue":
+              return json({
+                ok: true,
+                result: await callServerFn(getEnabledCarCatalogueForMerchant, data),
+              });
             default:
               return json({ ok: false, error: "Unknown action" }, { status: 400 });
           }
