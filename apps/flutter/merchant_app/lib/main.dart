@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -80,7 +81,7 @@ class _BotlyMerchantAppState extends State<BotlyMerchantApp> {
               borderSide: const BorderSide(color: Color(0xffdfe7df)),
             ),
           ),
-          cardTheme: CardTheme(
+          cardTheme: CardThemeData(
             elevation: 0,
             color: Colors.white,
             shape: RoundedRectangleBorder(
@@ -91,7 +92,7 @@ class _BotlyMerchantAppState extends State<BotlyMerchantApp> {
         ),
         builder: (context, child) {
           return Directionality(
-            textDirection: TextDirection.rtl,
+            textDirection: ui.TextDirection.rtl,
             child: child ?? const SizedBox.shrink(),
           );
         },
@@ -459,7 +460,7 @@ class MerchantRepository extends ChangeNotifier {
       'password': password,
       'city': city,
       'email': email,
-    }));
+    })));
     _token = _string(result['token']);
     _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
@@ -547,7 +548,7 @@ class MerchantRepository extends ChangeNotifier {
       'deliveryPhone': profile.deliveryPhone,
       'logoUrl': profile.logoUrl,
       'coverUrl': profile.coverUrl,
-    }));
+    })));
     _profile = MerchantProfile.fromJson(_map(updated));
     await _persistProfile();
     notifyListeners();
@@ -755,7 +756,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'الإيميل اختياري')),
                 const SizedBox(height: 12),
               ],
-              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم الواتساب')),
+              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم الواتساب')),
               const SizedBox(height: 12),
               TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'كلمة المرور')),
               Align(
@@ -999,7 +1000,7 @@ class OrdersScreen extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 Text('${numberFormat.format(order.productPrice)} ${order.currency}'),
-                                Text(order.customerNumber, textDirection: TextDirection.ltr),
+                                Text(order.customerNumber, textDirection: ui.TextDirection.ltr),
                                 Text(order.customerDetails),
                                 if (order.sentToDelivery) const Text('تم إرسال الطلب للتوصيل'),
                               ],
@@ -1096,7 +1097,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
           const SizedBox(height: 14),
           TextField(controller: storeName, decoration: const InputDecoration(labelText: 'اسم المحل أو الشركة')),
           const SizedBox(height: 12),
-          TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم واتساب التاجر')),
+          TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم واتساب التاجر')),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: governorates.contains(city) ? city : governorates.first,
@@ -1109,7 +1110,7 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
           const SizedBox(height: 12),
           TextField(controller: address, maxLines: 3, decoration: const InputDecoration(labelText: 'عنوان المتجر أو رابط الموقع')),
           const SizedBox(height: 12),
-          TextField(controller: deliveryPhone, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم التوصيل')),
+          TextField(controller: deliveryPhone, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم التوصيل')),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: () async {
