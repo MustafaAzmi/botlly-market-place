@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -33,6 +35,12 @@ const governorates = <String>[
 ];
 
 final numberFormat = NumberFormat.decimalPattern('ar');
+const apiBaseUrl = String.fromEnvironment(
+  'BOTLLY_API_BASE_URL',
+  defaultValue: 'https://bot-lly.tech',
+);
+const placeholderImage =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
 class BotlyMerchantApp extends StatefulWidget {
   const BotlyMerchantApp({super.key});
@@ -139,6 +147,22 @@ class MerchantProfile {
   final String? logoUrl;
   final String? coverUrl;
 
+  factory MerchantProfile.fromJson(Map<String, dynamic> json) {
+    return MerchantProfile(
+      id: _string(json['id'], fallback: 'merchant'),
+      storeName: _string(json['storeName'], fallback: 'متجر'),
+      whatsapp: _string(json['whatsapp']),
+      city: _string(json['city'], fallback: 'بغداد'),
+      storeSlug: _optionalString(json['storeSlug']),
+      email: _optionalString(json['email']),
+      bio: _optionalString(json['bio']),
+      address: _optionalString(json['address']),
+      deliveryPhone: _optionalString(json['deliveryPhone']),
+      logoUrl: _optionalString(json['logoUrl']),
+      coverUrl: _optionalString(json['coverUrl']),
+    );
+  }
+
   MerchantProfile copyWith({
     String? storeName,
     String? whatsapp,
@@ -198,6 +222,45 @@ class MerchantProduct {
 
   double get customerPrice => discountPrice ?? currentPrice;
 
+  factory MerchantProduct.fromJson(Map<String, dynamic> json) {
+    return MerchantProduct(
+      id: _string(json['id'], fallback: 'product'),
+      title: _string(json['title'], fallback: 'منتج'),
+      description: _string(json['description']),
+      imageUrl: _string(json['imageUrl']),
+      currentPrice: _double(json['currentPrice']),
+      discountPrice: _nullableDouble(json['discountPrice']),
+      currency: _string(json['currency'], fallback: 'IQD'),
+      quantity: _nullableInt(json['quantity']),
+      color: _optionalString(json['color']),
+      size: _optionalString(json['size']),
+      carMake: _optionalString(json['carMake']),
+      carModel: _optionalString(json['carModel']),
+      carYear: _optionalString(json['carYear']),
+      createdAt: DateTime.tryParse(_string(json['createdAt'])) ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toApiPayload(String token, {String? productId}) {
+    return _withoutEmpty({
+      'token': token,
+      if (productId != null) 'productId': productId,
+      'title': title,
+      'description': description,
+      'imageUrl': imageUrl.isEmpty ? placeholderImage : imageUrl,
+      'imageUrls': [imageUrl.isEmpty ? placeholderImage : imageUrl],
+      'currentPrice': currentPrice,
+      if (discountPrice != null) 'discountPrice': discountPrice,
+      'currency': currency,
+      if (quantity != null) 'quantity': quantity,
+      'color': color,
+      'size': size,
+      'carMake': carMake,
+      'carModel': carModel,
+      'carYear': carYear,
+    });
+  }
+
   MerchantProduct copyWith({
     String? title,
     String? description,
@@ -253,6 +316,20 @@ class MerchantOrder {
   final String status;
   final bool sentToDelivery;
   final DateTime createdAt;
+
+  factory MerchantOrder.fromJson(Map<String, dynamic> json) {
+    return MerchantOrder(
+      id: _string(json['id'], fallback: 'order'),
+      productTitle: _string(json['productTitle'], fallback: 'منتج'),
+      productPrice: _double(json['productPrice']),
+      currency: _string(json['currency'], fallback: 'IQD'),
+      customerNumber: _string(json['customerNumber']),
+      customerDetails: _string(json['customerDetails']),
+      status: _string(json['status'], fallback: 'unknown'),
+      sentToDelivery: json['sentToDelivery'] == true,
+      createdAt: DateTime.tryParse(_string(json['createdAt'])) ?? DateTime.now(),
+    );
+  }
 }
 
 class MerchantDashboard {
@@ -277,52 +354,49 @@ class MerchantDashboard {
   }
 }
 
-class MerchantRepository extends ChangeNotifier {
-  MerchantRepository() {
-    _products.addAll([
-      MerchantProduct(
-        id: 'p-1',
-        title: 'لايت كامري أمامي',
-        description: 'قطعة أصلية مناسبة لكامري 2018-2021',
-        currentPrice: 85000,
-        discountPrice: 79000,
-        currency: 'IQD',
-        quantity: 4,
-        color: 'أبيض',
-        carMake: 'Toyota',
-        carModel: 'Camry',
-        carYear: '2018',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      ),
-      MerchantProduct(
-        id: 'p-2',
-        title: 'صدام النترا خلفي',
-        description: 'متوفر جديد، لون أسود، قابل للصبغ',
-        currentPrice: 120000,
-        currency: 'IQD',
-        quantity: 2,
-        color: 'أسود',
-        carMake: 'Hyundai',
-        carModel: 'Elantra',
-        carYear: '2017',
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-      ),
-    ]);
-    _orders.add(
-      MerchantOrder(
-        id: 'o-1',
-        productTitle: 'لايت كامري أمامي',
-        productPrice: 79000,
-        currency: 'IQD',
-        customerNumber: '0780 123 4567',
-        customerDetails: 'بغداد - المنصور، يريد توصيل اليوم',
-        status: 'confirmed',
-        sentToDelivery: true,
-        createdAt: DateTime.now().subtract(const Duration(hours: 8)),
-      ),
-    );
-  }
+String _string(Object? value, {String fallback = ''}) {
+  return value is String && value.isNotEmpty ? value : fallback;
+}
 
+String? _optionalString(Object? value) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+double _double(Object? value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0;
+  return 0;
+}
+
+double? _nullableDouble(Object? value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String && value.trim().isNotEmpty) return double.tryParse(value);
+  return null;
+}
+
+int? _nullableInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String && value.trim().isNotEmpty) return int.tryParse(value);
+  return null;
+}
+
+Map<String, dynamic> _withoutEmpty(Map<String, dynamic> input) {
+  final output = <String, dynamic>{};
+  for (final entry in input.entries) {
+    final value = entry.value;
+    if (value == null) continue;
+    if (value is String && value.trim().isEmpty) continue;
+    output[entry.key] = value;
+  }
+  return output;
+}
+
+class MerchantRepository extends ChangeNotifier {
   MerchantProfile? _profile;
   String? _token;
   final _products = <MerchantProduct>[];
@@ -355,21 +429,15 @@ class MerchantRepository extends ChangeNotifier {
     required String whatsapp,
     required String password,
   }) async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
     if (whatsapp.trim().length < 3 || password.length < 6) {
       throw StateError('رقم الواتساب وكلمة المرور مطلوبة.');
     }
-    _profile ??= MerchantProfile(
-      id: 'local-merchant',
-      storeName: 'بوتلي ستور',
-      whatsapp: whatsapp.trim(),
-      city: 'بغداد',
-      storeSlug: 'botly-store',
-      bio: 'متجر قطع سيارات يعمل عبر بوتلي.',
-      address: 'بغداد - المنصور',
-      deliveryPhone: '0770 000 0000',
-    );
-    _token = _newToken();
+    final result = _map(await _post('login', {
+      'whatsapp': whatsapp.trim(),
+      'password': password,
+    }));
+    _token = _string(result['token']);
+    _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
     notifyListeners();
     return _profile!;
@@ -382,19 +450,18 @@ class MerchantRepository extends ChangeNotifier {
     required String city,
     String? email,
   }) async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
     if (storeName.trim().isEmpty || whatsapp.trim().isEmpty || password.length < 6 || city.isEmpty) {
       throw StateError('اسم المحل ورقم الواتساب والمحافظة وكلمة المرور مطلوبة.');
     }
-    _profile = MerchantProfile(
-      id: 'merchant-${DateTime.now().millisecondsSinceEpoch}',
-      storeName: storeName.trim(),
-      whatsapp: whatsapp.trim(),
-      city: city,
-      email: email,
-      storeSlug: _slugify(storeName),
-    );
-    _token = _newToken();
+    final result = _map(await _post('signup', _withoutEmpty({
+      'storeName': storeName.trim(),
+      'whatsapp': whatsapp.trim(),
+      'password': password,
+      'city': city,
+      'email': email,
+    }));
+    _token = _string(result['token']);
+    _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
     notifyListeners();
     return _profile!;
@@ -410,7 +477,15 @@ class MerchantRepository extends ChangeNotifier {
 
   Future<MerchantDashboard> getDashboard() async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    final dashboard = _map(await _post('dashboard', {'token': _token}));
+    final orderRows = await _postList('listOrders', {'token': _token});
+    _profile = MerchantProfile.fromJson(_map(dashboard['profile']));
+    _products
+      ..clear()
+      ..addAll(_list(dashboard['products']).map((item) => MerchantProduct.fromJson(_map(item))));
+    _orders
+      ..clear()
+      ..addAll(orderRows.map((item) => MerchantOrder.fromJson(_map(item))));
     return MerchantDashboard(
       profile: _profile!,
       products: List.unmodifiable(_products),
@@ -420,57 +495,94 @@ class MerchantRepository extends ChangeNotifier {
 
   Future<List<MerchantProduct>> listProducts() async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final rows = await _postList('listProducts', {'token': _token});
+    _products
+      ..clear()
+      ..addAll(rows.map((item) => MerchantProduct.fromJson(_map(item))));
     return List.unmodifiable(_products);
   }
 
   Future<List<MerchantOrder>> listOrders() async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final rows = await _postList('listOrders', {'token': _token});
+    _orders
+      ..clear()
+      ..addAll(rows.map((item) => MerchantOrder.fromJson(_map(item))));
     return List.unmodifiable(_orders);
   }
 
   Future<void> saveProduct(MerchantProduct product) async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
     final index = _products.indexWhere((item) => item.id == product.id);
+    final action = index >= 0 ? 'updateProduct' : 'createProduct';
+    final saved = _map(await _post(
+      action,
+      product.toApiPayload(_token!, productId: index >= 0 ? product.id : null),
+    ));
+    final nextProduct = MerchantProduct.fromJson(_map(saved));
     if (index >= 0) {
-      _products[index] = product;
+      _products[index] = nextProduct;
     } else {
-      _products.insert(0, product);
+      _products.insert(0, nextProduct);
     }
     notifyListeners();
   }
 
   Future<void> deleteProduct(String id) async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await _post('deleteProduct', {'token': _token, 'productId': id});
     _products.removeWhere((item) => item.id == id);
     notifyListeners();
   }
 
   Future<MerchantProfile> updateProfile(MerchantProfile profile) async {
     _requireSession();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    _profile = profile;
+    final updated = _map(await _post('updateProfile', _withoutEmpty({
+      'token': _token,
+      'storeName': profile.storeName,
+      'whatsapp': profile.whatsapp,
+      'bio': profile.bio,
+      'city': profile.city,
+      'address': profile.address,
+      'deliveryPhone': profile.deliveryPhone,
+      'logoUrl': profile.logoUrl,
+      'coverUrl': profile.coverUrl,
+    }));
+    _profile = MerchantProfile.fromJson(_map(updated));
     await _persistProfile();
     notifyListeners();
-    return profile;
+    return _profile!;
   }
 
   void _requireSession() {
     if (!isSignedIn) throw StateError('انتهت الجلسة. سجل دخول مرة ثانية.');
   }
 
-  String _newToken() => 'local-${DateTime.now().millisecondsSinceEpoch}';
+  Future<dynamic> _post(String action, Map<String, dynamic> data) async {
+    final uri = Uri.parse('${apiBaseUrl.replaceAll(RegExp(r'/$'), '')}/api/merchant/mobile');
+    final response = await http
+        .post(
+          uri,
+          headers: const {
+            'content-type': 'application/json; charset=utf-8',
+            'accept': 'application/json',
+          },
+          body: jsonEncode({'action': action, 'data': data}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('استجابة غير مفهومة من الخادم.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300 || decoded['ok'] != true) {
+      throw StateError(_string(decoded['error'], fallback: 'تعذر الاتصال بالباكند.'));
+    }
+    return decoded['result'];
+  }
 
-  String _slugify(String name) {
-    final cleaned = name
-        .toLowerCase()
-        .replaceAll(RegExp('[^a-z0-9 ]'), '')
-        .trim()
-        .replaceAll(RegExp(' +'), '-');
-    return cleaned.isEmpty ? DateTime.now().millisecondsSinceEpoch.toString() : cleaned;
+  Future<List<dynamic>> _postList(String action, Map<String, dynamic> data) async {
+    final result = await _post(action, data);
+    return _list(result);
   }
 
   Future<void> _persistProfile() async {
@@ -488,6 +600,14 @@ class MerchantRepository extends ChangeNotifier {
     await prefs.setString('merchant_address', profile.address ?? '');
     await prefs.setString('merchant_delivery_phone', profile.deliveryPhone ?? '');
   }
+}
+
+Map<String, dynamic> _map(Object? value) {
+  return value is Map<String, dynamic> ? value : <String, dynamic>{};
+}
+
+List<dynamic> _list(Object? value) {
+  return value is List ? value : const [];
 }
 
 class SplashGate extends StatefulWidget {

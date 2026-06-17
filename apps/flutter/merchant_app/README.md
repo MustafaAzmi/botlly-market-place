@@ -13,9 +13,25 @@
 ```bash
 cd apps/flutter/merchant_app
 flutter pub get
-flutter run
+flutter run --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 ```
 
-## ملاحظة الربط
+## Android و iPhone
 
-النسخة الحالية تستخدم repository محلي داخل التطبيق حتى يكتمل بناء الواجهة بسرعة. الويب الحالي يعتمد TanStack server functions وليست REST API عامة، لذلك خطوة الربط التالية هي إضافة REST endpoints أو Supabase client adapter ثم استبدال `MerchantRepository` بنفس عقود الدوال الموجودة في الويب.
+هذا المجلد يحتوي كود Flutter وملف `pubspec.yaml`. إذا لم تكن مجلدات `android/` و`ios/` مولدة بعد على جهازك، شغل:
+
+```bash
+flutter create .
+flutter pub get
+flutter run --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+```
+
+## الربط
+
+التطبيق مربوط بالباكند عبر endpoint في موقع الويب:
+
+```text
+POST /api/merchant/mobile
+```
+
+هذا endpoint يستدعي نفس دوال التاجر المستخدمة في الويب، مثل تسجيل الدخول، الداشبورد، المنتجات، الطلبات، وتحديث صفحة المتجر.
