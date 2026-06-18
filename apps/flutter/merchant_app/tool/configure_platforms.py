@@ -41,10 +41,11 @@ def configure_android() -> None:
     if build_gradle_path.exists():
         build_gradle = build_gradle_path.read_text(encoding="utf-8")
         if "isCoreLibraryDesugaringEnabled = true" not in build_gradle:
-            build_gradle = patch_once(
-                build_gradle,
-                "compileOptions {",
-                "compileOptions {\n        isCoreLibraryDesugaringEnabled = true\n",
+            build_gradle = build_gradle.replace(
+                "compileOptions {\n",
+                "compileOptions {\n"
+                "        isCoreLibraryDesugaringEnabled = true\n",
+                1,
             )
         if "coreLibraryDesugaring(" not in build_gradle:
             build_gradle = (
