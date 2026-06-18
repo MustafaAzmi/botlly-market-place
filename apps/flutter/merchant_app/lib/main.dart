@@ -36,16 +36,153 @@ const governorates = <String>[
   'حلبجة',
 ];
 
-final numberFormat = NumberFormat.decimalPattern('ar');
 const apiBaseUrl = String.fromEnvironment(
   'BOTLLY_API_BASE_URL',
   defaultValue: 'https://bot-lly.tech',
 );
 const placeholderImage =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
-const allYearsLabel = 'كل السنوات';
 const maxProductImages = 6;
 const _unset = Object();
+
+enum AppLanguage {
+  ar('ar', 'العربية', ui.TextDirection.rtl, 'ar'),
+  en('en', 'English', ui.TextDirection.ltr, 'en'),
+  ckb('ckb', 'کوردی', ui.TextDirection.rtl, 'ar');
+
+  const AppLanguage(this.code, this.label, this.direction, this.numberLocale);
+
+  final String code;
+  final String label;
+  final ui.TextDirection direction;
+  final String numberLocale;
+
+  static AppLanguage parse(String? value) {
+    return AppLanguage.values.firstWhere(
+      (language) => language.code == value,
+      orElse: () => AppLanguage.ar,
+    );
+  }
+}
+
+NumberFormat numberFormatFor(BuildContext context) {
+  return NumberFormat.decimalPattern(LocaleScope.languageOf(context).numberLocale);
+}
+
+class LocaleScope extends InheritedWidget {
+  const LocaleScope({
+    required this.language,
+    required this.onChanged,
+    required super.child,
+    super.key,
+  });
+
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onChanged;
+
+  static AppLanguage languageOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<LocaleScope>()?.language ?? AppLanguage.ar;
+  }
+
+  static AppText textOf(BuildContext context) => AppText(languageOf(context));
+
+  static void setLanguage(BuildContext context, AppLanguage language) {
+    context.dependOnInheritedWidgetOfExactType<LocaleScope>()?.onChanged(language);
+  }
+
+  @override
+  bool updateShouldNotify(LocaleScope oldWidget) => language != oldWidget.language;
+}
+
+class AppText {
+  const AppText(this.language);
+
+  final AppLanguage language;
+
+  String pick(String ar, String en, String ckb) => switch (language) {
+        AppLanguage.ar => ar,
+        AppLanguage.en => en,
+        AppLanguage.ckb => ckb,
+      };
+
+  String get appTitle => pick('بوتلي تاجر', 'Botlly Merchant', 'بۆتلی فرۆشیار');
+  String get appSubtitle => pick('إدارة المتجر والطلبات', 'Store and order management', 'بەڕێوەبردنی دوکان و داواکارییەکان');
+  String get resetPassword => pick('استعادة كلمة المرور', 'Reset password', 'گەڕاندنەوەی وشەی نهێنی');
+  String get merchantLogin => pick('دخول التاجر', 'Merchant login', 'چوونەژوورەوەی فرۆشیار');
+  String get resetHint => pick('اختر رقم الواتساب أو الإيميل لإرسال كود إعادة التعيين.', 'Use WhatsApp or email to request a reset code.', 'واتساپ یان ئیمەیڵ بەکاربهێنە بۆ کۆدی گەڕاندنەوە.');
+  String get authHint => pick('سجل دخولك أو أنشئ متجر جديد لإدارة المنتجات والطلبات.', 'Sign in or create a store to manage products and orders.', 'بچۆ ژوورەوە یان دوکانێکی نوێ دروست بکە بۆ بەڕێوەبردنی کاڵا و داواکاری.');
+  String get whatsapp => pick('رقم الواتساب', 'WhatsApp number', 'ژمارەی واتساپ');
+  String get optionalEmail => pick('الإيميل اختياري', 'Email optional', 'ئیمەیڵ ئارەزوومەندانەیە');
+  String get sendResetCode => pick('إرسال كود التعيين', 'Send reset code', 'ناردنی کۆدی گەڕاندنەوە');
+  String get resetPrepared => pick('تم تجهيز طلب إعادة التعيين. سيتم ربطه بقالب واتساب/إيميل بالخطوة القادمة.', 'Reset request prepared. WhatsApp/email delivery will be connected next.', 'داواکاری گەڕاندنەوە ئامادەیە. ناردنی واتساپ/ئیمەیڵ دواتر دەبەسترێتەوە.');
+  String get back => pick('رجوع', 'Back', 'گەڕانەوە');
+  String get login => pick('دخول', 'Login', 'چوونەژوورەوە');
+  String get signup => pick('إنشاء', 'Create', 'دروستکردن');
+  String get storeName => pick('اسم المحل أو الشركة', 'Store or company name', 'ناوی دوکان یان کۆمپانیا');
+  String get governorate => pick('المحافظة', 'Governorate', 'پارێزگا');
+  String get password => pick('كلمة المرور', 'Password', 'وشەی نهێنی');
+  String get forgotPassword => pick('نسيت كلمة المرور؟', 'Forgot password?', 'وشەی نهێنیت لەبیرچووە؟');
+  String get enterDashboard => pick('دخول إلى اللوحة', 'Open dashboard', 'کردنەوەی داشبۆرد');
+  String get createAccount => pick('إنشاء الحساب', 'Create account', 'دروستکردنی هەژمار');
+  String get home => pick('الرئيسية', 'Home', 'سەرەکی');
+  String get products => pick('المنتجات', 'Products', 'کاڵاکان');
+  String get orders => pick('الطلبات', 'Orders', 'داواکارییەکان');
+  String get store => pick('المتجر', 'Store', 'دوکان');
+  String greeting(String name) => pick('هلا $name', 'Hi $name', 'سڵاو $name');
+  String get dashboardSubtitle => pick('تابع أداء متجرك والمنتجات التي تظهر للزبائن.', 'Track store performance and products shown to customers.', 'چاودێری کارایی دوکان و کاڵاکانی پیشاندراو بە کڕیاران بکە.');
+  String get signOut => pick('خروج', 'Sign out', 'چوونەدەرەوە');
+  String get search => pick('بحث', 'Search', 'گەڕان');
+  String get completion => pick('اكتمال الصفحة', 'Page completion', 'تەواوبوونی پەڕە');
+  String get latestProducts => pick('آخر المنتجات', 'Latest products', 'دوایین کاڵاکان');
+  String get noProductsYet => pick('لا توجد منتجات بعد. أضف أول منتج حتى يظهر للزبائن.', 'No products yet. Add the first product so customers can see it.', 'هێشتا هیچ کاڵایەک نییە. یەکەم کاڵا زیاد بکە تا بۆ کڕیاران دەربکەوێت.');
+  String get profileCompletion => pick('اكتمال صفحة المتجر', 'Store page completion', 'تەواوبوونی پەڕەی دوکان');
+  String get profileCompletionHint => pick('أكمل اللوكو، الغلاف، البايو، رقم التوصيل، وأول منتج.', 'Complete logo, cover, bio, delivery phone, and first product.', 'لۆگۆ، کاڤەر، بایۆ، ژمارەی گەیاندن و یەکەم کاڵا تەواو بکە.');
+  String get productsSubtitle => pick('أضف وعدل القطع التي يبحث عنها الزبائن في بوتلي.', 'Add and edit the parts customers search for in Botlly.', 'ئەو پارچانە زیاد و دەستکاری بکە کڕیاران لە بۆتلی دەیانگەڕێن.');
+  String get addProduct => pick('إضافة منتج', 'Add product', 'زیادکردنی کاڵا');
+  String get editProduct => pick('تعديل منتج', 'Edit product', 'دەستکاریکردنی کاڵا');
+  String get noMatchingProducts => pick('لا توجد منتجات مطابقة. أضف منتج جديد حتى يقدر البوت يرشحه للزبائن.', 'No matching products. Add a product so the bot can recommend it.', 'کاڵای هاوتا نییە. کاڵایەکی نوێ زیاد بکە تا بۆتەک پێشنیازی بکات.');
+  String get productDeleted => pick('تم حذف المنتج', 'Product deleted', 'کاڵاکە سڕایەوە');
+  String get ordersSubtitle => pick('الطلبات التي أنشأها بوت واتساب لهذا المتجر.', 'Orders created by the WhatsApp bot for this store.', 'ئەو داواکارییانەی بۆتی واتساپ بۆ ئەم دوکانە دروستی کردووە.');
+  String get noOrders => pick('لا توجد طلبات بعد.', 'No orders yet.', 'هێشتا داواکاری نییە.');
+  String get confirmed => pick('مؤكد', 'Confirmed', 'پشتڕاستکراو');
+  String get sentToDelivery => pick('تم إرسال الطلب للتوصيل', 'Sent to delivery', 'داواکاری بۆ گەیاندن نێردرا');
+  String get storePage => pick('صفحة التاجر', 'Merchant page', 'پەڕەی فرۆشیار');
+  String get storeSubtitle => pick('بيانات المتجر التي تظهر للزبائن وتستخدم بالبحث القريب.', 'Store details shown to customers and used for nearby search.', 'زانیاری دوکان کە بۆ کڕیاران دەردەکەوێت و بۆ گەڕانی نزیک بەکاردێت.');
+  String get preview => pick('معاينة', 'Preview', 'پێشبینین');
+  String get storeImages => pick('صور المتجر', 'Store images', 'وێنەکانی دوکان');
+  String get storeImagesHint => pick('رفع اللوكو والغلاف سيتم ربطه مع اختيار الصور بالخطوة القادمة.', 'Logo and cover upload will be connected in the next step.', 'بارکردنی لۆگۆ و کاڤەر لە هەنگاوی داهاتوو دەبەسترێتەوە.');
+  String get merchantWhatsapp => pick('رقم واتساب التاجر', 'Merchant WhatsApp', 'واتساپی فرۆشیار');
+  String get storeBio => pick('بايو المحل', 'Store bio', 'بایۆی دوکان');
+  String get storeAddress => pick('عنوان المتجر أو رابط الموقع', 'Store address or map link', 'ناونیشانی دوکان یان لینکی شوێن');
+  String get deliveryPhone => pick('رقم التوصيل', 'Delivery phone', 'ژمارەی گەیاندن');
+  String get storeSaved => pick('تم حفظ صفحة المتجر', 'Store page saved', 'پەڕەی دوکان پاشەکەوت کرا');
+  String get saveContinue => pick('حفظ والمتابعة', 'Save and continue', 'پاشەکەوت و بەردەوامبوون');
+  String productPhotos(int count) => pick('صور المنتج ($count/$maxProductImages)', 'Product photos ($count/$maxProductImages)', 'وێنەکانی کاڵا ($count/$maxProductImages)');
+  String get camera => pick('الكاميرا', 'Camera', 'کامێرا');
+  String get gallery => pick('الاستوديو', 'Gallery', 'گەلەری');
+  String get primary => pick('الرئيسية', 'Primary', 'سەرەکی');
+  String get photoHint => pick('أضف صورة واحدة على الأقل، وبحد أقصى 6 صور لكل منتج.', 'Add at least one photo, up to 6 per product.', 'لانیکەم وێنەیەک زیاد بکە، تا ٦ وێنە بۆ هەر کاڵایەک.');
+  String get productName => pick('اسم المنتج', 'Product name', 'ناوی کاڵا');
+  String get description => pick('الوصف', 'Description', 'وەسف');
+  String get currentPrice => pick('السعر الحالي', 'Current price', 'نرخی ئێستا');
+  String get finalPrice => pick('السعر النهائي', 'Final price', 'نرخی کۆتایی');
+  String get quantity => pick('الكمية', 'Quantity', 'بڕ');
+  String get color => pick('اللون', 'Color', 'ڕەنگ');
+  String get size => pick('الحجم/المقاس', 'Size', 'قەبارە');
+  String get carMake => pick('نوع السيارة', 'Car make', 'جۆری ئۆتۆمبێل');
+  String get carModel => pick('الموديل', 'Model', 'مۆدێل');
+  String get carYear => pick('سنة الصنع', 'Manufacture year', 'ساڵی دروستکردن');
+  String get allYears => pick('كل السنوات', 'All years', 'هەموو ساڵەکان');
+  String get photoRequired => pick('أضف صورة واحدة على الأقل للمنتج.', 'Add at least one product photo.', 'لانیکەم وێنەیەک بۆ کاڵاکە زیاد بکە.');
+  String get productRequired => pick('اسم المنتج والوصف والسعر مطلوبة.', 'Product name, description, and price are required.', 'ناو، وەسف و نرخ پێویستن.');
+  String get productSaved => pick('تم حفظ المنتج', 'Product saved', 'کاڵاکە پاشەکەوت کرا');
+  String get saveProduct => pick('حفظ المنتج', 'Save product', 'پاشەکەوتکردنی کاڵا');
+  String get sessionExpired => pick('انتهت الجلسة. سجل دخول مرة ثانية.', 'Session expired. Sign in again.', 'دانیشتنەکە تەواو بوو. دووبارە بچۆ ژوورەوە.');
+  String get missingLoginFields => pick('رقم الواتساب وكلمة المرور مطلوبة.', 'WhatsApp and password are required.', 'واتساپ و وشەی نهێنی پێویستن.');
+  String get missingSignupFields => pick('اسم المحل ورقم الواتساب والمحافظة وكلمة المرور مطلوبة.', 'Store name, WhatsApp, governorate, and password are required.', 'ناوی دوکان، واتساپ، پارێزگا و وشەی نهێنی پێویستن.');
+  String get badResponse => pick('استجابة غير مفهومة من الخادم.', 'Unexpected server response.', 'وەڵامی سێرڤەر ڕوون نییە.');
+  String get backendError => pick('تعذر الاتصال بالباكند.', 'Could not contact backend.', 'پەیوەندی بە باکێندەوە نەکرا.');
+}
 
 class BotlyMerchantApp extends StatefulWidget {
   const BotlyMerchantApp({super.key});
@@ -56,51 +193,75 @@ class BotlyMerchantApp extends StatefulWidget {
 
 class _BotlyMerchantAppState extends State<BotlyMerchantApp> {
   final repository = MerchantRepository();
+  var language = AppLanguage.ar;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restoreLanguage());
+  }
+
+  Future<void> _restoreLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => language = AppLanguage.parse(prefs.getString('app_language')));
+  }
+
+  Future<void> _setLanguage(AppLanguage next) async {
+    if (next == language) return;
+    setState(() => language = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_language', next.code);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MerchantScope(
       repository: repository,
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'بوتلي تاجر',
-        locale: const Locale('ar'),
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xff22c55e),
-            brightness: Brightness.light,
-          ),
-          scaffoldBackgroundColor: const Color(0xfff7faf7),
-          fontFamily: 'Roboto',
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xffdfe7df)),
+      child: LocaleScope(
+        language: language,
+        onChanged: (next) => unawaited(_setLanguage(next)),
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: AppText(language).appTitle,
+          locale: Locale(language.code),
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xff22c55e),
+              brightness: Brightness.light,
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xffdfe7df)),
+            scaffoldBackgroundColor: const Color(0xfff7faf7),
+            fontFamily: 'Roboto',
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xffdfe7df)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xffdfe7df)),
+              ),
+            ),
+            cardTheme: CardThemeData(
+              elevation: 0,
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: const BorderSide(color: Color(0xffe3e9e3)),
+              ),
             ),
           ),
-          cardTheme: CardThemeData(
-            elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-              side: const BorderSide(color: Color(0xffe3e9e3)),
-            ),
-          ),
+          builder: (context, child) {
+            return Directionality(
+              textDirection: language.direction,
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: const SplashGate(),
         ),
-        builder: (context, child) {
-          return Directionality(
-            textDirection: ui.TextDirection.rtl,
-            child: child ?? const SizedBox.shrink(),
-          );
-        },
-        home: const SplashGate(),
       ),
     );
   }
@@ -761,6 +922,15 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    final t = LocaleScope.textOf(context);
+    if (whatsapp.text.trim().isEmpty || password.text.isEmpty) {
+      _showMessage(context, t.missingLoginFields);
+      return;
+    }
+    if (mode == AuthMode.signup && (storeName.text.trim().isEmpty || city.trim().isEmpty)) {
+      _showMessage(context, t.missingSignupFields);
+      return;
+    }
     setState(() => loading = true);
     try {
       final repository = MerchantScope.of(context);
@@ -780,7 +950,7 @@ class _AuthScreenState extends State<AuthScreen> {
         MaterialPageRoute<void>(builder: (_) => const MerchantHome()),
       );
     } catch (error) {
-      _showMessage(context, error.toString().replaceFirst('Bad state: ', ''));
+      _showMessage(context, _localizedError(context, error));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -788,68 +958,72 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     return Scaffold(
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const _BrandHeader(),
+            Row(
+              children: [
+                const Expanded(child: _BrandHeader()),
+                const _LanguageButton(),
+              ],
+            ),
             const SizedBox(height: 24),
             Text(
-              showReset ? 'استعادة كلمة المرور' : 'دخول التاجر',
+              showReset ? t.resetPassword : t.merchantLogin,
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
-              showReset
-                  ? 'اختر رقم الواتساب أو الإيميل لإرسال كود إعادة التعيين.'
-                  : 'سجل دخولك أو أنشئ متجر جديد لإدارة المنتجات والطلبات.',
+              showReset ? t.resetHint : t.authHint,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
             ),
             const SizedBox(height: 24),
             if (showReset) ...[
-              TextField(controller: whatsapp, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الواتساب')),
+              TextField(controller: whatsapp, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t.whatsapp)),
               const SizedBox(height: 12),
-              TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'الإيميل اختياري')),
+              TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: t.optionalEmail)),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: () {
-                  _showMessage(context, 'تم تجهيز طلب إعادة التعيين. سيتم ربطه بقالب واتساب/إيميل بالخطوة القادمة.');
+                  _showMessage(context, t.resetPrepared);
                   setState(() => showReset = false);
                 },
                 icon: const Icon(Icons.send_rounded),
-                label: const Text('إرسال كود التعيين'),
+                label: Text(t.sendResetCode),
               ),
-              TextButton(onPressed: () => setState(() => showReset = false), child: const Text('رجوع')),
+              TextButton(onPressed: () => setState(() => showReset = false), child: Text(t.back)),
             ] else ...[
               SegmentedButton<AuthMode>(
-                segments: const [
-                  ButtonSegment(value: AuthMode.login, label: Text('دخول'), icon: Icon(Icons.login_rounded)),
-                  ButtonSegment(value: AuthMode.signup, label: Text('إنشاء'), icon: Icon(Icons.storefront_rounded)),
+                segments: [
+                  ButtonSegment(value: AuthMode.login, label: Text(t.login), icon: const Icon(Icons.login_rounded)),
+                  ButtonSegment(value: AuthMode.signup, label: Text(t.signup), icon: const Icon(Icons.storefront_rounded)),
                 ],
                 selected: {mode},
                 onSelectionChanged: (value) => setState(() => mode = value.first),
               ),
               const SizedBox(height: 16),
               if (mode == AuthMode.signup) ...[
-                TextField(controller: storeName, decoration: const InputDecoration(labelText: 'اسم المحل أو الشركة')),
+                TextField(controller: storeName, decoration: InputDecoration(labelText: t.storeName)),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: city,
-                  decoration: const InputDecoration(labelText: 'المحافظة'),
+                  decoration: InputDecoration(labelText: t.governorate),
                   items: governorates.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
                   onChanged: (value) => setState(() => city = value ?? governorates.first),
                 ),
                 const SizedBox(height: 12),
-                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'الإيميل اختياري')),
+                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: t.optionalEmail)),
                 const SizedBox(height: 12),
               ],
-              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم الواتساب')),
+              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: InputDecoration(labelText: t.whatsapp)),
               const SizedBox(height: 12),
-              TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'كلمة المرور')),
+              TextField(controller: password, obscureText: true, decoration: InputDecoration(labelText: t.password)),
               Align(
                 alignment: AlignmentDirectional.centerStart,
-                child: TextButton(onPressed: () => setState(() => showReset = true), child: const Text('نسيت كلمة المرور؟')),
+                child: TextButton(onPressed: () => setState(() => showReset = true), child: Text(t.forgotPassword)),
               ),
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -857,7 +1031,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 icon: loading
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.arrow_back_rounded),
-                label: Text(mode == AuthMode.login ? 'دخول إلى اللوحة' : 'إنشاء الحساب'),
+                label: Text(mode == AuthMode.login ? t.enterDashboard : t.createAccount),
               ),
             ],
           ],
@@ -881,6 +1055,7 @@ class _MerchantHomeState extends State<MerchantHome> {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     final pages = [
       const DashboardScreen(),
       const ProductsScreen(),
@@ -895,11 +1070,11 @@ class _MerchantHomeState extends State<MerchantHome> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
         onDestinationSelected: (value) => setState(() => index = value),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_rounded), label: 'الرئيسية'),
-          NavigationDestination(icon: Icon(Icons.inventory_2_rounded), label: 'المنتجات'),
-          NavigationDestination(icon: Icon(Icons.shopping_bag_rounded), label: 'الطلبات'),
-          NavigationDestination(icon: Icon(Icons.store_rounded), label: 'المتجر'),
+        destinations: [
+          NavigationDestination(icon: const Icon(Icons.dashboard_rounded), label: t.home),
+          NavigationDestination(icon: const Icon(Icons.inventory_2_rounded), label: t.products),
+          NavigationDestination(icon: const Icon(Icons.shopping_bag_rounded), label: t.orders),
+          NavigationDestination(icon: const Icon(Icons.store_rounded), label: t.store),
         ],
       ),
     );
@@ -911,17 +1086,19 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     final repository = MerchantScope.of(context);
     return FutureBuilder<MerchantDashboard>(
       future: repository.getDashboard(),
       builder: (context, snapshot) {
         final dashboard = snapshot.data;
         return _PageScaffold(
-          title: 'هلا ${dashboard?.profile.storeName ?? ''}',
-          subtitle: 'تابع أداء متجرك والمنتجات التي تظهر للزبائن.',
+          title: t.greeting(dashboard?.profile.storeName ?? ''),
+          subtitle: t.dashboardSubtitle,
           actions: [
+            const _LanguageButton(),
             IconButton.filledTonal(
-              tooltip: 'خروج',
+              tooltip: t.signOut,
               onPressed: () async {
                 await repository.signOut();
                 if (context.mounted) {
@@ -940,28 +1117,28 @@ class DashboardScreen extends StatelessWidget {
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        _StatTile(icon: Icons.inventory_2_rounded, label: 'المنتجات', value: '${dashboard!.products.length}'),
-                        _StatTile(icon: Icons.search_rounded, label: 'البحث', value: '0'),
-                        _StatTile(icon: Icons.shopping_bag_rounded, label: 'الطلبات', value: '${dashboard.orders.length}'),
-                        _StatTile(icon: Icons.trending_up_rounded, label: 'اكتمال الصفحة', value: '${dashboard.completion}%'),
+                        _StatTile(icon: Icons.inventory_2_rounded, label: t.products, value: '${dashboard!.products.length}'),
+                        _StatTile(icon: Icons.search_rounded, label: t.search, value: '0'),
+                        _StatTile(icon: Icons.shopping_bag_rounded, label: t.orders, value: '${dashboard.orders.length}'),
+                        _StatTile(icon: Icons.trending_up_rounded, label: t.completion, value: '${dashboard.completion}%'),
                       ],
                     ),
                     const SizedBox(height: 18),
                     _SectionCard(
-                      title: 'آخر المنتجات',
+                      title: t.latestProducts,
                       child: dashboard.products.isEmpty
-                          ? const _EmptyHint(text: 'لا توجد منتجات بعد. أضف أول منتج حتى يظهر للزبائن.')
+                          ? _EmptyHint(text: t.noProductsYet)
                           : Column(
                               children: dashboard.products.take(4).map((product) => _ProductListTile(product: product)).toList(),
                             ),
                     ),
                     const SizedBox(height: 18),
                     _SectionCard(
-                      title: 'اكتمال صفحة المتجر',
+                      title: t.profileCompletion,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('أكمل اللوكو، الغلاف، البايو، رقم التوصيل، وأول منتج.'),
+                          Text(t.profileCompletionHint),
                           const SizedBox(height: 12),
                           LinearProgressIndicator(value: dashboard.completion / 100),
                           const SizedBox(height: 6),
@@ -1006,6 +1183,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     final repository = MerchantScope.of(context);
     return FutureBuilder<List<MerchantProduct>>(
       future: _productsFuture,
@@ -1014,11 +1192,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
             .where((product) => '${product.title} ${product.description} ${product.color ?? ''} ${product.size ?? ''}'.contains(query))
             .toList();
         return _PageScaffold(
-          title: 'المنتجات',
-          subtitle: 'أضف وعدل القطع التي يبحث عنها الزبائن في بوتلي.',
+          title: t.products,
+          subtitle: t.productsSubtitle,
           actions: [
             IconButton.filled(
-              tooltip: 'إضافة منتج',
+              tooltip: t.addProduct,
               onPressed: () => _openProductSheet(context).then((changed) {
                 if (changed == true && mounted) _refreshProducts();
               }),
@@ -1028,7 +1206,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
           child: Column(
             children: [
               TextField(
-                decoration: const InputDecoration(prefixIcon: Icon(Icons.search_rounded), labelText: 'بحث'),
+                decoration: InputDecoration(prefixIcon: const Icon(Icons.search_rounded), labelText: t.search),
                 onChanged: (value) => setState(() => query = value),
               ),
               const SizedBox(height: 16),
@@ -1037,13 +1215,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
               else if (products.isEmpty)
                 Expanded(
                   child: _EmptyHint(
-                    text: 'لا توجد منتجات مطابقة. أضف منتج جديد حتى يقدر البوت يرشحه للزبائن.',
+                    text: t.noMatchingProducts,
                     action: FilledButton.icon(
                       onPressed: () => _openProductSheet(context).then((changed) {
                         if (changed == true && mounted) _refreshProducts();
                       }),
                       icon: const Icon(Icons.add_rounded),
-                      label: const Text('إضافة منتج'),
+                      label: Text(t.addProduct),
                     ),
                   ),
                 )
@@ -1061,7 +1239,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         }),
                         onDelete: () async {
                           await repository.deleteProduct(product.id);
-                          if (context.mounted) _showMessage(context, 'تم حذف المنتج');
+                          if (context.mounted) _showMessage(context, t.productDeleted);
                           if (mounted) _refreshProducts();
                         },
                       );
@@ -1081,18 +1259,19 @@ class OrdersScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     final repository = MerchantScope.of(context);
     return FutureBuilder<List<MerchantOrder>>(
       future: repository.listOrders(),
       builder: (context, snapshot) {
         final orders = snapshot.data ?? [];
         return _PageScaffold(
-          title: 'طلبات التاجر',
-          subtitle: 'الطلبات التي أنشأها بوت واتساب لهذا المتجر.',
+          title: t.orders,
+          subtitle: t.ordersSubtitle,
           child: snapshot.connectionState != ConnectionState.done
               ? const Center(child: CircularProgressIndicator())
               : orders.isEmpty
-                  ? const _EmptyHint(text: 'لا توجد طلبات بعد.')
+                  ? _EmptyHint(text: t.noOrders)
                   : ListView.separated(
                       itemCount: orders.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -1107,14 +1286,14 @@ class OrdersScreen extends StatelessWidget {
                                 Row(
                                   children: [
                                     Expanded(child: Text(order.productTitle, style: const TextStyle(fontWeight: FontWeight.w800))),
-                                    Chip(label: Text(order.status == 'confirmed' ? 'مؤكد' : order.status)),
+                                    Chip(label: Text(order.status == 'confirmed' ? t.confirmed : order.status)),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                Text('${numberFormat.format(order.productPrice)} ${order.currency}'),
+                                Text('${numberFormatFor(context).format(order.productPrice)} ${order.currency}'),
                                 Text(order.customerNumber, textDirection: ui.TextDirection.ltr),
                                 Text(order.customerDetails),
-                                if (order.sentToDelivery) const Text('تم إرسال الطلب للتوصيل'),
+                                if (order.sentToDelivery) Text(t.sentToDelivery),
                               ],
                             ),
                           ),
@@ -1166,15 +1345,16 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     final repository = MerchantScope.of(context);
     final profile = repository.profile;
     if (profile != null) _init(profile);
     return _PageScaffold(
-      title: 'صفحة التاجر',
-      subtitle: 'بيانات المتجر التي تظهر للزبائن وتستخدم بالبحث القريب.',
+      title: t.storePage,
+      subtitle: t.storeSubtitle,
       actions: [
         IconButton.filledTonal(
-          tooltip: 'معاينة',
+          tooltip: t.preview,
           onPressed: () async {
             final slug = repository.profile?.storeSlug ?? 'store';
             final uri = Uri.parse('https://bot-lly.tech/store/$slug');
@@ -1200,29 +1380,29 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     child: const Icon(Icons.storefront_rounded, color: Colors.white),
                   ),
-                  title: const Text('صور المتجر'),
-                  subtitle: const Text('رفع اللوكو والغلاف سيتم ربطه مع اختيار الصور بالخطوة القادمة.'),
+                  title: Text(t.storeImages),
+                  subtitle: Text(t.storeImagesHint),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 14),
-          TextField(controller: storeName, decoration: const InputDecoration(labelText: 'اسم المحل أو الشركة')),
+          TextField(controller: storeName, decoration: InputDecoration(labelText: t.storeName)),
           const SizedBox(height: 12),
-          TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم واتساب التاجر')),
+          TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: InputDecoration(labelText: t.merchantWhatsapp)),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: governorates.contains(city) ? city : governorates.first,
-            decoration: const InputDecoration(labelText: 'المحافظة'),
+            decoration: InputDecoration(labelText: t.governorate),
             items: governorates.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
             onChanged: (value) => setState(() => city = value ?? governorates.first),
           ),
           const SizedBox(height: 12),
-          TextField(controller: bio, maxLines: 3, decoration: const InputDecoration(labelText: 'بايو المحل')),
+          TextField(controller: bio, maxLines: 3, decoration: InputDecoration(labelText: t.storeBio)),
           const SizedBox(height: 12),
-          TextField(controller: address, maxLines: 3, decoration: const InputDecoration(labelText: 'عنوان المتجر أو رابط الموقع')),
+          TextField(controller: address, maxLines: 3, decoration: InputDecoration(labelText: t.storeAddress)),
           const SizedBox(height: 12),
-          TextField(controller: deliveryPhone, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: const InputDecoration(labelText: 'رقم التوصيل')),
+          TextField(controller: deliveryPhone, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: InputDecoration(labelText: t.deliveryPhone)),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: () async {
@@ -1238,10 +1418,10 @@ class _StoreProfileScreenState extends State<StoreProfileScreen> {
                   deliveryPhone: deliveryPhone.text.trim(),
                 ),
               );
-              if (context.mounted) _showMessage(context, 'تم حفظ صفحة المتجر');
+              if (context.mounted) _showMessage(context, t.storeSaved);
             },
             icon: const Icon(Icons.save_rounded),
-            label: const Text('حفظ والمتابعة'),
+            label: Text(t.saveContinue),
           ),
         ],
       ),
@@ -1299,6 +1479,7 @@ class _BrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = LocaleScope.textOf(context);
     return Row(
       children: [
         Container(
@@ -1311,14 +1492,43 @@ class _BrandHeader extends StatelessWidget {
           child: const Icon(Icons.storefront_rounded, color: Colors.white),
         ),
         const SizedBox(width: 12),
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('بوتلي تاجر', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-            Text('إدارة المتجر والطلبات', style: TextStyle(color: Colors.black54)),
+            Text(t.appTitle, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            Text(t.appSubtitle, style: const TextStyle(color: Colors.black54)),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _LanguageButton extends StatelessWidget {
+  const _LanguageButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = LocaleScope.languageOf(context);
+    return PopupMenuButton<AppLanguage>(
+      tooltip: 'Language',
+      icon: const Icon(Icons.language_rounded),
+      initialValue: selected,
+      onSelected: (language) => LocaleScope.setLanguage(context, language),
+      itemBuilder: (context) => AppLanguage.values
+          .map(
+            (language) => PopupMenuItem(
+              value: language,
+              child: Row(
+                children: [
+                  if (language == selected) const Icon(Icons.check_rounded, size: 18) else const SizedBox(width: 18),
+                  const SizedBox(width: 8),
+                  Text(language.label),
+                ],
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -1395,7 +1605,7 @@ class _ProductListTile extends StatelessWidget {
       ),
       title: Text(product.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text([product.color, product.size].where((item) => item != null && item!.isNotEmpty).join(' - ')),
-      trailing: Text('${numberFormat.format(product.customerPrice)} ${product.currency}'),
+      trailing: Text('${numberFormatFor(context).format(product.customerPrice)} ${product.currency}'),
     );
   }
 }
@@ -1460,7 +1670,7 @@ class _ProductCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                Text('${numberFormat.format(product.customerPrice)} ${product.currency}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                Text('${numberFormatFor(context).format(product.customerPrice)} ${product.currency}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                 const Spacer(),
                 IconButton(onPressed: onEdit, icon: const Icon(Icons.edit_rounded)),
                 IconButton(onPressed: onDelete, icon: const Icon(Icons.delete_rounded), color: Colors.red),
@@ -1502,13 +1712,14 @@ class _EmptyHint extends StatelessWidget {
 }
 
 Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}) async {
+  final t = LocaleScope.textOf(context);
   final repository = MerchantScope.of(context);
   late final MerchantCatalogue catalogue;
   try {
     catalogue = await repository.getCatalogue();
   } catch (error) {
     if (context.mounted) {
-      _showMessage(context, error.toString().replaceFirst('Bad state: ', ''));
+      _showMessage(context, _localizedError(context, error));
     }
     return false;
   }
@@ -1557,7 +1768,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
               shrinkWrap: true,
               children: [
                 Text(
-                  product == null ? 'إضافة منتج' : 'تعديل منتج',
+                  product == null ? t.addProduct : t.editProduct,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 14),
@@ -1567,7 +1778,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('صور المنتج (${images.length}/$maxProductImages)', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        Text(t.productPhotos(images.length), style: const TextStyle(fontWeight: FontWeight.w800)),
                         const SizedBox(height: 10),
                         Row(
                           children: [
@@ -1575,7 +1786,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                               child: OutlinedButton.icon(
                                 onPressed: images.length >= maxProductImages ? null : () => addImages(ImageSource.camera),
                                 icon: const Icon(Icons.camera_alt_rounded),
-                                label: const Text('الكاميرا'),
+                                label: Text(t.camera),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -1583,14 +1794,14 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                               child: OutlinedButton.icon(
                                 onPressed: images.length >= maxProductImages ? null : () => addImages(ImageSource.gallery),
                                 icon: const Icon(Icons.photo_library_rounded),
-                                label: const Text('الاستوديو'),
+                                label: Text(t.gallery),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         if (images.isEmpty)
-                          const _EmptyHint(text: 'أضف صورة واحدة على الأقل، وبحد أقصى 6 صور لكل منتج.')
+                          _EmptyHint(text: t.photoHint)
                         else
                           GridView.builder(
                             shrinkWrap: true,
@@ -1618,9 +1829,9 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                                           color: Theme.of(context).colorScheme.primary,
                                           borderRadius: BorderRadius.circular(6),
                                         ),
-                                        child: const Padding(
-                                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          child: Text('الرئيسية', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          child: Text(t.primary, style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         ),
                                       ),
                                     ),
@@ -1642,26 +1853,26 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                   ),
                 ),
                 const SizedBox(height: 10),
-                TextField(controller: title, decoration: const InputDecoration(labelText: 'اسم المنتج')),
+                TextField(controller: title, decoration: InputDecoration(labelText: t.productName)),
                 const SizedBox(height: 10),
-                TextField(controller: description, maxLines: 2, decoration: const InputDecoration(labelText: 'الوصف')),
+                TextField(controller: description, maxLines: 2, decoration: InputDecoration(labelText: t.description)),
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(child: TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر الحالي'))),
+                    Expanded(child: TextField(controller: price, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t.currentPrice))),
                     const SizedBox(width: 10),
-                    Expanded(child: TextField(controller: discount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'السعر النهائي'))),
+                    Expanded(child: TextField(controller: discount, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t.finalPrice))),
                   ],
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(child: TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الكمية'))),
+                    Expanded(child: TextField(controller: quantity, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t.quantity))),
                     const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: catalogue.colors.contains(selectedColor) ? selectedColor : null,
-                        decoration: const InputDecoration(labelText: 'اللون'),
+                        decoration: InputDecoration(labelText: t.color),
                         items: catalogue.colors.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
                         onChanged: (value) => setSheetState(() => selectedColor = value ?? ''),
                       ),
@@ -1669,13 +1880,13 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                   ],
                 ),
                 const SizedBox(height: 10),
-                TextField(controller: size, decoration: const InputDecoration(labelText: 'الحجم/المقاس')),
+                TextField(controller: size, decoration: InputDecoration(labelText: t.size)),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   value: catalogue.makes.any((item) => item.label == selectedMake || item.key == selectedMake)
                       ? selectedMake
                       : null,
-                  decoration: const InputDecoration(labelText: 'نوع السيارة'),
+                  decoration: InputDecoration(labelText: t.carMake),
                   items: catalogue.makes.map((item) => DropdownMenuItem(value: item.label, child: Text(item.label))).toList(),
                   onChanged: (value) => setSheetState(() {
                     selectedMake = value ?? '';
@@ -1685,16 +1896,16 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   value: models.contains(selectedModel) ? selectedModel : null,
-                  decoration: const InputDecoration(labelText: 'الموديل'),
+                  decoration: InputDecoration(labelText: t.carModel),
                   items: models.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
                   onChanged: selectedMake.isEmpty ? null : (value) => setSheetState(() => selectedModel = value ?? ''),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   value: selectedYear.isNotEmpty && catalogue.years.contains(selectedYear) ? selectedYear : null,
-                  decoration: const InputDecoration(labelText: 'سنة الصنع'),
+                  decoration: InputDecoration(labelText: t.carYear),
                   items: [
-                    const DropdownMenuItem(value: '', child: Text(allYearsLabel)),
+                    DropdownMenuItem(value: '', child: Text(t.allYears)),
                     ...catalogue.years.map((item) => DropdownMenuItem(value: item, child: Text(item))),
                   ],
                   onChanged: (value) => setSheetState(() => selectedYear = value ?? ''),
@@ -1706,11 +1917,11 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                       : () async {
                           final parsedPrice = double.tryParse(price.text.trim()) ?? 0;
                           if (images.isEmpty) {
-                            _showMessage(context, 'أضف صورة واحدة على الأقل للمنتج.');
+                            _showMessage(context, t.photoRequired);
                             return;
                           }
                           if (title.text.trim().isEmpty || description.text.trim().isEmpty || parsedPrice <= 0) {
-                            _showMessage(context, 'اسم المنتج والوصف والسعر مطلوبة.');
+                            _showMessage(context, t.productRequired);
                             return;
                           }
                           setSheetState(() => saving = true);
@@ -1742,11 +1953,11 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                             await repository.saveProduct(next);
                             if (context.mounted) {
                               Navigator.pop(context, true);
-                              _showMessage(context, 'تم حفظ المنتج');
+                              _showMessage(context, t.productSaved);
                             }
                           } catch (error) {
                             if (context.mounted) {
-                              _showMessage(context, error.toString().replaceFirst('Bad state: ', ''));
+                              _showMessage(context, _localizedError(context, error));
                             }
                           } finally {
                             setSheetState(() => saving = false);
@@ -1755,7 +1966,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                   icon: saving
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.save_rounded),
-                  label: const Text('حفظ المنتج'),
+                  label: Text(t.saveProduct),
                 ),
               ],
             ),
@@ -1795,12 +2006,38 @@ Future<List<String>> _pickProductImages(ImageSource source, int remainingSlots) 
 
 ImageProvider _productImageProvider(String image) {
   if (image.startsWith('data:image/')) {
-    final encoded = image.substring(image.indexOf(',') + 1);
-    return MemoryImage(base64Decode(encoded));
+    try {
+      final commaIndex = image.indexOf(',');
+      if (commaIndex <= 0) return _placeholderImageProvider();
+      final encoded = image.substring(commaIndex + 1);
+      return MemoryImage(base64Decode(encoded));
+    } catch (_) {
+      return _placeholderImageProvider();
+    }
+  }
+  final uri = Uri.tryParse(image);
+  if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+    return _placeholderImageProvider();
   }
   return NetworkImage(image);
 }
 
+ImageProvider _placeholderImageProvider() {
+  final encoded = placeholderImage.substring(placeholderImage.indexOf(',') + 1);
+  return MemoryImage(base64Decode(encoded));
+}
+
 void _showMessage(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
+String _localizedError(BuildContext context, Object error) {
+  final t = LocaleScope.textOf(context);
+  final message = error.toString().replaceFirst('Bad state: ', '');
+  if (message.contains('انتهت الجلسة')) return t.sessionExpired;
+  if (message.contains('رقم الواتساب وكلمة المرور')) return t.missingLoginFields;
+  if (message.contains('اسم المحل ورقم الواتساب')) return t.missingSignupFields;
+  if (message.contains('استجابة غير مفهومة')) return t.badResponse;
+  if (message.contains('تعذر الاتصال بالباكند')) return t.backendError;
+  return message;
 }

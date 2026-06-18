@@ -166,6 +166,14 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function productIdentity(row: EventRow) {
+  return getString(row.payload?.productId) || row.id;
+}
+
+function isDeletedProduct(row: EventRow) {
+  return getString(row.payload?.status) === "deleted";
+}
+
 function isMissingTableError(error: { message?: string; code?: string } | null) {
   if (!error) return false;
   const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
@@ -684,9 +692,11 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
     const products: MerchantProduct[] = [];
     for (const row of rows) {
       if (getString(row.payload?.merchantId) !== merchantId) continue;
+      const productId = productIdentity(row);
+      if (seen.has(productId)) continue;
+      seen.add(productId);
+      if (isDeletedProduct(row)) continue;
       const product = toProduct(row);
-      if (seen.has(product.id)) continue;
-      seen.add(product.id);
       products.push(product);
     }
     return products;
@@ -700,6 +710,7 @@ export const getMerchantProduct = createServerFn({ method: "POST" })
     const rows = await listEvents(PRODUCT_PROVIDER);
     const row = rows.find(
       (row) =>
+        !isDeletedProduct(row) &&
         getString(row.payload?.merchantId) === merchantId &&
         (getString(row.payload?.productId) === data.productId || row.id === data.productId),
     );
@@ -732,6 +743,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     const rows = await listEvents(PRODUCT_PROVIDER);
     const row = rows.find(
       (row) =>
+        !isDeletedProduct(row) &&
         getString(row.payload?.merchantId) === merchantId &&
         (getString(row.payload?.productId) === data.productId || row.id === data.productId),
     );
@@ -837,7 +849,9 @@ const deleteProductInput = tokenInput.extend({
   productId: z.string().min(1),
 });
 
-// Hard delete a product from the database (merchant-initiated).
+// Delete a product from the merchant view. We still try to hard-delete old
+// rows, but also append a tombstone so append-only stores cannot resurrect an
+// older product version if a physical delete misses a legacy row.
 export const deleteMerchantProduct = createServerFn({ method: "POST" })
   .inputValidator((d) => deleteProductInput.parse(d))
   .handler(async ({ data }) => {
@@ -846,6 +860,7 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
     const rows = await listEvents(PRODUCT_PROVIDER);
     const row = rows.find(
       (row) =>
+        !isDeletedProduct(row) &&
         getString(row.payload?.merchantId) === merchantId &&
         (getString(row.payload?.productId) === data.productId || row.id === data.productId),
     );
@@ -854,7 +869,7 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
     // Products are append-only (edits add rows with the same productId):
     // delete EVERY event row of this product — by productId AND by row id —
     // otherwise an older version resurrects as "latest" right after delete.
-    const pid = getString(row.payload?.productId);
+    const pid = getString(row.payload?.productId) || data.productId;
     const targetRowIds = rows
       .filter(
         (r) =>
@@ -866,30 +881,48 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
       )
       .map((r) => r.id);
 
-    const store = await getEventStore();
-    if (store === "broadcasts") {
-      const result = await supabaseAdmin.from("broadcasts").delete().in("id", targetRowIds);
-      if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
-    } else {
-      if (pid) {
-        const byProductId = await supabaseAdmin
+    if (targetRowIds.length > 0) {
+      const store = await getEventStore();
+      if (store === "broadcasts") {
+        const result = await supabaseAdmin.from("broadcasts").delete().in("id", targetRowIds);
+        if (result.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+      } else {
+        if (pid) {
+          const byProductId = await supabaseAdmin
+            .from("whatsapp_webhook_events")
+            .delete()
+            .eq("source", "botly")
+            .eq("event_type", PRODUCT_PROVIDER)
+            .eq("payload->>productId" as never, pid);
+          if (byProductId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+        }
+        // Also delete by collected row ids (covers legacy rows without a
+        // productId in the payload).
+        const byRowIds = await supabaseAdmin
           .from("whatsapp_webhook_events")
           .delete()
           .eq("source", "botly")
           .eq("event_type", PRODUCT_PROVIDER)
-          .eq("payload->>productId" as never, pid);
-        if (byProductId.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
+          .in("id", targetRowIds);
+        if (byRowIds.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
       }
-      // Also delete by collected row ids (covers legacy rows without a
-      // productId in the payload).
-      const byRowIds = await supabaseAdmin
-        .from("whatsapp_webhook_events")
-        .delete()
-        .eq("source", "botly")
-        .eq("event_type", PRODUCT_PROVIDER)
-        .in("id", targetRowIds);
-      if (byRowIds.error) throw new Error("تعذر حذف المنتج من قاعدة البيانات");
     }
+
+    await insertEvent(PRODUCT_PROVIDER, {
+      productId: pid,
+      merchantId,
+      whatsapp: getString(merchant.payload?.whatsapp) || getString(row.payload?.whatsapp),
+      title: getString(row.payload?.title),
+      description: getString(row.payload?.description),
+      imageUrl: getString(row.payload?.imageUrl),
+      imageUrls: Array.isArray(row.payload?.imageUrls) ? row.payload?.imageUrls : [],
+      currentPrice: getNumber(row.payload?.currentPrice) ?? 0,
+      currency: getString(row.payload?.currency) || "IQD",
+      status: "deleted",
+      deletedAt: new Date().toISOString(),
+      createdAt: getString(row.payload?.createdAt) || eventTime(row),
+      updatedAt: new Date().toISOString(),
+    });
 
     return { ok: true };
   });
@@ -905,9 +938,11 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
     const products: MerchantProduct[] = [];
     for (const row of rows) {
       if (getString(row.payload?.merchantId) !== profile.id) continue;
+      const productId = productIdentity(row);
+      if (seen.has(productId)) continue;
+      seen.add(productId);
+      if (isDeletedProduct(row)) continue;
       const product = toProduct(row);
-      if (seen.has(product.id)) continue;
-      seen.add(product.id);
       products.push(product);
     }
 
