@@ -1,4 +1,4 @@
-# Mobile builds
+# Mobile Builds
 
 ## Android
 
@@ -10,40 +10,62 @@ Workflow:
 .github/workflows/flutter-merchant-android.yml
 ```
 
-Outputs:
+Artifacts:
 
-- `botlly-merchant-debug-apk`: install manually on Android for testing.
-- `botlly-merchant-release-aab`: upload later to Google Play after adding production signing.
+- `botlly-merchant-install-apk`: use this APK for direct install on Android phones and emulators.
+- `botlly-merchant-debug-apk`: debug-only test build.
+- `botlly-merchant-release-aab`: upload to Google Play after production signing is configured.
 
-The workflow generates Android platform files on CI with:
-
-```bash
-flutter create --platforms=android .
-```
-
-Then it builds with:
+The workflow uses Flutter stable and generates Android files on CI:
 
 ```bash
-flutter build apk --debug --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+flutter create --platforms=android --org tech.botlly .
+python tool/configure_platforms.py
+flutter build apk --release --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 flutter build appbundle --release --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 ```
 
-## iOS without a local Mac
+## iOS
 
-Recommended path: Codemagic.
+The app now has an iOS build workflow that runs on a hosted macOS runner, so a local Mac is not required for compile verification.
 
-Why:
+Workflow:
 
-- It is built for Flutter mobile CI/CD.
-- It provides hosted macOS machines.
-- It supports automatic iOS code signing by connecting to App Store Connect.
-- It can create the certificate and provisioning profile without requiring a local Mac.
+```text
+.github/workflows/flutter-merchant-ios.yml
+```
 
-Requirements that still come from Apple:
+Artifact:
+
+- `botlly-merchant-ios-unsigned-app`: unsigned iOS `.app` bundle for CI verification.
+
+The workflow uses Flutter stable and generates/configures iOS files on CI:
+
+```bash
+flutter create --platforms=ios --org tech.botlly .
+python3 tool/configure_platforms.py
+flutter build ios --release --no-codesign --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+```
+
+## App Store Preparation
+
+The repository includes:
+
+- iOS permissions for camera, photo library, photo saving, and notifications.
+- WhatsApp and WhatsApp Business URL schemes for iOS link launching.
+- iOS notification entitlement generation.
+- App Store export options template at `tool/ios_export_options_app_store.plist`.
+- Bundle identifier `tech.botlly.merchant`.
+
+To create a signed IPA for TestFlight or App Store, Apple still requires:
 
 - Apple Developer Program membership.
-- App Store Connect API key.
-- Bundle identifier for the app, for example `tech.botlly.merchant`.
-- TestFlight/App Store access if we want normal iPhone distribution.
+- An App Store Connect app using bundle id `tech.botlly.merchant`.
+- Signing certificate and provisioning profile.
+- App Store Connect API key if the signing is automated in CI.
 
-Fallback option: Bitrise. It also has hosted iOS builds and a Manage iOS Code Signing step, but Codemagic is the cleaner first choice for this Flutter app.
+Recommended cloud signing options:
+
+- GitHub Actions macOS runner with Apple signing secrets.
+- Codemagic with App Store Connect automatic code signing.
+- Bitrise with managed iOS code signing.

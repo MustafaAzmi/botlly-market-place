@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  unawaited(NotificationService.instance.initialize());
   runApp(const BotlyMerchantApp());
 }
 
@@ -44,6 +47,25 @@ const placeholderImage =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 const maxProductImages = 6;
 const _unset = Object();
+
+class NotificationService {
+  NotificationService._();
+
+  static final instance = NotificationService._();
+  final _plugin = FlutterLocalNotificationsPlugin();
+
+  Future<void> initialize() async {
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const ios = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    await _plugin.initialize(
+      const InitializationSettings(android: android, iOS: ios),
+    );
+  }
+}
 
 enum AppLanguage {
   ar('ar', 'العربية', ui.TextDirection.rtl, 'ar'),

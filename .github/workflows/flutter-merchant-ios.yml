@@ -1,0 +1,58 @@
+name: Flutter Merchant iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/flutter/merchant_app/**"
+      - ".github/workflows/flutter-merchant-ios.yml"
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build merchant iOS app
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/flutter/merchant_app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS project files
+        run: flutter create --platforms=ios --org tech.botlly .
+
+      - name: Configure iOS project
+        run: python3 tool/configure_platforms.py
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: pod install
+        working-directory: apps/flutter/merchant_app/ios
+
+      - name: Analyze
+        continue-on-error: true
+        run: flutter analyze lib
+
+      - name: Build iOS without code signing
+        run: >
+          flutter build ios
+          --release
+          --no-codesign
+          --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+
+      - name: Upload unsigned iOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: botlly-merchant-ios-unsigned-app
+          path: apps/flutter/merchant_app/build/ios/iphoneos/Runner.app
+          if-no-files-found: error
