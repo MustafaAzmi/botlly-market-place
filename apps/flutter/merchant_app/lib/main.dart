@@ -166,6 +166,12 @@ class AppText {
   String get description => pick('الوصف', 'Description', 'وەسف');
   String get currentPrice => pick('السعر الحالي', 'Current price', 'نرخی ئێستا');
   String get finalPrice => pick('السعر النهائي', 'Final price', 'نرخی کۆتایی');
+  String get currency => pick('العملة', 'Currency', 'دراو');
+  String currencyName(String code) => switch (code) {
+        'USD' => pick('دولار', 'Dollar', 'دۆلار'),
+        'IQD' => pick('دينار عراقي', 'Iraqi dinar', 'دیناری عێراقی'),
+        _ => code,
+      };
   String get quantity => pick('الكمية', 'Quantity', 'بڕ');
   String get color => pick('اللون', 'Color', 'ڕەنگ');
   String get size => pick('الحجم/المقاس', 'Size', 'قەبارە');
@@ -1730,6 +1736,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
   final discount = TextEditingController(text: product?.discountPrice?.toStringAsFixed(0) ?? '');
   final quantity = TextEditingController(text: product?.quantity?.toString() ?? '');
   final size = TextEditingController(text: product?.size ?? '');
+  var selectedCurrency = product?.currency ?? 'IQD';
   var selectedColor = product?.color ?? '';
   var selectedMake = product?.carMake ?? '';
   var selectedModel = product?.carModel ?? '';
@@ -1865,6 +1872,15 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                   ],
                 ),
                 const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: const ['IQD', 'USD'].contains(selectedCurrency) ? selectedCurrency : 'IQD',
+                  decoration: InputDecoration(labelText: t.currency),
+                  items: ['IQD', 'USD']
+                      .map((code) => DropdownMenuItem(value: code, child: Text(t.currencyName(code))))
+                      .toList(),
+                  onChanged: (value) => setSheetState(() => selectedCurrency = value ?? 'IQD'),
+                ),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(child: TextField(controller: quantity, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: t.quantity))),
@@ -1932,7 +1948,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                                       title: title.text.trim(),
                                       description: description.text.trim(),
                                       currentPrice: parsedPrice,
-                                      currency: 'IQD',
+                                      currency: selectedCurrency,
                                       createdAt: DateTime.now(),
                                     ))
                                 .copyWith(
@@ -1942,7 +1958,7 @@ Future<bool?> _openProductSheet(BuildContext context, {MerchantProduct? product}
                               imageUrls: images,
                               currentPrice: parsedPrice,
                               discountPrice: double.tryParse(discount.text.trim()),
-                              currency: 'IQD',
+                              currency: selectedCurrency,
                               quantity: int.tryParse(quantity.text.trim()),
                               color: selectedColor,
                               size: size.text.trim(),
