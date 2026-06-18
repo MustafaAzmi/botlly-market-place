@@ -10,6 +10,7 @@ String readableStatus(String status) {
   return switch (status) {
     'confirmed' => 'مؤكد',
     'cancelled' => 'ملغي',
+    'purchased' => 'تم الشراء',
     'available' => 'متوفر',
     'out_of_stock' => 'غير متوفر',
     'merchant_confirm_order' => 'متوفر',

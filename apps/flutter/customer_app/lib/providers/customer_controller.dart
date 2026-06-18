@@ -99,6 +99,23 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateOrderStatus(CustomerOrder order, String status) async {
+    final current = profile;
+    if (current == null) throw const ApiException('سجل دخولك أولاً.');
+    await _run(() async {
+      await customerApi.post('updateOrderStatus', {
+        'orderId': order.id,
+        'customerPhone': current.whatsapp,
+        'status': status,
+      });
+      await refreshOrders();
+    });
+  }
+
+  Future<void> cancelOrder(CustomerOrder order) => updateOrderStatus(order, 'cancelled');
+
+  Future<void> markOrderPurchased(CustomerOrder order) => updateOrderStatus(order, 'purchased');
+
   Future<void> logout() async {
     await session.clear();
     profile = null;

@@ -75,8 +75,31 @@ export type MerchantDashboard = {
     products: number;
     searches: number;
     orders: number;
+    sales: number;
     completion: number;
   };
+  salesReport: MerchantSalesReport;
+};
+
+export type MerchantSaleDetail = {
+  orderId: string;
+  productTitle: string;
+  price: number;
+  currency: string;
+  customerName: string;
+  customerPhone: string;
+  createdAt: string;
+};
+
+export type MerchantSalesTotal = {
+  currency: string;
+  amount: number;
+};
+
+export type MerchantSalesReport = {
+  salesCount: number;
+  salesTotals: MerchantSalesTotal[];
+  sales: MerchantSaleDetail[];
 };
 
 const authInput = z.object({
@@ -193,6 +216,60 @@ function eventTime(row: EventRow) {
 
 function merchantIdentity(row: EventRow) {
   return getString(row.payload?.merchantId) || row.id;
+}
+
+function latestByPayloadId(rows: EventRow[], payloadKey: string): EventRow[] {
+  const seen = new Set<string>();
+  const latest: EventRow[] = [];
+  for (const row of rows) {
+    const id = getString(row.payload?.[payloadKey]) || row.id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    latest.push(row);
+  }
+  return latest;
+}
+
+async function getMerchantSalesResetAt(merchantId: string) {
+  const rows = await listEvents("botly_merchant_sales_reset");
+  const row = rows.find((event) => getString(event.payload?.merchantId) === merchantId);
+  return row ? getString(row.payload?.resetAt) || eventTime(row) : "";
+}
+
+async function getMerchantSalesReport(merchantId: string): Promise<MerchantSalesReport> {
+  const resetAt = await getMerchantSalesResetAt(merchantId);
+  const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
+  const sales: MerchantSaleDetail[] = [];
+
+  for (const row of orderRows) {
+    const p = row.payload ?? {};
+    if (getString(p.merchantId) !== merchantId) continue;
+    if (getString(p.status) !== "purchased") continue;
+    const createdAt = getString(p.updatedAt) || getString(p.createdAt) || eventTime(row);
+    if (resetAt && createdAt <= resetAt) continue;
+    sales.push({
+      orderId: getString(p.orderId) || row.id,
+      productTitle: getString(p.productTitle) || "منتج",
+      price: getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0,
+      currency: getString(p.currency) || "IQD",
+      customerName: "",
+      customerPhone: "",
+      createdAt,
+    });
+  }
+
+  sales.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const totals = new Map<string, number>();
+  for (const sale of sales) {
+    totals.set(sale.currency, (totals.get(sale.currency) ?? 0) + sale.price);
+  }
+
+  return {
+    salesCount: sales.length,
+    salesTotals: [...totals.entries()].map(([currency, amount]) => ({ currency, amount })),
+    sales,
+  };
 }
 
 // Slugify an English store name for use in URLs. Returns "" when the name has
@@ -933,6 +1010,7 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
     const merchant = await getAuthorizedMerchant(data.token);
     const profile = toProfile(merchant);
     const rows = await listEvents(PRODUCT_PROVIDER);
+    const salesReport = await getMerchantSalesReport(profile.id);
     // Newest event per product wins (append-only store, rows newest first).
     const seen = new Set<string>();
     const products: MerchantProduct[] = [];
@@ -953,8 +1031,10 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
         products: products.length,
         searches: 0,
         orders: 0,
+        sales: salesReport.salesCount,
         completion: completionScore(profile, products.length),
       },
+      salesReport,
     } satisfies MerchantDashboard;
   });
 
@@ -999,10 +1079,10 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
         return {
           id: getString(p.orderId) || row.id,
           productTitle: getString(p.productTitle) || "منتج",
-          productPrice: getNumber(p.productPrice) ?? 0,
+          productPrice: getNumber(p.productPrice) ?? getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0,
           currency: getString(p.currency) || "IQD",
-          customerNumber: getString(p.customerNumber),
-          customerDetails: getString(p.customerDetails),
+          customerNumber: "",
+          customerDetails: "",
           status: getString(p.status) || "unknown",
           sentToDelivery: Boolean(getString(p.deliveryPhone)),
           merchantNotified: p.merchantNotified === true,

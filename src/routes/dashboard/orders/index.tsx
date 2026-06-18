@@ -110,17 +110,8 @@ function OrderCard({ order }: { order: MerchantOrder }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 rounded-xl bg-secondary/60 p-4 text-sm">
-        {order.customerDetails ? (
-          <p>
-            <span className="font-medium">معلومات الزبون: </span>
-            {order.customerDetails}
-          </p>
-        ) : null}
-        <p>
-          <span className="font-medium">رقم الزبون (واتساب): </span>
-          <span dir="ltr">{order.customerNumber}</span>
-        </p>
+      <div className="mt-4 rounded-xl bg-secondary/60 p-4 text-sm text-muted-foreground">
+        Customer details are held by the mediator only. Follow this order through mediator messages.
       </div>
     </div>
   );

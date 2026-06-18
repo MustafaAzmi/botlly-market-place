@@ -30,6 +30,25 @@ export interface AdminAccount {
   whatsapp: string;
 }
 
+export interface MerchantSaleDetail {
+  orderId: string;
+  productTitle: string;
+  price: number;
+  currency: string;
+  customerName: string;
+  customerPhone: string;
+  createdAt: string;
+}
+
+export interface MerchantSalesTotal {
+  currency: string;
+  amount: number;
+}
+
+function salesReportResetTime(row: EventRow): string {
+  return getString(row.payload?.resetAt) || eventTime(row);
+}
+
 export interface MerchantAdminView {
   merchantId: string;
   storeName: string;
@@ -44,6 +63,9 @@ export interface MerchantAdminView {
   // Effective customer-facing visibility (false = hidden from search/bot).
   visibleInSearch: boolean;
   productCount: number;
+  salesCount: number;
+  salesTotals: MerchantSalesTotal[];
+  sales: MerchantSaleDetail[];
   createdAt: string;
 }
 
@@ -415,8 +437,13 @@ function isVisibleInSearch(p: Record<string, unknown>): boolean {
 // Load product counts (active, latest-per-productId).
 async function loadMerchantMetrics(): Promise<{
   productCounts: Map<string, number>;
+  salesByMerchant: Map<string, MerchantSaleDetail[]>;
+  salesTotalsByMerchant: Map<string, MerchantSalesTotal[]>;
 }> {
   const productCounts = new Map<string, number>();
+  const salesByMerchant = new Map<string, MerchantSaleDetail[]>();
+  const salesTotalsByMerchant = new Map<string, MerchantSalesTotal[]>();
+  const salesResetAtByMerchant = new Map<string, string>();
 
   // Products: count latest-per-productId, non-rejected.
   const productRows = await listEvents("botly_product");
@@ -432,7 +459,52 @@ async function loadMerchantMetrics(): Promise<{
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
   }
 
-  return { productCounts };
+  const resetRows = await listEvents("botly_merchant_sales_reset");
+  for (const row of resetRows) {
+    const merchantId = getString(row.payload?.merchantId);
+    if (merchantId && !salesResetAtByMerchant.has(merchantId)) {
+      salesResetAtByMerchant.set(merchantId, salesReportResetTime(row));
+    }
+  }
+
+  const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
+  for (const row of orderRows) {
+    const p = row.payload ?? {};
+    if (getString(p.status) !== "purchased") continue;
+    const merchantId = getString(p.merchantId);
+    if (!merchantId) continue;
+    const saleCreatedAt = getString(p.updatedAt) || getString(p.createdAt) || eventTime(row);
+    const resetAt = salesResetAtByMerchant.get(merchantId);
+    if (resetAt && saleCreatedAt <= resetAt) continue;
+    const price = getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0;
+    const currency = getString(p.currency) || "IQD";
+    const sale: MerchantSaleDetail = {
+      orderId: getString(p.orderId) || row.id,
+      productTitle: getString(p.productTitle) || "منتج",
+      price,
+      currency,
+      customerName: getString(p.customerName),
+      customerPhone: getString(p.customerPhone) || getString(p.customerNumber),
+      createdAt: saleCreatedAt,
+    };
+    const merchantSales = salesByMerchant.get(merchantId) ?? [];
+    merchantSales.push(sale);
+    salesByMerchant.set(merchantId, merchantSales);
+  }
+
+  for (const [merchantId, sales] of salesByMerchant) {
+    const totals = new Map<string, number>();
+    for (const sale of sales) {
+      totals.set(sale.currency, (totals.get(sale.currency) ?? 0) + sale.price);
+    }
+    salesTotalsByMerchant.set(
+      merchantId,
+      [...totals.entries()].map(([currency, amount]) => ({ currency, amount })),
+    );
+    sales.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  return { productCounts, salesByMerchant, salesTotalsByMerchant };
 }
 
 export const listMerchants = createServerFn({ method: "POST" })
@@ -440,7 +512,7 @@ export const listMerchants = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<MerchantAdminView[]> => {
     await authorizeAdmin(data.token);
     const merchants = await latestMerchants();
-    const { productCounts } = await loadMerchantMetrics();
+    const { productCounts, salesByMerchant, salesTotalsByMerchant } = await loadMerchantMetrics();
 
     return merchants
       .map((row) => {
@@ -459,10 +531,25 @@ export const listMerchants = createServerFn({ method: "POST" })
           bannedFromBot: p.bannedFromBot === true,
           visibleInSearch: isVisibleInSearch(p),
           productCount: productCounts.get(mId) ?? 0,
+          salesCount: salesByMerchant.get(mId)?.length ?? 0,
+          salesTotals: salesTotalsByMerchant.get(mId) ?? [],
+          sales: salesByMerchant.get(mId) ?? [],
           createdAt: getString(p.createdAt) || eventTime(row),
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  });
+
+export const resetMerchantSalesReport = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    const adminId = await authorizeAdmin(data.token);
+    await appendEvent("botly_merchant_sales_reset", {
+      merchantId: data.merchantId,
+      resetAt: new Date().toISOString(),
+      resetByAdminId: adminId,
+    });
+    return { ok: true };
   });
 
 // Append a merchant event with merged control flags. Preserves credentials and

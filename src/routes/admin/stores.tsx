@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { AlertCircle, MoreVertical } from "lucide-react";
+import { AlertCircle, Download, MoreVertical, ReceiptText, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -24,6 +24,7 @@ import {
   setMerchantSuspended,
   setMerchantVisibility,
   deleteMerchantStore,
+  resetMerchantSalesReport,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
@@ -40,10 +41,12 @@ function AdminStoresPage() {
   const setSuspendedFn = useServerFn(setMerchantSuspended);
   const setSubscriptionFn = useServerFn(setMerchantSubscription);
   const deleteStoreFn = useServerFn(deleteMerchantStore);
+  const resetSalesReportFn = useServerFn(resetMerchantSalesReport);
 
   const [searchTerm, setSearchTerm] = useState("");
   const session = readAdminSession();
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [salesDetails, setSalesDetails] = useState<MerchantAdminView | null>(null);
 
   const {
     data: merchants = [],
@@ -80,6 +83,85 @@ function AdminStoresPage() {
       (m.email ?? "").toLowerCase().includes(q)
     );
   });
+
+  const downloadMerchantSalesExcel = (merchant: MerchantAdminView) => {
+    const rows = merchant.sales
+      .map(
+        (sale) => `
+          <tr>
+            <td>${excelCell(sale.orderId)}</td>
+            <td>${excelCell(sale.productTitle)}</td>
+            <td>${excelCell(sale.price)}</td>
+            <td>${excelCell(sale.currency)}</td>
+            <td>${excelCell(sale.customerName)}</td>
+            <td>${excelCell(sale.customerPhone)}</td>
+            <td>${excelCell(sale.createdAt)}</td>
+          </tr>`,
+      )
+      .join("");
+    const totalRows = merchant.salesTotals
+      .map(
+        (total) => `
+          <tr>
+            <td>${excelCell(total.currency)}</td>
+            <td>${excelCell(total.amount)}</td>
+          </tr>`,
+      )
+      .join("");
+    const html = `
+      <html dir="rtl">
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <h2>تقرير مبيعات التاجر: ${excelCell(merchant.storeName)}</h2>
+          <p>عدد المبيعات الكلي: ${excelCell(merchant.salesCount)}</p>
+          <h3>الإجمالي حسب العملة</h3>
+          <table border="1">
+            <thead><tr><th>العملة</th><th>الإجمالي</th></tr></thead>
+            <tbody>${totalRows}</tbody>
+          </table>
+          <h3>تفاصيل المبيعات</h3>
+          <table border="1">
+            <thead>
+              <tr>
+                <th>رقم الطلب</th>
+                <th>المنتج</th>
+                <th>السعر</th>
+                <th>العملة</th>
+                <th>اسم الزبون</th>
+                <th>رقم الزبون</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `botly-merchant-sales-${merchant.merchantId}-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetMerchantSales = async (merchant: MerchantAdminView) => {
+    if (!session?.token) return;
+    const confirmed = window.confirm(
+      `هل تريد تصفير سجل مبيعات ${merchant.storeName}؟ سيبدأ التقرير من الصفر بعد هذه النقطة.`,
+    );
+    if (!confirmed) return;
+    try {
+      await resetSalesReportFn({ data: { token: session.token, merchantId: merchant.merchantId } });
+      toast.success("تم تصفير سجل المبيعات لهذا التاجر.");
+      setSalesDetails(null);
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تصفير سجل المبيعات");
+    }
+  };
 
   return (
     <AdminLayout title="المتاجر" subtitle="تحكّم بظهور المتاجر في البحث والاشتراكات">
@@ -121,6 +203,7 @@ function AdminStoresPage() {
                   <th className="px-4 py-3 text-right font-medium">الواتساب</th>
                   <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
+                  <th className="px-4 py-3 text-center font-medium">المبيعات</th>
                   <th className="px-4 py-3 text-center font-medium">الظهور</th>
                   <th className="px-4 py-3 text-center font-medium">إجراءات</th>
                 </tr>
@@ -128,7 +211,7 @@ function AdminStoresPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -143,6 +226,17 @@ function AdminStoresPage() {
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>
                       <td className="px-4 py-3 text-center">{m.productCount}</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setSalesDetails(m)}
+                          className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={m.salesCount === 0}
+                        >
+                          <ReceiptText className="h-3.5 w-3.5" />
+                          {m.salesCount}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         {m.visibleInSearch ? (
                           <Badge className="bg-green-100 text-green-800">ظاهر</Badge>
@@ -274,6 +368,23 @@ function AdminStoresPage() {
                             </DropdownMenuItem>
 
                             <DropdownMenuSeparator />
+                            <DropdownMenuLabel>المبيعات والعمولة</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              disabled={m.salesCount === 0}
+                              onClick={() => setSalesDetails(m)}
+                            >
+                              <ReceiptText className="ml-2 h-4 w-4" />
+                              عرض تفاصيل المبيعات
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={m.salesCount === 0}
+                              onClick={() => downloadMerchantSalesExcel(m)}
+                            >
+                              <Download className="ml-2 h-4 w-4" />
+                              تنزيل تقرير Excel
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-red-600"
                               onClick={() => setDeleteConfirm({ id: m.merchantId, name: m.storeName })}
@@ -333,8 +444,95 @@ function AdminStoresPage() {
           </div>
         </div>
       )}
+
+      {salesDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-lg border bg-background shadow-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <div>
+                <h2 className="text-lg font-semibold">مبيعات {salesDetails.storeName}</h2>
+                <p className="text-sm text-muted-foreground">
+                  عدد المبيعات: {salesDetails.salesCount}
+                  {salesDetails.salesTotals.length > 0
+                    ? ` - الإجمالي: ${salesDetails.salesTotals
+                        .map((total) => `${total.amount.toLocaleString()} ${total.currency}`)
+                        .join(" / ")}`
+                    : ""}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadMerchantSalesExcel(salesDetails)}
+                >
+                  <Download className="ml-2 h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => resetMerchantSales(salesDetails)}
+                  disabled={salesDetails.salesCount === 0}
+                >
+                  <RotateCcw className="ml-2 h-4 w-4" />
+                  تصفير السجل
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setSalesDetails(null)}>
+                  إغلاق
+                </Button>
+              </div>
+            </div>
+            <div className="max-h-[65vh] overflow-auto p-4">
+              {salesDetails.sales.length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">لا توجد مبيعات مؤكدة لهذا التاجر.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/50">
+                    <tr>
+                      <th className="px-3 py-2 text-right">المنتج</th>
+                      <th className="px-3 py-2 text-right">السعر</th>
+                      <th className="px-3 py-2 text-right">الزبون</th>
+                      <th className="px-3 py-2 text-right">التاريخ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesDetails.sales.map((sale) => (
+                      <tr key={sale.orderId} className="border-b">
+                        <td className="px-3 py-2 font-medium">{sale.productTitle}</td>
+                        <td className="px-3 py-2" dir="ltr">
+                          {sale.price.toLocaleString()} {sale.currency}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div>{sale.customerName || "—"}</div>
+                          <div className="text-xs text-muted-foreground" dir="ltr">
+                            {sale.customerPhone || "—"}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2" dir="ltr">
+                          {sale.createdAt ? new Date(sale.createdAt).toLocaleString("ar-IQ") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
+}
+
+function excelCell(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function SubscriptionBadge({ status }: { status: string }) {

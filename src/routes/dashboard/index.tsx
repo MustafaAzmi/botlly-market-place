@@ -3,8 +3,10 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowUpRight,
   CheckCircle2,
+  Download,
   Loader2,
   Package,
+  ReceiptText,
   Search,
   ShoppingBag,
   TrendingUp,
@@ -61,8 +63,69 @@ function DashboardHome() {
       .finally(() => setLoading(false));
   }, [getMerchantDashboardFn, navigate]);
 
-  const stats = dashboard?.stats ?? { products: 0, searches: 0, orders: 0, completion: 0 };
+  const stats = dashboard?.stats ?? { products: 0, searches: 0, orders: 0, sales: 0, completion: 0 };
   const recentProducts = dashboard?.products.slice(0, 4) ?? [];
+  const salesReport = dashboard?.salesReport;
+
+  const downloadSalesExcel = () => {
+    if (!dashboard || !salesReport) return;
+    const rows = salesReport.sales
+      .map(
+        (sale) => `
+          <tr>
+            <td>${excelCell(sale.orderId)}</td>
+            <td>${excelCell(sale.productTitle)}</td>
+            <td>${excelCell(sale.price)}</td>
+            <td>${excelCell(sale.currency)}</td>
+            <td>${excelCell(sale.createdAt)}</td>
+          </tr>`,
+      )
+      .join("");
+    const totalRows = salesReport.salesTotals
+      .map(
+        (total) => `
+          <tr>
+            <td>${excelCell(total.currency)}</td>
+            <td>${excelCell(total.amount)}</td>
+          </tr>`,
+      )
+      .join("");
+    const html = `
+      <html dir="rtl">
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <h2>تقرير مبيعات التاجر: ${excelCell(dashboard.profile.storeName)}</h2>
+          <p>عدد المبيعات الكلي: ${excelCell(salesReport.salesCount)}</p>
+          <h3>الإجمالي حسب العملة</h3>
+          <table border="1">
+            <thead><tr><th>العملة</th><th>الإجمالي</th></tr></thead>
+            <tbody>${totalRows}</tbody>
+          </table>
+          <h3>تفاصيل المبيعات</h3>
+          <table border="1">
+            <thead>
+              <tr>
+                <th>رقم الطلب</th>
+                <th>المنتج</th>
+                <th>السعر</th>
+                <th>العملة</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `botly-my-sales-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <DashboardLayout
@@ -80,6 +143,7 @@ function DashboardHome() {
             <StatCard icon={Package} label={t("dashboard.stat.products")} value={stats.products} />
             <StatCard icon={Search} label={t("dashboard.stat.searches")} value={stats.searches} />
             <StatCard icon={ShoppingBag} label={t("dashboard.stat.leads")} value={stats.orders} />
+            <StatCard icon={ReceiptText} label="المبيعات" value={stats.sales} />
             <StatCard
               icon={TrendingUp}
               label={t("dashboard.stat.completion")}
@@ -144,10 +208,75 @@ function DashboardHome() {
               </div>
             </div>
           </div>
+
+          <div className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-soft">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">سجل المبيعات</h3>
+                <p className="text-sm text-muted-foreground">
+                  عدد المبيعات: {salesReport?.salesCount ?? 0}
+                  {salesReport?.salesTotals.length
+                    ? ` - الإجمالي: ${salesReport.salesTotals
+                        .map((total) => `${total.amount.toLocaleString()} ${total.currency}`)
+                        .join(" / ")}`
+                    : ""}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={downloadSalesExcel}
+                disabled={!salesReport || salesReport.salesCount === 0}
+              >
+                <Download className="h-4 w-4" />
+                تنزيل Excel
+              </Button>
+            </div>
+            {!salesReport || salesReport.sales.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                لا توجد مبيعات مؤكدة بعد. تظهر هنا فقط الطلبات التي يؤكد الزبون أنها تم شراؤها.
+              </div>
+            ) : (
+              <div className="overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-secondary/60">
+                    <tr>
+                      <th className="px-3 py-2 text-right">المنتج</th>
+                      <th className="px-3 py-2 text-right">السعر</th>
+                      <th className="px-3 py-2 text-right">التاريخ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesReport.sales.map((sale) => (
+                      <tr key={sale.orderId} className="border-b">
+                        <td className="px-3 py-2 font-medium">{sale.productTitle}</td>
+                        <td className="px-3 py-2" dir="ltr">
+                          {sale.price.toLocaleString()} {sale.currency}
+                        </td>
+                        <td className="px-3 py-2" dir="ltr">
+                          {sale.createdAt ? new Date(sale.createdAt).toLocaleString("ar-IQ") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </>
       )}
     </DashboardLayout>
   );
+}
+
+function excelCell(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function StatCard({
