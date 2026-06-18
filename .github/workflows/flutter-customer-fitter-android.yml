@@ -112,9 +112,22 @@ jobs:
           --release
           --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 
-      - name: Upload APK
+      - name: Build debug APK for emulator testing
+        run: >
+          flutter build apk
+          --debug
+          --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app.artifact }}
           path: apps/flutter/${{ matrix.app.id }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.artifact }}-debug
+          path: apps/flutter/${{ matrix.app.id }}/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
