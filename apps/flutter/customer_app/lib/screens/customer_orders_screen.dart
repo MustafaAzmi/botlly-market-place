@@ -30,7 +30,7 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
           child: RefreshIndicator(
             onRefresh: widget.controller.refreshOrders,
             child: orders.isEmpty
-                ? const ListView(children: [SizedBox(height: 320, child: EmptyView(title: 'لا توجد طلبات بعد'))])
+                ? ListView(children: const [SizedBox(height: 320, child: EmptyView(title: 'لا توجد طلبات بعد'))])
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: orders.length,
