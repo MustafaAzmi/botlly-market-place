@@ -1,0 +1,98 @@
+name: Flutter Customer and Fitter Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/flutter/**"
+      - "src/lib/customer.functions.ts"
+      - "src/lib/fitter.functions.ts"
+      - "src/lib/eventStore.server.ts"
+      - "src/lib/car-data.ts"
+      - "src/lib/whatsapp/send.server.ts"
+      - "src/routes/api/customer/mobile.ts"
+      - "src/routes/api/fitter/mobile.ts"
+      - ".github/workflows/flutter-customer-fitter-android.yml"
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build ${{ matrix.app.label }} APK
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - id: customer_app
+            label: customer
+            artifact: botlly-customer-install-apk
+            package: tech.botlly.customer
+          - id: fitter_app
+            label: fitter
+            artifact: botlly-fitter-install-apk
+            package: tech.botlly.fitter
+
+    defaults:
+      run:
+        working-directory: apps/flutter/${{ matrix.app.id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project files
+        run: flutter create --platforms=android --org tech.botlly .
+
+      - name: Configure Android app id and permissions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          package = "${{ matrix.app.package }}"
+          gradle = Path("android/app/build.gradle.kts")
+          text = gradle.read_text()
+          text = text.replace('namespace = "tech.botlly.botlly_${{ matrix.app.id }}"', f'namespace = "{package}"')
+          text = text.replace('applicationId = "tech.botlly.botlly_${{ matrix.app.id }}"', f'applicationId = "{package}"')
+          gradle.write_text(text)
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          data = manifest.read_text()
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+              '<uses-permission android:name="android.permission.CALL_PHONE" />',
+          ]
+          missing = [p for p in permissions if p not in data]
+          if missing:
+              data = data.replace("<application", "\n".join(missing) + "\n    <application")
+              manifest.write_text(data)
+          PY
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze lib
+
+      - name: Build release APK
+        run: >
+          flutter build apk
+          --release
+          --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.artifact }}
+          path: apps/flutter/${{ matrix.app.id }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

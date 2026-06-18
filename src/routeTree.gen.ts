@@ -46,6 +46,8 @@ import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/pro
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
 import { Route as ApiMerchantMobileRouteImport } from './routes/api/merchant/mobile'
+import { Route as ApiFitterMobileRouteImport } from './routes/api/fitter/mobile'
+import { Route as ApiCustomerMobileRouteImport } from './routes/api/customer/mobile'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 
 const TermsRoute = TermsRouteImport.update({
@@ -233,6 +235,16 @@ const ApiMerchantMobileRoute = ApiMerchantMobileRouteImport.update({
   path: '/api/merchant/mobile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiFitterMobileRoute = ApiFitterMobileRouteImport.update({
+  id: '/api/fitter/mobile',
+  path: '/api/fitter/mobile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCustomerMobileRoute = ApiCustomerMobileRouteImport.update({
+  id: '/api/customer/mobile',
+  path: '/api/customer/mobile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
   id: '/dashboard/products/$id/edit',
   path: '/dashboard/products/$id/edit',
@@ -268,6 +280,8 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/customer/mobile': typeof ApiCustomerMobileRoute
+  '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -307,6 +321,8 @@ export interface FileRoutesByTo {
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/customer/mobile': typeof ApiCustomerMobileRoute
+  '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -348,6 +364,8 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/customer/mobile': typeof ApiCustomerMobileRoute
+  '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -390,6 +408,8 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/customer/mobile'
+    | '/api/fitter/mobile'
     | '/api/merchant/mobile'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
@@ -429,6 +449,8 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
+    | '/api/customer/mobile'
+    | '/api/fitter/mobile'
     | '/api/merchant/mobile'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
@@ -469,6 +491,8 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/customer/mobile'
+    | '/api/fitter/mobile'
     | '/api/merchant/mobile'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
@@ -509,6 +533,8 @@ export interface RootRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   CustomerIndexRoute: typeof CustomerIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  ApiCustomerMobileRoute: typeof ApiCustomerMobileRoute
+  ApiFitterMobileRoute: typeof ApiFitterMobileRoute
   ApiMerchantMobileRoute: typeof ApiMerchantMobileRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
@@ -782,6 +808,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMerchantMobileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/fitter/mobile': {
+      id: '/api/fitter/mobile'
+      path: '/api/fitter/mobile'
+      fullPath: '/api/fitter/mobile'
+      preLoaderRoute: typeof ApiFitterMobileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/customer/mobile': {
+      id: '/api/customer/mobile'
+      path: '/api/customer/mobile'
+      fullPath: '/api/customer/mobile'
+      preLoaderRoute: typeof ApiCustomerMobileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard/products/$id/edit': {
       id: '/dashboard/products/$id/edit'
       path: '/dashboard/products/$id/edit'
@@ -830,6 +870,8 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   CustomerIndexRoute: CustomerIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  ApiCustomerMobileRoute: ApiCustomerMobileRoute,
+  ApiFitterMobileRoute: ApiFitterMobileRoute,
   ApiMerchantMobileRoute: ApiMerchantMobileRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,

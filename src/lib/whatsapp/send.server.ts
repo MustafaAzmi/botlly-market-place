@@ -18,15 +18,15 @@ export type SendResult = { ok: boolean; status: number; error?: string };
 export async function sendWhatsAppText(
   to: string,
   body: string,
-  phoneNumberId?: string,
+  phoneNumberIdOverride?: string | null,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
-  if (!accessToken || !pnId) {
+  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
+  if (!accessToken || !phoneNumberId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -52,15 +52,15 @@ export async function sendWhatsAppButtons(
   to: string,
   body: string,
   buttons: Array<{ id: string; title: string }>,
-  phoneNumberId?: string,
+  phoneNumberIdOverride?: string | null,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
-  if (!accessToken || !pnId) {
+  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
+  if (!accessToken || !phoneNumberId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -74,9 +74,12 @@ export async function sendWhatsAppButtons(
         type: "button",
         body: { text: body },
         action: {
-          buttons: buttons.map((btn) => ({
+          buttons: buttons.slice(0, 3).map((button) => ({
             type: "reply",
-            reply: { id: btn.id, title: btn.title },
+            reply: {
+              id: button.id.slice(0, 256),
+              title: button.title.slice(0, 20),
+            },
           })),
         },
       },
@@ -98,25 +101,22 @@ export function buildAvailabilityButtons() {
   ];
 }
 
-// Send a product image with an optional caption. WhatsApp requires a PUBLIC
-// https URL — data: URLs (manually uploaded images stored as base64) cannot be
-// sent and the caller must skip them.
 export async function sendWhatsAppImage(
   to: string,
   imageUrl: string,
   caption?: string,
-  phoneNumberId?: string,
+  phoneNumberIdOverride?: string | null,
 ): Promise<SendResult> {
   const accessToken = getWhatsAppAccessToken();
-  const pnId = phoneNumberId || getWhatsAppPhoneNumberId();
-  if (!accessToken || !pnId) {
+  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
+  if (!accessToken || !phoneNumberId) {
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
   if (!/^https:\/\//i.test(imageUrl)) {
     return { ok: false, status: 0, error: "Image URL must be public https" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${pnId}/messages`, {
+  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -137,4 +137,3 @@ export async function sendWhatsAppImage(
     error: await response.text().catch(() => "Unknown WhatsApp API error"),
   };
 }
-
