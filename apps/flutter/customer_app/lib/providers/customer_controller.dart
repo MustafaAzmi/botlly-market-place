@@ -80,12 +80,15 @@ class CustomerController extends ChangeNotifier {
     final current = profile;
     if (current == null) throw const ApiException('سجل دخولك أولاً.');
     await _run(() async {
+      final customerName = current.name.trim().length < 2 ? 'Customer' : current.name.trim();
+      final governorate = current.governorate.trim().isEmpty ? '-' : current.governorate.trim();
+      final landmark = current.landmark.trim().isEmpty ? '-' : current.landmark.trim();
       await customerApi.post('submitOrder', {
         'productId': product.id,
-        'customerName': current.name,
+        'customerName': customerName,
         'customerPhone': current.whatsapp,
-        'customerGovernorate': current.governorate,
-        'customerLandmark': current.landmark,
+        'customerGovernorate': governorate,
+        'customerLandmark': landmark,
       });
       await refreshOrders();
     });

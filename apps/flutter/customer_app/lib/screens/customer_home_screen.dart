@@ -25,13 +25,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   void initState() {
     super.initState();
     if (widget.controller.catalogue.makes.isEmpty) {
-      widget.controller.loadCatalogue().then((_) => widget.controller.search());
-    } else {
-      widget.controller.search();
+      widget.controller.loadCatalogue();
     }
   }
 
   Future<void> search() async {
+    if (!canSearch) return;
     await widget.controller.search(
       carMake: make,
       carModel: model,
@@ -40,6 +39,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       governorate: governorate,
     );
   }
+
+  bool get canSearch => governorate.isNotEmpty && make.isNotEmpty && model.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +123,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: c.loading ? null : search,
+                        onPressed: c.loading || !canSearch ? null : search,
                         icon: const Icon(Icons.search),
                         label: const Text('بحث'),
                       ),
@@ -135,6 +136,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             const SizedBox(height: 12),
             if (c.loading)
               const SizedBox(height: 260, child: LoadingView())
+            else if (!canSearch)
+              const SizedBox(height: 260, child: EmptyView(title: 'Select governorate, make and model', subtitle: 'Products appear only after completing the required search filters.'))
             else if (c.products.isEmpty)
               const SizedBox(height: 260, child: EmptyView(title: 'لا توجد نتائج', subtitle: 'غيّر الفلاتر وجرب مرة ثانية.'))
             else
@@ -172,9 +175,42 @@ class _ProductCard extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: image.startsWith('http')
-                    ? Image.network(image, width: 84, height: 84, fit: BoxFit.cover)
-                    : Container(width: 84, height: 84, color: const Color(0xffe2e8f0), child: const Icon(Icons.image)),
+                child: Stack(
+                  children: [
+                    image.startsWith('http')
+                        ? Container(
+                            width: 84,
+                            height: 84,
+                            color: Colors.white,
+                            child: Image.network(
+                              image,
+                              width: 84,
+                              height: 84,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                            ),
+                          )
+                        : Container(width: 84, height: 84, color: const Color(0xffe2e8f0), child: const Icon(Icons.image)),
+                    if (product.imageUrls.length > 1)
+                      Positioned(
+                        right: 4,
+                        bottom: 4,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            child: Text(
+                              '+${product.imageUrls.length - 1}',
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(

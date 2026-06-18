@@ -259,6 +259,10 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const wantColor = (data.color ?? "").trim();
     const wantGovernorate = (data.governorate ?? "").trim();
 
+    if (!wantGovernorate || !wantMake || !wantModel) {
+      return [];
+    }
+
     const results: CustomerProduct[] = [];
     const seen = new Set<string>();
 
@@ -681,13 +685,21 @@ export const submitProductOrder = createServerFn({ method: "POST" })
 
     if (sentCount === 0) {
       console.error("[submitProductOrder] Failed to send order to all mediators", sendResults);
-      throw new Error(
-        "تم حفظ الطلب، لكن تعذر إرسال ملخص الطلب للوسيط عبر واتساب. راجع إعدادات رقم الواتساب.",
-      );
+      return {
+        success: true,
+        orderId,
+        whatsappSent: false,
+        whatsappSentCount: sentCount,
+        warning:
+          "The order was saved, but WhatsApp delivery to the mediator failed. Admin can review the order from the dashboard.",
+      };
     }
 
     return {
       success: true,
+      orderId,
+      whatsappSent: true,
+      whatsappSentCount: sentCount,
       message: "تم إرسال طلبك للوسيط. سيتم الاهتمام بك والتواصل معك خلال دقائق قريباً إن شاء الله.",
     };
   });

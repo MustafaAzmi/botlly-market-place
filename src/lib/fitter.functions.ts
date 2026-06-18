@@ -288,7 +288,6 @@ async function sendMerchantAvailabilityQuestion(args: {
   productTitle: string;
   currentPrice: number;
   currency: string;
-  fitterName: string;
 }) {
   if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
   const body = [
@@ -296,7 +295,6 @@ async function sendMerchantAvailabilityQuestion(args: {
     `المنتج: ${args.productTitle}`,
     `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
     "نوع الطلب: فيتر",
-    `اسم صاحب الطلب: ${args.fitterName || "-"}`,
     "",
     "هل لا يزال المنتج متوفر؟",
   ].join("\n");
@@ -638,7 +636,6 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
           productTitle: product.title,
           currentPrice: product.currentPrice,
           currency: product.currency,
-          fitterName: getString(fitter.payload?.name),
         }).catch((error) => ({
           ok: false,
           status: 0,

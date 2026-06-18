@@ -343,6 +343,60 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   return results;
 }
 
+function mediatorPhonesForOrder(order: Record<string, unknown>): string[] {
+  const storedContacts = normalizeMediatorContacts(order.mediatorContacts);
+  const storedPhones = Array.isArray(order.mediatorPhones)
+    ? (order.mediatorPhones as unknown[]).filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+  return normalizeMediatorPhones(
+    storedContacts.length > 0 ? storedContacts.map((contact) => contact.phone) : storedPhones,
+  );
+}
+
+async function notifyRequesterOfMerchantAvailability(args: {
+  order: Record<string, unknown>;
+  isAvailable: boolean;
+}) {
+  const order = args.order;
+  const requesterPhone =
+    getString(order.sourceContext) === "fitter_site"
+      ? getString(order.fitterWhatsapp)
+      : getString(order.customerPhone) || getString(order.customerNumber);
+  if (!requesterPhone) return { ok: false, skipped: true, error: "Missing requester phone" };
+
+  const mediatorPhones = mediatorPhonesForOrder(order);
+  const mediatorLine =
+    mediatorPhones.length > 0
+      ? `رقم الوسيط: ${mediatorPhones.join(" / ")}`
+      : "رقم الوسيط غير متوفر حالياً، انتظر تواصل الوسيط.";
+  const productTitle = getString(order.productTitle) || "المنتج";
+  const currentPrice = getNumber(order.currentPrice) ?? getNumber(order.price) ?? 0;
+  const currency = getString(order.currency) || "IQD";
+  const body = [
+    args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
+    `المنتج: ${productTitle}`,
+    currentPrice ? `السعر: ${currentPrice.toLocaleString()} ${currency}` : "",
+    mediatorLine,
+    args.isAvailable ? "يرجى التواصل مع الوسيط لإكمال الطلب." : "يمكنك البحث عن قطعة بديلة من التطبيق.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const recipient = toWhatsAppRecipient(requesterPhone);
+  try {
+    return { phone: recipient, ...(await sendWhatsAppText(recipient, body)) };
+  } catch (error) {
+    return {
+      phone: recipient,
+      ok: false,
+      status: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 function buttonResponse(
   body: string,
   buttons: Array<{ id: string; title: string }>,
@@ -1317,6 +1371,14 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 console.error("[Merchant] Failed to notify mediators:", error);
                 return [];
               });
+              const requesterResult = await notifyRequesterOfMerchantAvailability({
+                order,
+                isAvailable: isConfirmed,
+              }).catch((error) => ({
+                ok: false,
+                status: 0,
+                error: error instanceof Error ? error.message : String(error),
+              }));
 
               await appendEvent("botly_order", {
                 ...order,
@@ -1324,7 +1386,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 merchantResponse: incoming.actionId,
                 merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
                 status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
-                customerNotifiedOfStatus: false,
+                customerNotifiedOfStatus: Boolean((requesterResult as { ok?: unknown }).ok),
+                requesterNotificationResult: requesterResult,
                 mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
                 mediatorNotificationResults: mediatorResults,
                 respondedAt: new Date().toISOString(),

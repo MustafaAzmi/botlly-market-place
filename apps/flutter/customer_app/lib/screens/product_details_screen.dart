@@ -15,6 +15,7 @@ class ProductDetailsScreen extends StatefulWidget {
 
 class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   var sending = false;
+  var selectedImage = 0;
 
   Future<void> order() async {
     setState(() => sending = true);
@@ -41,11 +42,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         children: [
           AspectRatio(
             aspectRatio: 4 / 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: product.imageUrls.isNotEmpty && product.imageUrls.first.startsWith('http')
-                  ? Image.network(product.imageUrls.first, fit: BoxFit.cover)
-                  : Container(color: const Color(0xffe2e8f0), child: const Icon(Icons.image, size: 48)),
+            child: _ProductImageGallery(
+              imageUrls: product.imageUrls,
+              selectedIndex: selectedImage,
+              onChanged: (value) => setState(() => selectedImage = value),
             ),
           ),
           const SizedBox(height: 14),
@@ -74,6 +74,74 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 : const Icon(Icons.shopping_bag),
             label: const Text('إرسال طلب'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductImageGallery extends StatelessWidget {
+  const _ProductImageGallery({
+    required this.imageUrls,
+    required this.selectedIndex,
+    required this.onChanged,
+  });
+
+  final List<String> imageUrls;
+  final int selectedIndex;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final validImages = imageUrls.where((image) => image.startsWith('http')).toList();
+    if (validImages.isEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          color: const Color(0xffe2e8f0),
+          child: const Icon(Icons.image, size: 48),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PageView.builder(
+            itemCount: validImages.length,
+            onPageChanged: onChanged,
+            itemBuilder: (context, index) => Container(
+              color: Colors.white,
+              alignment: Alignment.center,
+              child: Image.network(
+                validImages[index],
+                fit: BoxFit.contain,
+                width: double.infinity,
+                height: double.infinity,
+                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48),
+              ),
+            ),
+          ),
+          if (validImages.length > 1)
+            Positioned(
+              right: 10,
+              bottom: 10,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  child: Text(
+                    '${selectedIndex + 1}/${validImages.length}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

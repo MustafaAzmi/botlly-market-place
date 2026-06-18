@@ -18,7 +18,7 @@ class _FitterHomeScreenState extends State<FitterHomeScreen> {
   @override
   void initState() {
     super.initState();
-    widget.controller.loadCatalogue().then((_) => widget.controller.search());
+    widget.controller.loadCatalogue();
   }
 
   @override
@@ -67,13 +67,18 @@ class _ProductsTabState extends State<_ProductsTab> {
   String color = '';
   String governorate = '';
 
-  Future<void> search() => widget.controller.search(
-        carMake: make,
-        carModel: model,
-        carYear: year,
-        color: color,
-        governorate: governorate,
-      );
+  Future<void> search() {
+    if (!canSearch) return Future.value();
+    return widget.controller.search(
+      carMake: make,
+      carModel: model,
+      carYear: year,
+      color: color,
+      governorate: governorate,
+    );
+  }
+
+  bool get canSearch => governorate.isNotEmpty && make.isNotEmpty && model.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -138,7 +143,7 @@ class _ProductsTabState extends State<_ProductsTab> {
                     onChanged: (value) => setState(() => governorate = value ?? ''),
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: c.loading ? null : search, icon: const Icon(Icons.search), label: const Text('بحث'))),
+                  SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: c.loading || !canSearch ? null : search, icon: const Icon(Icons.search), label: const Text('بحث'))),
                 ],
               ),
             ),
@@ -146,12 +151,15 @@ class _ProductsTabState extends State<_ProductsTab> {
           const SizedBox(height: 12),
           if (c.loading)
             const SizedBox(height: 260, child: LoadingView())
+          else if (!canSearch)
+            const SizedBox(height: 260, child: EmptyView(title: 'Select governorate, make and model', subtitle: 'Products appear only after completing the required search filters.'))
           else if (c.products.isEmpty)
-            const SizedBox(height: 260, child: EmptyView(title: 'لا توجد منتجات متاحة'))
+            const SizedBox(height: 260, child: EmptyView(title: 'No products available'))
           else
             ...c.products.map((product) => Card(
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
+                    leading: _ProductThumbnail(product: product, size: 64),
                     title: Text(product.title),
                     subtitle: Text(money(product.price, product.currency)),
                     trailing: FilledButton(
@@ -171,6 +179,55 @@ class _ProductsTabState extends State<_ProductsTab> {
                     ),
                   ),
                 )),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductThumbnail extends StatelessWidget {
+  const _ProductThumbnail({required this.product, required this.size});
+
+  final CustomerProduct product;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = product.imageUrls.isNotEmpty ? product.imageUrls.first : '';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        children: [
+          image.startsWith('http')
+              ? Container(
+                  width: size,
+                  height: size,
+                  color: Colors.white,
+                  child: Image.network(
+                    image,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                  ),
+                )
+              : Container(width: size, height: size, color: const Color(0xffe2e8f0), child: const Icon(Icons.image)),
+          if (product.imageUrls.length > 1)
+            Positioned(
+              right: 3,
+              bottom: 3,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  child: Text(
+                    '+${product.imageUrls.length - 1}',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
