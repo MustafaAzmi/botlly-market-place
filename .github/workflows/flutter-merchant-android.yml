@@ -48,17 +48,30 @@ jobs:
           --debug
           --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 
+      - name: Build install APK
+        run: >
+          flutter build apk
+          --release
+          --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+
       - name: Build release app bundle
         run: >
           flutter build appbundle
           --release
           --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: botlly-merchant-debug-apk
           path: apps/flutter/merchant_app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload install APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: botlly-merchant-install-apk
+          path: apps/flutter/merchant_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: Upload AAB
