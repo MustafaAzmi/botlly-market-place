@@ -17,26 +17,43 @@ def patch_once(text: str, needle: str, insert: str) -> str:
 
 def configure_android() -> None:
     manifest_path = ROOT / "android/app/src/main/AndroidManifest.xml"
-    if not manifest_path.exists():
-        return
+    build_gradle_path = ROOT / "android/app/build.gradle.kts"
 
-    manifest = manifest_path.read_text(encoding="utf-8")
-    permissions = [
-        '<uses-permission android:name="android.permission.INTERNET" />',
-        '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
-        '<uses-permission android:name="android.permission.CAMERA" />',
-        '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
-        '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
-        '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
-    ]
-    missing = [permission for permission in permissions if permission not in manifest]
-    if missing:
-        manifest = patch_once(
-            manifest,
-            "<application",
-            f"{chr(10).join(missing)}{chr(10)}    ",
-        )
-        manifest_path.write_text(manifest, encoding="utf-8")
+    if manifest_path.exists():
+        manifest = manifest_path.read_text(encoding="utf-8")
+        permissions = [
+            '<uses-permission android:name="android.permission.INTERNET" />',
+            '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+            '<uses-permission android:name="android.permission.CAMERA" />',
+            '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+            '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
+            '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+        ]
+        missing = [permission for permission in permissions if permission not in manifest]
+        if missing:
+            manifest = patch_once(
+                manifest,
+                "<application",
+                f"{chr(10).join(missing)}{chr(10)}    ",
+            )
+            manifest_path.write_text(manifest, encoding="utf-8")
+
+    if build_gradle_path.exists():
+        build_gradle = build_gradle_path.read_text(encoding="utf-8")
+        if "isCoreLibraryDesugaringEnabled = true" not in build_gradle:
+            build_gradle = patch_once(
+                build_gradle,
+                "compileOptions {",
+                "compileOptions {\n        isCoreLibraryDesugaringEnabled = true\n",
+            )
+        if "coreLibraryDesugaring(" not in build_gradle:
+            build_gradle = (
+                f"{build_gradle.rstrip()}\n\n"
+                "dependencies {\n"
+                '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+                "}\n"
+            )
+        build_gradle_path.write_text(build_gradle, encoding="utf-8")
 
 
 def plist_entry(key: str, value: str) -> str:
