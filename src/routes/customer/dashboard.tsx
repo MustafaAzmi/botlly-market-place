@@ -10,6 +10,7 @@ import {
   Package,
   Save,
   Search,
+  Send,
   User,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -38,6 +39,7 @@ import {
   submitProductOrder,
   type CustomerProduct,
 } from "@/lib/customer.functions";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import {
   clearCustomerSession,
   readCustomerSession,
@@ -186,6 +188,7 @@ function ShopTab({
 }) {
   const { t } = useLanguage();
   const browseFn = useServerFn(browseCarProducts);
+  const missingRequestFn = useServerFn(submitMissingProductRequest);
   const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [carMake, setCarMake] = useState("");
   const [carModel, setCarModel] = useState("");
@@ -198,6 +201,7 @@ function ShopTab({
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [colors, setColors] = useState<string[]>([]);
   const [years, setYears] = useState<string[]>([]);
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
 
   useEffect(() => {
     getCatalogFn({})
@@ -319,6 +323,24 @@ function ShopTab({
             </Select>
           </div>
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={searchScope === "governorate" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSearchScope("governorate")}
+          >
+            البحث داخل المحافظة
+          </Button>
+          <Button
+            type="button"
+            variant={searchScope === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSearchScope("all")}
+          >
+            البحث في جميع المحافظات
+          </Button>
+        </div>
         <Button onClick={search} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           {t("customer.shop.search")}
@@ -337,12 +359,17 @@ function ShopTab({
           <p className="mt-3 text-sm">{t("customer.shop.empty.desc")}</p>
         </div>
       ) : products.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center text-muted-foreground">
-          <Package className="mx-auto h-10 w-10" />
-          <p className="mt-3 text-sm">
-            {t("customer.shop.no_results")}
-          </p>
-        </div>
+        <MissingProductRequestPanel
+          defaultProductName=""
+          carMake={carMake}
+          carModel={carModel}
+          governorate={governorate}
+          requesterName={customer.name}
+          requesterPhone={customer.whatsapp}
+          searchScope={searchScope}
+          requesterType="customer"
+          onSubmit={async (data) => missingRequestFn({ data })}
+        />
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{t("customer.shop.results", { count: products.length })}</p>
@@ -361,6 +388,138 @@ function ShopTab({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function MissingProductRequestPanel({
+  defaultProductName,
+  carMake,
+  carModel,
+  governorate,
+  requesterName,
+  requesterPhone,
+  requesterType,
+  searchScope,
+  onSubmit,
+}: {
+  defaultProductName: string;
+  carMake: string;
+  carModel: string;
+  governorate: string;
+  requesterName: string;
+  requesterPhone: string;
+  requesterType: "customer" | "fitter";
+  searchScope: "governorate" | "all";
+  onSubmit: (data: {
+    productName: string;
+    carMake: string;
+    carModel: string;
+    governorate: string;
+    requesterType: "customer" | "fitter";
+    requesterName: string;
+    requesterPhone: string;
+    searchScope: "governorate" | "all";
+    imageDataUrl?: string;
+  }) => Promise<{ targetMerchantCount: number; sentCount: number }>;
+}) {
+  const [productName, setProductName] = useState(defaultProductName);
+  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const pickImage = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setImageDataUrl(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsDataURL(file);
+  };
+
+  const submit = async () => {
+    if (!productName.trim()) {
+      toast.error("اكتب اسم المنتج المطلوب أولاً");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({
+        productName: productName.trim(),
+        carMake,
+        carModel,
+        governorate,
+        requesterType,
+        requesterName,
+        requesterPhone,
+        searchScope,
+        imageDataUrl,
+      });
+      toast.success(
+        result.sentCount > 0
+          ? `تم إرسال الطلب إلى ${result.sentCount} تاجر مختص`
+          : "تم حفظ الطلب، لكن لم يتم العثور على تاجر مطابق حالياً",
+      );
+      setProductName("");
+      setImageDataUrl("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
+      <div className="text-center text-muted-foreground">
+        <Package className="mx-auto h-10 w-10" />
+        <p className="mx-auto mt-3 max-w-2xl text-sm">
+          لم نعثر على المنتج المطلوب، يمكنك إرسال صورة للقطعة أو كتابة تفاصيل إضافية ليتم إرسال الطلب مباشرة إلى التجار المختصين.
+        </p>
+      </div>
+
+      <div className="mx-auto mt-5 max-w-2xl space-y-4 text-start">
+        <div className="space-y-2">
+          <Label htmlFor="missing-product-name">اسم المنتج المطلوب</Label>
+          <Input
+            id="missing-product-name"
+            value={productName}
+            onChange={(event) => setProductName(event.target.value)}
+            placeholder="مثال: لايت أمامي، بمبر، مراية..."
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            التقاط صورة
+            <input
+              className="hidden"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => pickImage(event.target.files?.[0])}
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            اختيار من المعرض
+            <input
+              className="hidden"
+              type="file"
+              accept="image/*"
+              onChange={(event) => pickImage(event.target.files?.[0])}
+            />
+          </label>
+          <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>
+            إرسال بدون صورة
+          </Button>
+        </div>
+
+        {imageDataUrl && (
+          <img src={imageDataUrl} alt="صورة القطعة المطلوبة" className="max-h-56 rounded-lg border object-contain" />
+        )}
+
+        <Button onClick={submit} disabled={submitting || !carMake || !carModel || !governorate} className="w-full gap-2">
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          إرسال الطلب للتجار المختصين
+        </Button>
+      </div>
     </div>
   );
 }

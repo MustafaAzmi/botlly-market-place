@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Car, CheckCircle2, Loader2, LogOut, MapPin, Search, Settings, UserRound, Wrench } from "lucide-react";
+import { Car, CheckCircle2, Loader2, LogOut, MapPin, Package, Search, Send, Settings, UserRound, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,6 +22,7 @@ import {
   type FitterSummary,
 } from "@/lib/fitter.functions";
 import { clearFitterSession, readFitterSession, writeFitterSession } from "@/lib/fitterSession";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/f")({
@@ -213,6 +214,7 @@ function FitterShop({
   const browseFn = useServerFn(browseCarProducts);
   const catalogFn = useServerFn(getEnabledCarCatalogue);
   const requestFn = useServerFn(requestFitterProduct);
+  const missingRequestFn = useServerFn(submitMissingProductRequest);
   const confirmFn = useServerFn(confirmFitterReceipt);
   const cancelFn = useServerFn(cancelFitterOrder);
   const [makes, setMakes] = useState<CarMake[]>([]);
@@ -225,6 +227,8 @@ function FitterShop({
   const [governorate, setGovernorate] = useState("");
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
   const [busyOrderKey, setBusyOrderKey] = useState("");
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
@@ -242,6 +246,7 @@ function FitterShop({
 
   const search = async () => {
     setLoading(true);
+    setSearched(true);
     try {
       setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate } }));
     } catch (error) {
@@ -320,23 +325,43 @@ function FitterShop({
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           عرض القطع
         </Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+            البحث داخل المحافظة
+          </Button>
+          <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+            البحث في جميع المحافظات
+          </Button>
+        </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {products.map((product) => {
-          const order = summary?.orders.find((item) => item.productId === product.id);
-          return (
-            <FitterProduct
-              key={product.id}
-              product={product}
-              order={order}
-              busyOrderKey={busyOrderKey}
-              onRequest={requestProduct}
-              onConfirm={confirm}
-              onCancel={cancel}
-            />
-          );
-        })}
-      </div>
+      {searched && !loading && products.length === 0 ? (
+        <FitterMissingProductPanel
+          carMake={carMake}
+          carModel={carModel}
+          governorate={governorate}
+          requesterName={summary?.fitter.name ?? "فيتر"}
+          requesterPhone={summary?.fitter.whatsapp ?? ""}
+          searchScope={searchScope}
+          onSubmit={(data) => missingRequestFn({ data })}
+        />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {products.map((product) => {
+            const order = summary?.orders.find((item) => item.productId === product.id);
+            return (
+              <FitterProduct
+                key={product.id}
+                product={product}
+                order={order}
+                busyOrderKey={busyOrderKey}
+                onRequest={requestProduct}
+                onConfirm={confirm}
+                onCancel={cancel}
+              />
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -408,6 +433,103 @@ function FitterProduct({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FitterMissingProductPanel({
+  carMake,
+  carModel,
+  governorate,
+  requesterName,
+  requesterPhone,
+  searchScope,
+  onSubmit,
+}: {
+  carMake: string;
+  carModel: string;
+  governorate: string;
+  requesterName: string;
+  requesterPhone: string;
+  searchScope: "governorate" | "all";
+  onSubmit: (data: {
+    productName: string;
+    carMake: string;
+    carModel: string;
+    governorate: string;
+    requesterType: "fitter";
+    requesterName: string;
+    requesterPhone: string;
+    searchScope: "governorate" | "all";
+    imageDataUrl?: string;
+  }) => Promise<{ sentCount: number }>;
+}) {
+  const [productName, setProductName] = useState("");
+  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const pickImage = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setImageDataUrl(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsDataURL(file);
+  };
+
+  const submit = async () => {
+    if (!productName.trim()) {
+      toast.error("اكتب اسم المنتج المطلوب أولاً");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({
+        productName: productName.trim(),
+        carMake,
+        carModel,
+        governorate,
+        requesterType: "fitter",
+        requesterName,
+        requesterPhone,
+        searchScope,
+        imageDataUrl,
+      });
+      toast.success(result.sentCount > 0 ? `تم إرسال الطلب إلى ${result.sentCount} تاجر مختص` : "تم حفظ الطلب، لكن لم يتم العثور على تاجر مطابق حالياً");
+      setProductName("");
+      setImageDataUrl("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
+      <div className="text-center text-muted-foreground">
+        <Package className="mx-auto h-10 w-10" />
+        <p className="mx-auto mt-3 max-w-2xl text-sm">
+          لم نعثر على المنتج المطلوب، يمكنك إرسال صورة للقطعة أو كتابة تفاصيل إضافية ليتم إرسال الطلب مباشرة إلى التجار المختصين.
+        </p>
+      </div>
+      <div className="mx-auto mt-5 max-w-2xl space-y-4">
+        <Field label="اسم المنتج المطلوب" value={productName} onChange={setProductName} placeholder="مثال: لايت أمامي، بمبر، مراية..." />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            التقاط صورة
+            <input className="hidden" type="file" accept="image/*" capture="environment" onChange={(event) => pickImage(event.target.files?.[0])} />
+          </label>
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            اختيار من المعرض
+            <input className="hidden" type="file" accept="image/*" onChange={(event) => pickImage(event.target.files?.[0])} />
+          </label>
+          <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>إرسال بدون صورة</Button>
+        </div>
+        {imageDataUrl && <img src={imageDataUrl} alt="صورة القطعة المطلوبة" className="max-h-56 rounded-lg border object-contain" />}
+        <Button onClick={submit} disabled={submitting || !carMake || !carModel || !governorate} className="w-full gap-2">
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          إرسال الطلب للتجار المختصين
+        </Button>
       </div>
     </div>
   );

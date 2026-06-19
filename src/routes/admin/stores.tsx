@@ -85,17 +85,21 @@ function AdminStoresPage() {
   });
 
   const downloadMerchantSalesExcel = (merchant: MerchantAdminView) => {
+    const totalProducts = merchant.sales.reduce((sum, sale) => sum + sale.price, 0);
+    const totalCommissions = merchant.sales.reduce((sum, sale) => sum + sale.commissionAmount, 0);
+    const totalMerchantNet = merchant.sales.reduce((sum, sale) => sum + sale.merchantNet, 0);
     const rows = merchant.sales
       .map(
         (sale) => `
           <tr>
-            <td>${excelCell(sale.orderId)}</td>
+            <td>${excelCell(sale.createdAt)}</td>
             <td>${excelCell(sale.productTitle)}</td>
             <td>${excelCell(sale.price)}</td>
-            <td>${excelCell(sale.currency)}</td>
             <td>${excelCell(sale.customerName)}</td>
             <td>${excelCell(sale.customerPhone)}</td>
-            <td>${excelCell(sale.createdAt)}</td>
+            <td>${excelCell(sale.commissionPercent + "%")}</td>
+            <td>${excelCell(sale.commissionAmount)}</td>
+            <td>${excelCell(sale.operationStatus)}</td>
           </tr>`,
       )
       .join("");
@@ -112,6 +116,11 @@ function AdminStoresPage() {
       <html dir="rtl">
         <head><meta charset="utf-8" /></head>
         <body>
+          <h2>تقرير مبيعات التاجر: ${excelCell(merchant.storeName)}</h2>
+          <p>عدد المبيعات الكلي: ${excelCell(merchant.salesCount)}</p>
+          <p>مجموع قيمة المنتجات: ${excelCell(totalProducts)}</p>
+          <p>مجموع عمولات الوسيط: ${excelCell(totalCommissions)}</p>
+          <p>مجموع أرباح التاجر بعد خصم العمولة: ${excelCell(totalMerchantNet)}</p>
           <h2>تقرير مبيعات التاجر: ${excelCell(merchant.storeName)}</h2>
           <p>عدد المبيعات الكلي: ${excelCell(merchant.salesCount)}</p>
           <h3>الإجمالي حسب العملة</h3>

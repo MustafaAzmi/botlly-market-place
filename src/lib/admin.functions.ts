@@ -37,6 +37,10 @@ export interface MerchantSaleDetail {
   currency: string;
   customerName: string;
   customerPhone: string;
+  commissionPercent: number;
+  commissionAmount: number;
+  merchantNet: number;
+  operationStatus: "مكتملة" | "ملغاة" | "قيد المراجعة";
   createdAt: string;
 }
 
@@ -67,6 +71,14 @@ export interface MerchantAdminView {
   salesTotals: MerchantSalesTotal[];
   sales: MerchantSaleDetail[];
   createdAt: string;
+}
+
+export interface SalesConfirmationSummary {
+  confirmedByBoth: number;
+  customerOnly: number;
+  merchantOnly: number;
+  conflicts: number;
+  pending: number;
 }
 
 export interface AdminMessageRecord {
@@ -470,7 +482,7 @@ async function loadMerchantMetrics(): Promise<{
   const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
   for (const row of orderRows) {
     const p = row.payload ?? {};
-    if (getString(p.status) !== "purchased") continue;
+    if (getString(p.merchantStatus) !== "Sold" || getString(p.requesterStatus) !== "Purchased") continue;
     const merchantId = getString(p.merchantId);
     if (!merchantId) continue;
     const saleCreatedAt = getString(p.updatedAt) || getString(p.createdAt) || eventTime(row);
@@ -478,13 +490,19 @@ async function loadMerchantMetrics(): Promise<{
     if (resetAt && saleCreatedAt <= resetAt) continue;
     const price = getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0;
     const currency = getString(p.currency) || "IQD";
+    const commissionPercent = 5;
+    const commissionAmount = Number(((price * commissionPercent) / 100).toFixed(2));
     const sale: MerchantSaleDetail = {
       orderId: getString(p.orderId) || row.id,
       productTitle: getString(p.productTitle) || "منتج",
       price,
       currency,
-      customerName: getString(p.customerName),
-      customerPhone: getString(p.customerPhone) || getString(p.customerNumber),
+      customerName: getString(p.customerName) || getString(p.requesterName),
+      customerPhone: getString(p.customerPhone) || getString(p.customerNumber) || getString(p.requesterPhone),
+      commissionPercent,
+      commissionAmount,
+      merchantNet: Number((price - commissionAmount).toFixed(2)),
+      operationStatus: "مكتملة",
       createdAt: saleCreatedAt,
     };
     const merchantSales = salesByMerchant.get(merchantId) ?? [];
@@ -538,6 +556,37 @@ export const listMerchants = createServerFn({ method: "POST" })
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  });
+
+export const getSalesConfirmationSummary = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<SalesConfirmationSummary> => {
+    await authorizeAdmin(data.token);
+    const orders = latestByPayloadId(await listEvents("botly_order"), "orderId");
+    const summary: SalesConfirmationSummary = {
+      confirmedByBoth: 0,
+      customerOnly: 0,
+      merchantOnly: 0,
+      conflicts: 0,
+      pending: 0,
+    };
+
+    for (const row of orders) {
+      const p = row.payload ?? {};
+      if (getString(p.sourceContext) !== "missing_product_request" && !getString(p.merchantStatus) && !getString(p.requesterStatus)) continue;
+      const merchantStatus = getString(p.merchantStatus) || "Pending";
+      const requesterStatus = getString(p.requesterStatus) || "Pending";
+      if (merchantStatus === "Sold" && requesterStatus === "Purchased") summary.confirmedByBoth += 1;
+      else if (
+        (merchantStatus === "Sold" && requesterStatus === "Cancelled") ||
+        (merchantStatus === "Cancelled" && requesterStatus === "Purchased")
+      ) summary.conflicts += 1;
+      else if (merchantStatus === "Sold" && requesterStatus === "Pending") summary.merchantOnly += 1;
+      else if (merchantStatus === "Pending" && requesterStatus === "Purchased") summary.customerOnly += 1;
+      else summary.pending += 1;
+    }
+
+    return summary;
   });
 
 export const resetMerchantSalesReport = createServerFn({ method: "POST" })

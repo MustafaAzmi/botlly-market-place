@@ -1,0 +1,267 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import {
+  appendEvent,
+  getString,
+  listEvents,
+  normalizePhone,
+  phoneKey,
+  type EventRow,
+} from "@/lib/eventStore.server";
+import {
+  sendWhatsAppButtons,
+  sendWhatsAppImage,
+  sendWhatsAppText,
+} from "@/lib/whatsapp/send.server";
+
+type MissingRequestScope = "governorate" | "all";
+type MissingRequesterType = "customer" | "fitter";
+
+const missingProductInput = z.object({
+  productName: z.string().trim().min(2).max(160),
+  carMake: z.string().trim().min(1).max(80),
+  carModel: z.string().trim().min(1).max(80),
+  governorate: z.string().trim().min(1).max(100),
+  requesterType: z.enum(["customer", "fitter"]),
+  requesterName: z.string().trim().min(1).max(120),
+  requesterPhone: z.string().trim().min(6).max(40),
+  searchScope: z.enum(["governorate", "all"]),
+  imageUrl: z.string().trim().max(4000).optional().or(z.literal("")),
+  imageDataUrl: z.string().trim().max(900000).optional().or(z.literal("")),
+});
+
+type TargetMerchant = {
+  id: string;
+  storeName: string;
+  whatsapp: string;
+  governorate: string;
+};
+
+function merchantIdentity(row: EventRow) {
+  return getString(row.payload?.merchantId) || row.id;
+}
+
+function productIdentity(row: EventRow) {
+  return getString(row.payload?.productId) || row.id;
+}
+
+function isInactiveMerchant(payload: Record<string, unknown>) {
+  return (
+    payload.bannedFromBot === true ||
+    payload.bannedFromBot === "true" ||
+    payload.visibilityEnabled === false ||
+    payload.visibilityEnabled === "false" ||
+    payload.isActive === false ||
+    payload.isActive === "false" ||
+    Boolean(getString(payload.suspendedAt)) ||
+    getString(payload.subscriptionStatus) === "expired" ||
+    (Boolean(getString(payload.packageExpiry)) &&
+      new Date(getString(payload.packageExpiry)).getTime() < Date.now())
+  );
+}
+
+function toWhatsAppRecipient(phone: string) {
+  return normalizePhone(phone).replace(/^\+/, "");
+}
+
+function sameText(a: string, b: string) {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+async function latestMerchantRows() {
+  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const latest = new Map<string, EventRow>();
+  for (const row of rows) {
+    const id = merchantIdentity(row);
+    if (id && !latest.has(id)) latest.set(id, row);
+  }
+  return [...latest.values()];
+}
+
+async function merchantCarMakes() {
+  const rows = await listEvents("botly_product").catch(() => [] as EventRow[]);
+  const latest = new Map<string, EventRow>();
+  for (const row of rows) {
+    const id = productIdentity(row);
+    if (id && !latest.has(id)) latest.set(id, row);
+  }
+
+  const makes = new Map<string, Set<string>>();
+  for (const row of latest.values()) {
+    const p = row.payload ?? {};
+    if (getString(p.status) !== "active") continue;
+    if (getString(p.availability) === "out_of_stock") continue;
+    const merchantId = getString(p.merchantId);
+    const carMake = getString(p.carMake);
+    if (!merchantId || !carMake) continue;
+    if (!makes.has(merchantId)) makes.set(merchantId, new Set());
+    makes.get(merchantId)!.add(carMake);
+  }
+  return makes;
+}
+
+async function findTargetMerchants(args: {
+  carMake: string;
+  governorate: string;
+  scope: MissingRequestScope;
+}): Promise<TargetMerchant[]> {
+  const [merchants, specialties] = await Promise.all([latestMerchantRows(), merchantCarMakes()]);
+  const targets: TargetMerchant[] = [];
+  const seenPhones = new Set<string>();
+
+  for (const row of merchants) {
+    const p = row.payload ?? {};
+    const merchantId = merchantIdentity(row);
+    if (!merchantId || isInactiveMerchant(p)) continue;
+
+    const whatsapp = getString(p.whatsappNormalized) || getString(p.whatsapp);
+    const phone = phoneKey(whatsapp);
+    if (!whatsapp || !phone || seenPhones.has(phone)) continue;
+
+    const carMakes = specialties.get(merchantId) ?? new Set<string>();
+    const matchesMake = [...carMakes].some((make) => sameText(make, args.carMake) || make === "عام");
+    if (!matchesMake) continue;
+
+    const governorate = getString(p.city) || getString(p.governorate);
+    if (args.scope === "governorate" && !sameText(governorate, args.governorate)) continue;
+
+    seenPhones.add(phone);
+    targets.push({
+      id: merchantId,
+      storeName: getString(p.storeName) || "متجر",
+      whatsapp,
+      governorate,
+    });
+  }
+
+  return targets;
+}
+
+function merchantMessage(args: {
+  productName: string;
+  carMake: string;
+  carModel: string;
+  requesterType: MissingRequesterType;
+}) {
+  const requester = args.requesterType === "fitter" ? "فيتر" : "زبون";
+  return [
+    `هنالك ${requester} يبحث عن المنتج التالي:`,
+    "",
+    `اسم المنتج: ${args.productName}`,
+    "",
+    `نوع السيارة: ${args.carMake}`,
+    "",
+    `موديل السيارة: ${args.carModel}`,
+    "",
+    "هل المنتج متوفر لديك؟",
+  ].join("\n");
+}
+
+async function sendMissingProductToMerchant(args: {
+  merchant: TargetMerchant;
+  body: string;
+  imageUrl: string;
+}) {
+  const recipient = toWhatsAppRecipient(args.merchant.whatsapp);
+  const imageResult =
+    /^https:\/\//i.test(args.imageUrl)
+      ? await sendWhatsAppImage(recipient, args.imageUrl).catch((error) => ({
+          ok: false,
+          status: 0,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : null;
+  const buttonResult = await sendWhatsAppButtons(recipient, args.body, [
+    { id: "missing_product_available", title: "المنتج متوفر" },
+  ]).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+
+  return { imageResult, buttonResult };
+}
+
+export const submitMissingProductRequest = createServerFn({ method: "POST" })
+  .inputValidator((d) => missingProductInput.parse(d))
+  .handler(async ({ data }) => {
+    const missingRequestId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const targets = await findTargetMerchants({
+      carMake: data.carMake,
+      governorate: data.governorate,
+      scope: data.searchScope,
+    });
+
+    await appendEvent("botly_order", {
+      orderId: missingRequestId,
+      missingRequestId,
+      sourceContext: "missing_product_request",
+      eventName: "missing_request_created",
+      productTitle: data.productName,
+      carMake: data.carMake,
+      carModel: data.carModel,
+      requesterType: data.requesterType,
+      requesterName: data.requesterName,
+      requesterPhone: data.requesterPhone,
+      requesterGovernorate: data.governorate,
+      searchScope: data.searchScope,
+      imageUrl: data.imageUrl ?? "",
+      imageDataUrl: data.imageDataUrl ?? "",
+      targetMerchantCount: targets.length,
+      status: "missing_request_sent",
+      createdAt: now,
+      eventAt: now,
+    });
+
+    const body = merchantMessage({
+      productName: data.productName,
+      carMake: data.carMake,
+      carModel: data.carModel,
+      requesterType: data.requesterType,
+    });
+
+    const sendResults = [];
+    for (const merchant of targets) {
+      const orderId = crypto.randomUUID();
+      const sendResult = await sendMissingProductToMerchant({
+        merchant,
+        body,
+        imageUrl: data.imageUrl ?? "",
+      });
+      sendResults.push({ merchantId: merchant.id, ...sendResult });
+      await appendEvent("botly_order", {
+        orderId,
+        missingRequestId,
+        sourceContext: "missing_product_request",
+        eventName: "missing_request_sent_to_merchant",
+        productTitle: data.productName,
+        carMake: data.carMake,
+        carModel: data.carModel,
+        requesterType: data.requesterType,
+        requesterName: data.requesterName,
+        requesterPhone: data.requesterPhone,
+        requesterGovernorate: data.governorate,
+        searchScope: data.searchScope,
+        imageUrl: data.imageUrl ?? "",
+        imageDataUrl: data.imageDataUrl ?? "",
+        merchantId: merchant.id,
+        merchantStoreName: merchant.storeName,
+        merchantWhatsapp: merchant.whatsapp,
+        merchantGovernorate: merchant.governorate,
+        status: "sent_to_merchant",
+        merchantNotified: Boolean(sendResult.buttonResult.ok),
+        whatsappSendResults: sendResult,
+        createdAt: now,
+        eventAt: now,
+      });
+    }
+
+    return {
+      ok: true,
+      missingRequestId,
+      targetMerchantCount: targets.length,
+      sentCount: sendResults.filter((result) => result.buttonResult.ok).length,
+    };
+  });
