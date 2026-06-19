@@ -5,6 +5,11 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://bot-lly.tech',
 );
 
+const apiFallbackBaseUrls = <String>[
+  'https://www.bot-lly.tech',
+  'https://bot-lly.tech',
+];
+
 const iraqiGovernorates = <String>[
   'بغداد',
   'نينوى',
