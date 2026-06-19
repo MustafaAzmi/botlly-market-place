@@ -90,7 +90,11 @@ class CustomerController extends ChangeNotifier {
         'customerGovernorate': governorate,
         'customerLandmark': landmark,
       });
-      await refreshOrders();
+      try {
+        await refreshOrders();
+      } catch (_) {
+        // The order was accepted; a failed history refresh should not look like a failed order.
+      }
     });
   }
 
