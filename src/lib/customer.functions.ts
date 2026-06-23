@@ -170,6 +170,7 @@ const browseInput = z.object({
   carYear: z.string().trim().max(10).optional().or(z.literal("")),
   color: z.string().trim().max(60).optional().or(z.literal("")),
   governorate: z.string().trim().max(100).optional().or(z.literal("")),
+  searchScope: z.enum(["governorate", "all"]).optional(),
 });
 
 // Does this product fit the requested manufacture year?
@@ -258,8 +259,9 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const wantYear = (data.carYear ?? "").trim();
     const wantColor = (data.color ?? "").trim();
     const wantGovernorate = (data.governorate ?? "").trim();
+    const searchScope = data.searchScope ?? "governorate";
 
-    if (!wantGovernorate || !wantMake || !wantModel) {
+    if (!wantMake || !wantModel || (searchScope === "governorate" && !wantGovernorate)) {
       return [];
     }
 
@@ -285,7 +287,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       const merchantGovernorate = getString(p.merchantCity) || merchantGovernorates.get(merchantId) || "";
 
       // Universal parts ("عام") fit every car, so they pass any make filter.
-      if (wantGovernorate && merchantGovernorate !== wantGovernorate) continue;
+      if (searchScope === "governorate" && wantGovernorate && merchantGovernorate !== wantGovernorate) continue;
       if (wantMake && carMake !== wantMake && carMake !== "عام") continue;
       if (
         wantModel &&

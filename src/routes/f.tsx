@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { browseCarProducts, getEnabledCarCatalogue, type CustomerProduct } from "@/lib/customer.functions";
 import {
@@ -34,6 +35,37 @@ export const Route = createFileRoute("/f")({
 });
 
 type AuthMode = "login" | "signup";
+
+function compressImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("اختر صورة فقط"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("تعذر قراءة الصورة"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("تعذر فتح الصورة"));
+      img.onload = () => {
+        const maxDim = 1000;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("تعذر معالجة الصورة"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 const IRAQI_GOVERNORATES = [
   "بغداد",
@@ -248,7 +280,7 @@ function FitterShop({
     setLoading(true);
     setSearched(true);
     try {
-      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate } }));
+      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate, searchScope } }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر البحث");
     } finally {
@@ -336,6 +368,7 @@ function FitterShop({
       </div>
       {searched && !loading && products.length === 0 ? (
         <FitterMissingProductPanel
+          defaultProductName={[carMake, carModel, carYear && carYear !== ALL_YEARS ? carYear : "", color].filter(Boolean).join(" ")}
           carMake={carMake}
           carModel={carModel}
           governorate={governorate}
@@ -439,6 +472,7 @@ function FitterProduct({
 }
 
 function FitterMissingProductPanel({
+  defaultProductName,
   carMake,
   carModel,
   governorate,
@@ -447,6 +481,7 @@ function FitterMissingProductPanel({
   searchScope,
   onSubmit,
 }: {
+  defaultProductName: string;
   carMake: string;
   carModel: string;
   governorate: string;
@@ -455,6 +490,7 @@ function FitterMissingProductPanel({
   searchScope: "governorate" | "all";
   onSubmit: (data: {
     productName: string;
+    requestDetails?: string;
     carMake: string;
     carModel: string;
     governorate: string;
@@ -465,28 +501,38 @@ function FitterMissingProductPanel({
     imageDataUrl?: string;
   }) => Promise<{ sentCount: number }>;
 }) {
-  const [productName, setProductName] = useState("");
+  const [productName, setProductName] = useState(defaultProductName);
+  const [requestDetails, setRequestDetails] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const pickImage = (file?: File) => {
+  const pickImage = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImageDataUrl(typeof reader.result === "string" ? reader.result : "");
-    reader.readAsDataURL(file);
+    try {
+      setImageDataUrl(await compressImageFile(file));
+      toast.success("تم اختيار الصورة");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر اختيار الصورة");
+    }
   };
 
   const submit = async () => {
-    if (!productName.trim()) {
+    const cleanName = productName.trim() || requestDetails.trim().slice(0, 120) || (imageDataUrl ? "طلب قطعة بصورة" : "");
+    if (!cleanName) {
       toast.error("اكتب اسم المنتج المطلوب أولاً");
+      return;
+    }
+    if (!carMake || !governorate) {
+      toast.error("اختر نوع السيارة والمحافظة قبل إرسال الطلب");
       return;
     }
     setSubmitting(true);
     try {
       const result = await onSubmit({
-        productName: productName.trim(),
+        productName: cleanName,
+        requestDetails: requestDetails.trim(),
         carMake,
-        carModel,
+        carModel: carModel || "غير محدد",
         governorate,
         requesterType: "fitter",
         requesterName,
@@ -496,6 +542,7 @@ function FitterMissingProductPanel({
       });
       toast.success(result.sentCount > 0 ? `تم إرسال الطلب إلى ${result.sentCount} تاجر مختص` : "تم حفظ الطلب، لكن لم يتم العثور على تاجر مطابق حالياً");
       setProductName("");
+      setRequestDetails("");
       setImageDataUrl("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
@@ -514,6 +561,16 @@ function FitterMissingProductPanel({
       </div>
       <div className="mx-auto mt-5 max-w-2xl space-y-4">
         <Field label="اسم المنتج المطلوب" value={productName} onChange={setProductName} placeholder="مثال: لايت أمامي، بمبر، مراية..." />
+        <div className="space-y-2">
+          <Label htmlFor="fitter-missing-product-details">وصف إضافي للقطعة</Label>
+          <Textarea
+            id="fitter-missing-product-details"
+            value={requestDetails}
+            onChange={(event) => setRequestDetails(event.target.value)}
+            placeholder="اكتب أي تفاصيل تساعد التاجر مثل الجهة، الرقم، الشكل، أو العطل..."
+            rows={4}
+          />
+        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
             التقاط صورة
@@ -526,7 +583,7 @@ function FitterMissingProductPanel({
           <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>إرسال بدون صورة</Button>
         </div>
         {imageDataUrl && <img src={imageDataUrl} alt="صورة القطعة المطلوبة" className="max-h-56 rounded-lg border object-contain" />}
-        <Button onClick={submit} disabled={submitting || !carMake || !carModel || !governorate} className="w-full gap-2">
+        <Button onClick={submit} disabled={submitting || !carMake || !governorate} className="w-full gap-2">
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           إرسال الطلب للتجار المختصين
         </Button>

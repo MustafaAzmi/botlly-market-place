@@ -45,6 +45,7 @@ import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/ord
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
+import { Route as ApiMissingProductImageIdRouteImport } from './routes/api/missing-product-image/$id'
 import { Route as ApiMerchantMobileRouteImport } from './routes/api/merchant/mobile'
 import { Route as ApiFitterMobileRouteImport } from './routes/api/fitter/mobile'
 import { Route as ApiCustomerMobileRouteImport } from './routes/api/customer/mobile'
@@ -230,6 +231,12 @@ const ApiProductImageIdRoute = ApiProductImageIdRouteImport.update({
   path: '/api/product-image/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMissingProductImageIdRoute =
+  ApiMissingProductImageIdRouteImport.update({
+    id: '/api/missing-product-image/$id',
+    path: '/api/missing-product-image/$id',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiMerchantMobileRoute = ApiMerchantMobileRouteImport.update({
   id: '/api/merchant/mobile',
   path: '/api/merchant/mobile',
@@ -283,6 +290,7 @@ export interface FileRoutesByFullPath {
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -324,6 +332,7 @@ export interface FileRoutesByTo {
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -367,6 +376,7 @@ export interface FileRoutesById {
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -411,6 +421,7 @@ export interface FileRouteTypes {
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -452,6 +463,7 @@ export interface FileRouteTypes {
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -494,6 +506,7 @@ export interface FileRouteTypes {
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -536,6 +549,7 @@ export interface RootRouteChildren {
   ApiCustomerMobileRoute: typeof ApiCustomerMobileRoute
   ApiFitterMobileRoute: typeof ApiFitterMobileRoute
   ApiMerchantMobileRoute: typeof ApiMerchantMobileRoute
+  ApiMissingProductImageIdRoute: typeof ApiMissingProductImageIdRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
@@ -801,6 +815,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProductImageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/missing-product-image/$id': {
+      id: '/api/missing-product-image/$id'
+      path: '/api/missing-product-image/$id'
+      fullPath: '/api/missing-product-image/$id'
+      preLoaderRoute: typeof ApiMissingProductImageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/merchant/mobile': {
       id: '/api/merchant/mobile'
       path: '/api/merchant/mobile'
@@ -873,6 +894,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCustomerMobileRoute: ApiCustomerMobileRoute,
   ApiFitterMobileRoute: ApiFitterMobileRoute,
   ApiMerchantMobileRoute: ApiMerchantMobileRoute,
+  ApiMissingProductImageIdRoute: ApiMissingProductImageIdRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,

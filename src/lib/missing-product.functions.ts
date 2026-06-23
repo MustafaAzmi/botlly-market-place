@@ -12,7 +12,6 @@ import {
 import {
   sendWhatsAppButtons,
   sendWhatsAppImage,
-  sendWhatsAppText,
 } from "@/lib/whatsapp/send.server";
 
 type MissingRequestScope = "governorate" | "all";
@@ -20,15 +19,16 @@ type MissingRequesterType = "customer" | "fitter";
 
 const missingProductInput = z.object({
   productName: z.string().trim().min(2).max(160),
+  requestDetails: z.string().trim().max(1000).optional().or(z.literal("")),
   carMake: z.string().trim().min(1).max(80),
-  carModel: z.string().trim().min(1).max(80),
+  carModel: z.string().trim().max(80).optional().or(z.literal("")),
   governorate: z.string().trim().min(1).max(100),
   requesterType: z.enum(["customer", "fitter"]),
   requesterName: z.string().trim().min(1).max(120),
   requesterPhone: z.string().trim().min(6).max(40),
   searchScope: z.enum(["governorate", "all"]),
   imageUrl: z.string().trim().max(4000).optional().or(z.literal("")),
-  imageDataUrl: z.string().trim().max(900000).optional().or(z.literal("")),
+  imageDataUrl: z.string().trim().max(2500000).optional().or(z.literal("")),
 });
 
 type TargetMerchant = {
@@ -140,6 +140,7 @@ async function findTargetMerchants(args: {
 
 function merchantMessage(args: {
   productName: string;
+  requestDetails: string;
   carMake: string;
   carModel: string;
   requesterType: MissingRequesterType;
@@ -152,10 +153,14 @@ function merchantMessage(args: {
     "",
     `نوع السيارة: ${args.carMake}`,
     "",
-    `موديل السيارة: ${args.carModel}`,
+    `موديل السيارة: ${args.carModel || "غير محدد"}`,
+    args.requestDetails ? "" : null,
+    args.requestDetails ? `تفاصيل إضافية: ${args.requestDetails}` : null,
     "",
     "هل المنتج متوفر لديك؟",
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 
 async function sendMissingProductToMerchant(args: {
@@ -188,6 +193,11 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const missingRequestId = crypto.randomUUID();
     const now = new Date().toISOString();
+    const publicBase = (process.env.PUBLIC_SITE_URL ?? "https://www.bot-lly.tech").replace(/\/$/, "");
+    const deliverableImageUrl =
+      data.imageUrl ||
+      (data.imageDataUrl ? `${publicBase}/api/missing-product-image/${encodeURIComponent(missingRequestId)}` : "");
+    const carModel = data.carModel || "غير محدد";
     const targets = await findTargetMerchants({
       carMake: data.carMake,
       governorate: data.governorate,
@@ -200,14 +210,15 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       sourceContext: "missing_product_request",
       eventName: "missing_request_created",
       productTitle: data.productName,
+      requestDetails: data.requestDetails ?? "",
       carMake: data.carMake,
-      carModel: data.carModel,
+      carModel,
       requesterType: data.requesterType,
       requesterName: data.requesterName,
       requesterPhone: data.requesterPhone,
       requesterGovernorate: data.governorate,
       searchScope: data.searchScope,
-      imageUrl: data.imageUrl ?? "",
+      imageUrl: deliverableImageUrl,
       imageDataUrl: data.imageDataUrl ?? "",
       targetMerchantCount: targets.length,
       status: "missing_request_sent",
@@ -217,8 +228,9 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
 
     const body = merchantMessage({
       productName: data.productName,
+      requestDetails: data.requestDetails ?? "",
       carMake: data.carMake,
-      carModel: data.carModel,
+      carModel,
       requesterType: data.requesterType,
     });
 
@@ -228,7 +240,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       const sendResult = await sendMissingProductToMerchant({
         merchant,
         body,
-        imageUrl: data.imageUrl ?? "",
+        imageUrl: deliverableImageUrl,
       });
       sendResults.push({ merchantId: merchant.id, ...sendResult });
       await appendEvent("botly_order", {
@@ -237,14 +249,15 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
         sourceContext: "missing_product_request",
         eventName: "missing_request_sent_to_merchant",
         productTitle: data.productName,
+        requestDetails: data.requestDetails ?? "",
         carMake: data.carMake,
-        carModel: data.carModel,
+        carModel,
         requesterType: data.requesterType,
         requesterName: data.requesterName,
         requesterPhone: data.requesterPhone,
         requesterGovernorate: data.governorate,
         searchScope: data.searchScope,
-        imageUrl: data.imageUrl ?? "",
+        imageUrl: deliverableImageUrl,
         imageDataUrl: data.imageDataUrl ?? "",
         merchantId: merchant.id,
         merchantStoreName: merchant.storeName,
