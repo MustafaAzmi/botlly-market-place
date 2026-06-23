@@ -368,7 +368,7 @@ function FitterShop({
       </div>
       {searched && !loading && products.length === 0 ? (
         <FitterMissingProductPanel
-          defaultProductName={[carMake, carModel, carYear && carYear !== ALL_YEARS ? carYear : "", color].filter(Boolean).join(" ")}
+          defaultProductName=""
           carMake={carMake}
           carModel={carModel}
           governorate={governorate}
@@ -517,7 +517,7 @@ function FitterMissingProductPanel({
   };
 
   const submit = async () => {
-    const cleanName = productName.trim() || requestDetails.trim().slice(0, 120) || (imageDataUrl ? "طلب قطعة بصورة" : "");
+    const cleanName = requestDetails.trim().slice(0, 120) || productName.trim() || (imageDataUrl ? "طلب قطعة بصورة" : "");
     if (!cleanName) {
       toast.error("اكتب اسم المنتج المطلوب أولاً");
       return;

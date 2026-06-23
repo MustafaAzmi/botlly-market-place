@@ -482,7 +482,7 @@ async function resolveMerchantContact(
 async function sendMerchantAvailabilityQuestion(args: {
   merchantWhatsapp: string;
   productTitle: string;
-  currentPrice: number;
+  finalPrice: number;
   currency: string;
   requesterLabel: string;
 }) {
@@ -490,7 +490,7 @@ async function sendMerchantAvailabilityQuestion(args: {
   const body = [
     "يوجد طلب على منتج من Botly:",
     `المنتج: ${args.productTitle}`,
-    `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
+    `السعر النهائي: ${args.finalPrice.toLocaleString()} ${args.currency}`,
     `نوع الطلب: ${args.requesterLabel}`,
     "",
     "هل لا يزال المنتج متوفر؟",
@@ -603,7 +603,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       ? await sendMerchantAvailabilityQuestion({
           merchantWhatsapp: merchant.whatsapp,
           productTitle: product.title,
-          currentPrice: product.currentPrice,
+          finalPrice: product.price,
           currency: product.currency,
           requesterLabel: "زبون",
         }).catch((error) => ({

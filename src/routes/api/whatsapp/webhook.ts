@@ -315,7 +315,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   const productTitle = getString(args.order.productTitle) || "المنتج";
   const storeName = getString(args.order.merchantStoreName) || getString(args.order.storeName) || "المتجر";
   const merchantWhatsapp = getString(args.order.merchantWhatsapp) || "-";
-  const currentPrice = getNumber(args.order.currentPrice) ?? getNumber(args.order.price) ?? 0;
+  const finalPrice = getNumber(args.order.price) ?? getNumber(args.order.currentPrice) ?? 0;
   const currency = getString(args.order.currency) || "IQD";
   const requester =
     getString(args.order.sourceContext) === "fitter_site"
@@ -325,7 +325,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   const message = [
     args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
     `المنتج: ${productTitle}`,
-    `السعر الحالي: ${currentPrice.toLocaleString()} ${currency}`,
+    `السعر النهائي: ${finalPrice.toLocaleString()} ${currency}`,
     `المتجر: ${storeName}`,
     `واتساب التاجر: ${merchantWhatsapp}`,
     requester,
@@ -377,12 +377,12 @@ async function notifyRequesterOfMerchantAvailability(args: {
       ? `رقم الوسيط: ${mediatorPhones.join(" / ")}`
       : "رقم الوسيط غير متوفر حالياً، انتظر تواصل الوسيط.";
   const productTitle = getString(order.productTitle) || "المنتج";
-  const currentPrice = getNumber(order.currentPrice) ?? getNumber(order.price) ?? 0;
+  const finalPrice = getNumber(order.price) ?? getNumber(order.currentPrice) ?? 0;
   const currency = getString(order.currency) || "IQD";
   const body = [
     args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
     `المنتج: ${productTitle}`,
-    currentPrice ? `السعر: ${currentPrice.toLocaleString()} ${currency}` : "",
+    finalPrice ? `السعر النهائي: ${finalPrice.toLocaleString()} ${currency}` : "",
     mediatorLine,
     args.isAvailable ? "يرجى التواصل مع الوسيط لإكمال الطلب." : "يمكنك البحث عن قطعة بديلة من التطبيق.",
   ]
@@ -458,7 +458,7 @@ async function notifyMediatorsOfMissingOrderEvent(order: Record<string, unknown>
   const phones = normalizeMediatorPhones((scoped.length > 0 ? scoped : contacts).map((contact) => contact.phone));
   const status = missingOrderFinalStatus(order);
   const message = [
-    `تحديث طلب منتج غير موجود: ${eventLabel}`,
+    eventLabel,
     `اسم المنتج: ${getString(order.productTitle)}`,
     `نوع السيارة: ${getString(order.carMake)}`,
     `موديل السيارة: ${getString(order.carModel)}`,
@@ -478,6 +478,30 @@ async function notifyMediatorsOfMissingOrderEvent(order: Record<string, unknown>
     }
   }
   return results;
+}
+
+async function notifyRequesterOfMissingOrderStatus(order: Record<string, unknown>, body: string) {
+  const phone =
+    getString(order.requesterPhone) ||
+    getString(order.customerPhone) ||
+    getString(order.customerNumber) ||
+    getString(order.fitterWhatsapp);
+  if (!phone) return { ok: false, skipped: true, error: "Missing requester phone" };
+  return sendWhatsAppText(toWhatsAppRecipient(phone), body).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function notifyMerchantOfMissingOrderStatus(order: Record<string, unknown>, body: string) {
+  const phone = getString(order.merchantWhatsapp);
+  if (!phone) return { ok: false, skipped: true, error: "Missing merchant phone" };
+  return sendWhatsAppText(toWhatsAppRecipient(phone), body).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
 }
 
 async function handleMissingProductButton(from: string, actionId: string) {
@@ -530,6 +554,12 @@ async function handleMissingProductButton(from: string, actionId: string) {
       commissionPercent: 5,
     };
     await appendEvent("botly_order", order);
+    await notifyRequesterOfMissingOrderStatus(
+      order,
+      merchantStatus === "Sold"
+        ? `التاجر أكد بيع المنتج المطلوب: ${getString(order.productTitle) || "المنتج"}.\nيرجى تأكيد الشراء من الأزرار المرسلة لك.`
+        : `التاجر أبلغ بإلغاء طلب المنتج: ${getString(order.productTitle) || "المنتج"}.`,
+    );
     await sendWhatsAppButtons(
       toWhatsAppRecipient(getString(order.requesterPhone) || getString(order.customerPhone) || getString(order.customerNumber) || getString(order.fitterWhatsapp)),
       "هل تم شراء المنتج المطلوب؟",
@@ -557,6 +587,12 @@ async function handleMissingProductButton(from: string, actionId: string) {
       commissionPercent: 5,
     };
     await appendEvent("botly_order", order);
+    await notifyMerchantOfMissingOrderStatus(
+      order,
+      requesterStatus === "Purchased"
+        ? `الزبون/الفيتر أكد شراء المنتج: ${getString(order.productTitle) || "المنتج"}.`
+        : `الزبون/الفيتر أبلغ بإلغاء طلب المنتج: ${getString(order.productTitle) || "المنتج"}.`,
+    );
     await notifyMediatorsOfMissingOrderEvent(order, requesterStatus === "Purchased" ? "الزبون/الفيتر أكد الشراء" : "الزبون/الفيتر ألغى الطلب");
     return true;
   }

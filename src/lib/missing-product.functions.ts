@@ -140,7 +140,6 @@ async function findTargetMerchants(args: {
 
 function merchantMessage(args: {
   productName: string;
-  requestDetails: string;
   carMake: string;
   carModel: string;
   requesterType: MissingRequesterType;
@@ -154,8 +153,6 @@ function merchantMessage(args: {
     `نوع السيارة: ${args.carMake}`,
     "",
     `موديل السيارة: ${args.carModel || "غير محدد"}`,
-    args.requestDetails ? "" : null,
-    args.requestDetails ? `تفاصيل إضافية: ${args.requestDetails}` : null,
     "",
     "هل المنتج متوفر لديك؟",
   ]
@@ -198,6 +195,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       data.imageUrl ||
       (data.imageDataUrl ? `${publicBase}/api/missing-product-image/${encodeURIComponent(missingRequestId)}` : "");
     const carModel = data.carModel || "غير محدد";
+    const productTitle = (data.requestDetails || data.productName).trim();
     const targets = await findTargetMerchants({
       carMake: data.carMake,
       governorate: data.governorate,
@@ -209,8 +207,8 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       missingRequestId,
       sourceContext: "missing_product_request",
       eventName: "missing_request_created",
-      productTitle: data.productName,
-      requestDetails: data.requestDetails ?? "",
+      productTitle,
+      requestDetails: "",
       carMake: data.carMake,
       carModel,
       requesterType: data.requesterType,
@@ -227,8 +225,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
     });
 
     const body = merchantMessage({
-      productName: data.productName,
-      requestDetails: data.requestDetails ?? "",
+      productName: productTitle,
       carMake: data.carMake,
       carModel,
       requesterType: data.requesterType,
@@ -248,8 +245,8 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
         missingRequestId,
         sourceContext: "missing_product_request",
         eventName: "missing_request_sent_to_merchant",
-        productTitle: data.productName,
-        requestDetails: data.requestDetails ?? "",
+        productTitle,
+        requestDetails: "",
         carMake: data.carMake,
         carModel,
         requesterType: data.requesterType,
