@@ -504,6 +504,45 @@ async function notifyMerchantOfMissingOrderStatus(order: Record<string, unknown>
   }));
 }
 
+function shouldAskRequesterForPurchaseStatus(order: Record<string, unknown>) {
+  const requesterStatus = getString(order.requesterStatus);
+  return (
+    requesterStatus !== "Purchased" &&
+    requesterStatus !== "Cancelled" &&
+    !getString(order.requesterRespondedAt)
+  );
+}
+
+async function sendRequesterPurchaseQuestion(order: Record<string, unknown>, intro = "") {
+  if (!shouldAskRequesterForPurchaseStatus(order)) {
+    return { ok: false, skipped: true, reason: "requester_already_responded" };
+  }
+  const requesterPhone =
+    getString(order.requesterPhone) ||
+    getString(order.customerPhone) ||
+    getString(order.customerNumber) ||
+    getString(order.fitterWhatsapp);
+  if (!requesterPhone) return { ok: false, skipped: true, error: "Missing requester phone" };
+
+  const body = [
+    intro,
+    "يرجى إكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق.",
+    "",
+    "هل تم شراء المنتج المطلوب؟",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendWhatsAppButtons(toWhatsAppRecipient(requesterPhone), body, [
+    { id: ACTION_MISSING_REQUESTER_PURCHASED, title: "تم الشراء" },
+    { id: ACTION_MISSING_REQUESTER_NOT_PURCHASED, title: "تم إلغاء الطلب" },
+  ]).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
 async function handleMissingProductButton(from: string, actionId: string) {
   const now = new Date().toISOString();
 
@@ -528,14 +567,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
         { id: ACTION_MISSING_MERCHANT_NOT_PURCHASED, title: "تم إلغاء الطلب" },
       ],
     );
-    await sendWhatsAppButtons(
-      toWhatsAppRecipient(getString(order.requesterPhone) || getString(order.customerPhone) || getString(order.customerNumber) || getString(order.fitterWhatsapp)),
-      "يوجد تاجر يمتلك المنتج المطلوب.\n\nهل تم شراء المنتج المطلوب؟",
-      [
-        { id: ACTION_MISSING_REQUESTER_PURCHASED, title: "تم الشراء" },
-        { id: ACTION_MISSING_REQUESTER_NOT_PURCHASED, title: "تم إلغاء الطلب" },
-      ],
-    ).catch(() => ({ ok: false, status: 0 }));
+    await sendRequesterPurchaseQuestion(order, "يوجد تاجر يمتلك المنتج المطلوب.");
     return true;
   }
 
@@ -560,14 +592,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
         ? `التاجر أكد بيع المنتج المطلوب: ${getString(order.productTitle) || "المنتج"}.\nيرجى تأكيد الشراء من الأزرار المرسلة لك.`
         : `التاجر أبلغ بإلغاء طلب المنتج: ${getString(order.productTitle) || "المنتج"}.`,
     );
-    await sendWhatsAppButtons(
-      toWhatsAppRecipient(getString(order.requesterPhone) || getString(order.customerPhone) || getString(order.customerNumber) || getString(order.fitterWhatsapp)),
-      "هل تم شراء المنتج المطلوب؟",
-      [
-        { id: ACTION_MISSING_REQUESTER_PURCHASED, title: "تم الشراء" },
-        { id: ACTION_MISSING_REQUESTER_NOT_PURCHASED, title: "تم إلغاء الطلب" },
-      ],
-    ).catch(() => ({ ok: false, status: 0 }));
+    await sendRequesterPurchaseQuestion(order);
     await notifyMediatorsOfMissingOrderEvent(order, merchantStatus === "Sold" ? "التاجر أكد البيع" : "التاجر ألغى الطلب");
     return true;
   }
@@ -1635,24 +1660,10 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                   console.error("[Merchant] Failed to send sale confirmation buttons:", error);
                   return { ok: false, status: 0 };
                 });
-                const requesterPhone =
-                  getString(order.requesterPhone) ||
-                  getString(order.customerPhone) ||
-                  getString(order.customerNumber) ||
-                  getString(order.fitterWhatsapp);
-                if (requesterPhone) {
-                  await sendWhatsAppButtons(
-                    toWhatsAppRecipient(requesterPhone),
-                    "هل تم شراء المنتج المطلوب؟",
-                    [
-                      { id: ACTION_MISSING_REQUESTER_PURCHASED, title: "تم الشراء" },
-                      { id: ACTION_MISSING_REQUESTER_NOT_PURCHASED, title: "تم إلغاء الطلب" },
-                    ],
-                  ).catch((error) => {
-                    console.error("[Merchant] Failed to send requester confirmation buttons:", error);
-                    return { ok: false, status: 0 };
-                  });
-                }
+                await sendRequesterPurchaseQuestion({
+                  ...order,
+                  requesterStatus: getString(order.requesterStatus) || "Pending",
+                });
               }
               console.log("[Merchant] Availability response recorded:", productTitle);
             } else {
