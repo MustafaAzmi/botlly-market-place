@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { InstallAppCard } from "@/components/pwa/InstallAppCard";
+import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -215,6 +216,14 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
         </div>
       </header>
       <main className="mx-auto grid max-w-6xl gap-5 px-4 py-6 lg:grid-cols-[320px_1fr]">
+        <div className="lg:col-span-2">
+          <WebOrderNotifications
+            role="requester"
+            requesterType="fitter"
+            requesterPhone={session.fitter.whatsapp}
+            title="إشعارات طلبات الفيتر"
+          />
+        </div>
         <aside className="space-y-4">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div className="text-sm text-muted-foreground">الأرباح بعد آخر تصفير</div>

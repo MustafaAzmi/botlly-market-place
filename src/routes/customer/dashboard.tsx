@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
+import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,6 +183,13 @@ function CustomerDashboard() {
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
+        <div className="mb-6">
+          <WebOrderNotifications
+            role="requester"
+            requesterType="customer"
+            requesterPhone={customer.whatsapp}
+          />
+        </div>
         {tab === "shop" && <ShopTab customer={customer} mediatorPhone={mediatorPhone} />}
         {tab === "profile" && (
           <ProfileTab
