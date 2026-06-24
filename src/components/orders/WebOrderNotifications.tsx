@@ -12,6 +12,7 @@ import {
   listRequesterWebNotifications,
   merchantConfirmWebSale,
   merchantMarkProductAvailable,
+  merchantMarkProductUnavailable,
   rateMerchantFromWeb,
   requesterConfirmWebPurchase,
   type WebOrderNotification,
@@ -38,6 +39,7 @@ export function WebOrderNotifications(props: Props) {
   const listMerchantFn = useServerFn(listMerchantWebNotifications);
   const listRequesterFn = useServerFn(listRequesterWebNotifications);
   const availableFn = useServerFn(merchantMarkProductAvailable);
+  const unavailableFn = useServerFn(merchantMarkProductUnavailable);
   const merchantSaleFn = useServerFn(merchantConfirmWebSale);
   const requesterPurchaseFn = useServerFn(requesterConfirmWebPurchase);
   const clearFn = useServerFn(clearWebOrderNotification);
@@ -45,10 +47,18 @@ export function WebOrderNotifications(props: Props) {
   const [orders, setOrders] = useState<WebOrderNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
+  const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
   const notifiedStorageKey = useMemo(
     () =>
       `botly_web_notifications_seen:${role}:${
+        role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
+      }`,
+    [merchantToken, requesterPhone, requesterType, role],
+  );
+  const readStorageKey = useMemo(
+    () =>
+      `botly_web_notifications_read:${role}:${
         role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
       }`,
     [merchantToken, requesterPhone, requesterType, role],
@@ -76,13 +86,22 @@ export function WebOrderNotifications(props: Props) {
         playNotificationBell();
         saveNotifiedIds(notifiedStorageKey, new Set([...notifiedIds, ...newActionableIds]));
       }
+      const readIdsBefore = readStoredIds(readStorageKey);
+      const unreadVisibleIds = visibleOrders
+        .filter((order) => hasUnreadNotification(order, role))
+        .map((order) => order.orderId);
+      const readIdsAfter = new Set([...readIdsBefore, ...unreadVisibleIds]);
+      if (unreadVisibleIds.some((orderId) => !readIdsBefore.has(orderId))) {
+        saveStoredIds(readStorageKey, readIdsAfter);
+      }
+      setReadIds(readIdsAfter);
       setOrders(visibleOrders);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر تحميل إشعارات الطلبات");
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, readStorageKey, requesterPhone, requesterType, role]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -98,8 +117,8 @@ export function WebOrderNotifications(props: Props) {
     [orders, role],
   );
   const notificationCount = useMemo(
-    () => orders.filter((order) => hasUnreadNotification(order, role)).length,
-    [orders, role],
+    () => orders.filter((order) => hasUnreadNotification(order, role) && !readIds.has(order.orderId)).length,
+    [orders, readIds, role],
   );
 
   const runAction = async (key: string, action: () => Promise<unknown>, success: string) => {
@@ -250,6 +269,11 @@ export function WebOrderNotifications(props: Props) {
                         يرجى اكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟
                       </p>
                     ) : null}
+                    {role === "requester" && order.merchantStatus === "Unavailable" ? (
+                      <p className="mt-3 rounded-lg bg-secondary/70 p-3 text-sm">
+                        أبلغ التاجر أن المنتج غير متوفر حالياً.
+                      </p>
+                    ) : null}
                     {order.rating ? (
                       <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         <Star className="h-4 w-4 fill-primary text-primary" />
@@ -261,22 +285,41 @@ export function WebOrderNotifications(props: Props) {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {role === "merchant" && order.merchantStatus === "Pending" ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="gap-2"
-                      disabled={busy("available")}
-                      onClick={() =>
-                        runAction(
-                          `available:${order.orderId}`,
-                          () => availableFn({ data: { token: merchantToken, orderId: order.orderId } }),
-                          "تم تأكيد توفر المنتج",
-                        )
-                      }
-                    >
-                      {busy("available") ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
-                      المنتج متوفر
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="gap-2"
+                        disabled={busy("available")}
+                        onClick={() =>
+                          runAction(
+                            `available:${order.orderId}`,
+                            () => availableFn({ data: { token: merchantToken, orderId: order.orderId } }),
+                            "تم تأكيد توفر المنتج",
+                          )
+                        }
+                      >
+                        {busy("available") ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                        المنتج متوفر
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
+                        disabled={busy("unavailable")}
+                        onClick={() =>
+                          runAction(
+                            `unavailable:${order.orderId}`,
+                            () => unavailableFn({ data: { token: merchantToken, orderId: order.orderId } }),
+                            "تم إشعار الزبون بعدم توفر المنتج",
+                          )
+                        }
+                      >
+                        {busy("unavailable") ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                        المنتج غير متوفر
+                      </Button>
+                    </>
                   ) : null}
 
                   {role === "merchant" && order.merchantStatus === "Available" ? (
@@ -465,6 +508,7 @@ function statusLabel(order: WebOrderNotification) {
   if (order.merchantStatus === "Sold" && order.requesterStatus === "Purchased") return "مكتملة";
   if (order.merchantStatus === "Cancelled" && order.requesterStatus === "Cancelled") return "ملغاة";
   if (order.merchantStatus === "Available") return "المنتج متوفر";
+  if (order.merchantStatus === "Unavailable") return "المنتج غير متوفر";
   if (order.merchantStatus === "Sold") return "بانتظار تأكيد الزبون";
   if (order.requesterStatus === "Purchased") return "بانتظار تأكيد التاجر";
   return "قيد المتابعة";
@@ -510,6 +554,14 @@ function readNotifiedIds(key: string) {
 }
 
 function saveNotifiedIds(key: string, ids: Set<string>) {
+  saveStoredIds(key, ids);
+}
+
+function readStoredIds(key: string) {
+  return readNotifiedIds(key);
+}
+
+function saveStoredIds(key: string, ids: Set<string>) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify([...ids].slice(-200)));
@@ -520,7 +572,10 @@ function saveNotifiedIds(key: string, ids: Set<string>) {
 
 function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "requester") {
   if (role === "merchant") return order.merchantStatus === "Pending";
-  return order.merchantStatus === "Available" && order.requesterStatus === "Pending";
+  return (
+    (order.merchantStatus === "Available" || order.merchantStatus === "Unavailable") &&
+    order.requesterStatus === "Pending"
+  );
 }
 
 function hasActions(order: WebOrderNotification, role: "merchant" | "requester") {

@@ -13,7 +13,7 @@ import { updateFitterProfile } from "@/lib/fitter.functions";
 import { clearFitterSession, readFitterSession, writeFitterSession } from "@/lib/fitterSession";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
-export const Route = createFileRoute("/f/settings")({
+export const Route = createFileRoute("/f_/settings")({
   head: () => ({
     meta: [{ title: "إعدادات الفيتر - Botly" }, ...pwaHeadMeta("fitter")],
     links: pwaHeadLinks("fitter"),

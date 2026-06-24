@@ -523,7 +523,7 @@ function FitterMissingProductPanel({
   };
 
   const submit = async () => {
-    const cleanName = requestDetails.trim().slice(0, 120) || productName.trim() || (imageDataUrl ? "طلب قطعة بصورة" : "");
+    const cleanName = productName.trim() || requestDetails.trim().slice(0, 120) || (imageDataUrl ? "طلب قطعة بصورة" : "");
     if (!cleanName) {
       toast.error("اكتب اسم المنتج المطلوب أولاً");
       return;

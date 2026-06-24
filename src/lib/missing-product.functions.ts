@@ -195,7 +195,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       data.imageUrl ||
       (data.imageDataUrl ? `${publicBase}/api/missing-product-image/${encodeURIComponent(missingRequestId)}` : "");
     const carModel = data.carModel || "غير محدد";
-    const productTitle = (data.requestDetails || data.productName).trim();
+    const productTitle = data.productName.trim();
     const targets = await findTargetMerchants({
       carMake: data.carMake,
       governorate: data.governorate,

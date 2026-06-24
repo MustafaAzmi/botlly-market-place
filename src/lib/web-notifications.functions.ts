@@ -16,7 +16,7 @@ import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 type WebRole = "merchant" | "requester";
 type RequesterType = "customer" | "fitter";
-type MerchantStatus = "Available" | "Sold" | "Cancelled" | "Pending";
+type MerchantStatus = "Available" | "Unavailable" | "Sold" | "Cancelled" | "Pending";
 type RequesterStatus = "Purchased" | "Cancelled" | "Pending";
 
 export type WebOrderNotification = {
@@ -101,12 +101,13 @@ function statusFor(merchantStatus: string, requesterStatus: string) {
     return "review";
   }
   if (merchantStatus === "Available") return "available";
+  if (merchantStatus === "Unavailable") return "unavailable";
   if (merchantStatus === "Sold" || requesterStatus === "Purchased") return "pending_review";
   return "pending";
 }
 
 function normalizeMerchantStatus(value: string): MerchantStatus {
-  if (value === "Available" || value === "Sold" || value === "Cancelled") return value;
+  if (value === "Available" || value === "Unavailable" || value === "Sold" || value === "Cancelled") return value;
   return "Pending";
 }
 
@@ -305,6 +306,27 @@ export const merchantMarkProductAvailable = createServerFn({ method: "POST" })
       "web_merchant_available",
     );
     await notifyMediator({ ...order, merchantStatus: "Available", finalStatus }, "التاجر أكد توفر المنتج من الموقع");
+    return { ok: true };
+  });
+
+export const merchantMarkProductUnavailable = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    const merchantId = await authorizeMerchantId(data.token);
+    const merchant = await merchantProfile(merchantId);
+    const order = await currentOrder(data.orderId);
+    if (!matchesMerchant(order, merchant)) throw new Error("لا تملك صلاحية تعديل هذا الطلب.");
+    if (order.merchantStatus === "Unavailable") return { ok: true };
+    const finalStatus = statusFor("Unavailable", order.requesterStatus);
+    await appendOrderUpdate(
+      order,
+      { merchantStatus: "Unavailable", requesterStatus: order.requesterStatus, finalStatus },
+      "web_merchant_unavailable",
+    );
+    await notifyMediator(
+      { ...order, merchantStatus: "Unavailable", finalStatus },
+      "التاجر أكد عدم توفر المنتج من الموقع",
+    );
     return { ok: true };
   });
 

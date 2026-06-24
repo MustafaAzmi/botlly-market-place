@@ -20,8 +20,8 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as CustomerIndexRouteImport } from './routes/customer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
-import { Route as FSettingsRouteImport } from './routes/f.settings'
-import { Route as FNotificationsRouteImport } from './routes/f.notifications'
+import { Route as FSettingsRouteImport } from './routes/f_.settings'
+import { Route as FNotificationsRouteImport } from './routes/f_.notifications'
 import { Route as CustomerNotificationsRouteImport } from './routes/customer/notifications'
 import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
@@ -109,14 +109,14 @@ const StoreSlugRoute = StoreSlugRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const FSettingsRoute = FSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => FRoute,
+  id: '/f_/settings',
+  path: '/f/settings',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const FNotificationsRoute = FNotificationsRouteImport.update({
-  id: '/notifications',
-  path: '/notifications',
-  getParentRoute: () => FRoute,
+  id: '/f_/notifications',
+  path: '/f/notifications',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const CustomerNotificationsRoute = CustomerNotificationsRouteImport.update({
   id: '/customer/notifications',
@@ -274,7 +274,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -319,7 +319,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -364,7 +364,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
@@ -385,8 +385,8 @@ export interface FileRoutesById {
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/customer/notifications': typeof CustomerNotificationsRoute
-  '/f/notifications': typeof FNotificationsRoute
-  '/f/settings': typeof FSettingsRoute
+  '/f_/notifications': typeof FNotificationsRoute
+  '/f_/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
@@ -521,8 +521,8 @@ export interface FileRouteTypes {
     | '/customer/auth'
     | '/customer/dashboard'
     | '/customer/notifications'
-    | '/f/notifications'
-    | '/f/settings'
+    | '/f_/notifications'
+    | '/f_/settings'
     | '/store/$slug'
     | '/admin/'
     | '/customer/'
@@ -546,7 +546,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   DataDeletionRoute: typeof DataDeletionRoute
-  FRoute: typeof FRouteWithChildren
+  FRoute: typeof FRoute
   MerchantAppRoute: typeof MerchantAppRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
@@ -567,6 +567,8 @@ export interface RootRouteChildren {
   CustomerAuthRoute: typeof CustomerAuthRoute
   CustomerDashboardRoute: typeof CustomerDashboardRoute
   CustomerNotificationsRoute: typeof CustomerNotificationsRoute
+  FNotificationsRoute: typeof FNotificationsRoute
+  FSettingsRoute: typeof FSettingsRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   CustomerIndexRoute: typeof CustomerIndexRoute
@@ -665,19 +667,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/f/settings': {
-      id: '/f/settings'
-      path: '/settings'
+    '/f_/settings': {
+      id: '/f_/settings'
+      path: '/f/settings'
       fullPath: '/f/settings'
       preLoaderRoute: typeof FSettingsRouteImport
-      parentRoute: typeof FRoute
+      parentRoute: typeof rootRouteImport
     }
-    '/f/notifications': {
-      id: '/f/notifications'
-      path: '/notifications'
+    '/f_/notifications': {
+      id: '/f_/notifications'
+      path: '/f/notifications'
       fullPath: '/f/notifications'
       preLoaderRoute: typeof FNotificationsRouteImport
-      parentRoute: typeof FRoute
+      parentRoute: typeof rootRouteImport
     }
     '/customer/notifications': {
       id: '/customer/notifications'
@@ -892,23 +894,11 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface FRouteChildren {
-  FNotificationsRoute: typeof FNotificationsRoute
-  FSettingsRoute: typeof FSettingsRoute
-}
-
-const FRouteChildren: FRouteChildren = {
-  FNotificationsRoute: FNotificationsRoute,
-  FSettingsRoute: FSettingsRoute,
-}
-
-const FRouteWithChildren = FRoute._addFileChildren(FRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   DataDeletionRoute: DataDeletionRoute,
-  FRoute: FRouteWithChildren,
+  FRoute: FRoute,
   MerchantAppRoute: MerchantAppRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
@@ -929,6 +919,8 @@ const rootRouteChildren: RootRouteChildren = {
   CustomerAuthRoute: CustomerAuthRoute,
   CustomerDashboardRoute: CustomerDashboardRoute,
   CustomerNotificationsRoute: CustomerNotificationsRoute,
+  FNotificationsRoute: FNotificationsRoute,
+  FSettingsRoute: FSettingsRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   CustomerIndexRoute: CustomerIndexRoute,

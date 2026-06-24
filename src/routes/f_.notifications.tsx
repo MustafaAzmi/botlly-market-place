@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { clearFitterSession, readFitterSession } from "@/lib/fitterSession";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
-export const Route = createFileRoute("/f/notifications")({
+export const Route = createFileRoute("/f_/notifications")({
   head: () => ({
     meta: [{ title: "Fitter Notifications - Botly" }, ...pwaHeadMeta("fitter")],
     links: pwaHeadLinks("fitter"),
