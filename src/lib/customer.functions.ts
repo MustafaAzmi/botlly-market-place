@@ -617,6 +617,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "customer_site",
+      requesterType: "customer",
+      requesterPhone: data.customerPhone,
       productId: product.id,
       productTitle: product.title,
       price: product.price,
@@ -659,6 +661,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "customer_site",
+      requesterType: "customer",
+      requesterPhone: data.customerPhone,
       productId: product.id,
       productTitle: product.title,
       price: product.price,

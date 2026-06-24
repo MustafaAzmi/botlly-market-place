@@ -645,6 +645,8 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "fitter_site",
+      requesterType: "fitter",
+      requesterPhone: getString(fitter.payload?.whatsapp),
       fitterOrderId: orderId,
       fitterId: fitterIdentity(fitter),
       fitterName: getString(fitter.payload?.name),

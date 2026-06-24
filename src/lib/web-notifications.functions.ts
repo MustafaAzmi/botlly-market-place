@@ -135,12 +135,12 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
   const p = order.payload;
   const merchantStatus = normalizeMerchantStatus(getString(p.merchantStatus));
   const requesterStatus = normalizeRequesterStatus(getString(p.requesterStatus));
-  const requesterType =
-    getString(p.requesterType) === "fitter" ||
-    getString(p.sourceContext) === "fitter_site" ||
-    Boolean(getString(p.fitterWhatsapp))
-      ? "fitter"
-      : "customer";
+  const requesterType = resolveRequesterType(p);
+  const requesterPhone = resolveRequesterPhone(p, requesterType);
+  const requesterName =
+    requesterType === "fitter"
+      ? getString(p.requesterName) || getString(p.fitterName)
+      : getString(p.requesterName) || getString(p.customerName);
   return {
     orderId: getString(p.orderId),
     sourceContext: getString(p.sourceContext),
@@ -156,12 +156,8 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
       0,
     currency: getString(p.currency) || "IQD",
     requesterType,
-    requesterName: getString(p.requesterName) || getString(p.customerName) || getString(p.fitterName),
-    requesterPhone:
-      getString(p.requesterPhone) ||
-      getString(p.customerPhone) ||
-      getString(p.customerNumber) ||
-      getString(p.fitterWhatsapp),
+    requesterName,
+    requesterPhone,
     merchantId: getString(p.merchantId),
     merchantStoreName: getString(p.merchantStoreName) || getString(p.storeName),
     merchantWhatsapp: getString(p.merchantWhatsapp) || getString(p.whatsapp),
@@ -173,6 +169,27 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     rating: getNumber(p.merchantRating),
     ratingComment: getString(p.merchantRatingComment) || undefined,
   } satisfies WebOrderNotification;
+}
+
+function resolveRequesterType(payload: Record<string, unknown>): RequesterType {
+  const explicitType = getString(payload.requesterType);
+  if (explicitType === "customer" || explicitType === "fitter") return explicitType;
+
+  const sourceContext = getString(payload.sourceContext);
+  if (sourceContext === "fitter_site") return "fitter";
+  if (sourceContext === "customer_site") return "customer";
+
+  const hasFitterOnlyFields =
+    Boolean(getString(payload.fitterWhatsapp) || getString(payload.fitterOrderId)) &&
+    !Boolean(getString(payload.customerPhone) || getString(payload.customerNumber));
+  return hasFitterOnlyFields ? "fitter" : "customer";
+}
+
+function resolveRequesterPhone(payload: Record<string, unknown>, requesterType: RequesterType) {
+  const requesterPhone = getString(payload.requesterPhone);
+  if (requesterPhone) return requesterPhone;
+  if (requesterType === "fitter") return getString(payload.fitterWhatsapp);
+  return getString(payload.customerPhone) || getString(payload.customerNumber);
 }
 
 async function latestOrders() {
@@ -201,7 +218,9 @@ function matchesMerchant(order: WebOrderNotification, merchant: { id: string; wh
 }
 
 function matchesRequester(order: WebOrderNotification, requesterPhone: string, requesterType: RequesterType) {
-  return order.requesterType === requesterType && phoneKey(order.requesterPhone) === phoneKey(requesterPhone);
+  const orderPhoneKey = phoneKey(order.requesterPhone);
+  const requesterPhoneKey = phoneKey(requesterPhone);
+  return Boolean(orderPhoneKey && requesterPhoneKey) && order.requesterType === requesterType && orderPhoneKey === requesterPhoneKey;
 }
 
 async function currentOrder(orderId: string) {

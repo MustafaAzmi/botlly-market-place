@@ -902,6 +902,9 @@ async function notifyDeliveryOfOrder(customerNumber: string, match: ProductMatch
 
   await appendEvent("botly_order", {
     orderId: crypto.randomUUID(),
+    sourceContext: "customer_whatsapp",
+    requesterType: "customer",
+    requesterPhone: customerNumber,
     merchantId: match.merchantId,
     productId: match.id,
     productTitle: match.title,
@@ -1083,6 +1086,9 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
   const orderId = crypto.randomUUID();
   await appendEvent("botly_order", {
     orderId,
+    sourceContext: "customer_whatsapp",
+    requesterType: "customer",
+    requesterPhone: customerNumber,
     merchantId: match.merchantId,
     productId: match.id,
     productTitle: match.title,
