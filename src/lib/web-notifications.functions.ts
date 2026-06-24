@@ -41,6 +41,8 @@ export type WebOrderNotification = {
   updatedAt: string;
   rating?: number;
   ratingComment?: string;
+  webHiddenMerchant?: boolean;
+  webHiddenRequester?: boolean;
 };
 
 const tokenInput = z.object({
@@ -67,6 +69,14 @@ const requesterActionInput = requesterInput.extend({
 
 const clearInput = z.object({
   orderId: z.string().trim().min(1).max(120),
+  role: z.enum(["merchant", "requester"]),
+  token: z.string().trim().min(20).max(300).optional(),
+  requesterPhone: z.string().trim().min(6).max(40).optional(),
+  requesterType: z.enum(["customer", "fitter"]).optional(),
+});
+
+const clearBulkInput = z.object({
+  orderIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100),
   role: z.enum(["merchant", "requester"]),
   token: z.string().trim().min(20).max(300).optional(),
   requesterPhone: z.string().trim().min(6).max(40).optional(),
@@ -168,6 +178,8 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     updatedAt: order.updatedAt,
     rating: getNumber(p.merchantRating),
     ratingComment: getString(p.merchantRatingComment) || undefined,
+    webHiddenMerchant: p.webHiddenMerchant === true,
+    webHiddenRequester: p.webHiddenRequester === true,
   } satisfies WebOrderNotification;
 }
 
@@ -296,7 +308,10 @@ export const listMerchantWebNotifications = createServerFn({ method: "POST" })
     const merchantId = await authorizeMerchantId(data.token);
     const merchant = await merchantProfile(merchantId);
     return (await latestOrders()).filter(
-      (order) => matchesMerchant(order, merchant) && order.finalStatus !== "web_hidden_merchant",
+      (order) =>
+        matchesMerchant(order, merchant) &&
+        !order.webHiddenMerchant &&
+        order.finalStatus !== "web_hidden_merchant",
     );
   });
 
@@ -306,6 +321,7 @@ export const listRequesterWebNotifications = createServerFn({ method: "POST" })
     return (await latestOrders()).filter(
       (order) =>
         matchesRequester(order, data.requesterPhone, data.requesterType) &&
+        !order.webHiddenRequester &&
         order.finalStatus !== "web_hidden_requester",
     );
   });
@@ -402,15 +418,41 @@ export const clearWebOrderNotification = createServerFn({ method: "POST" })
       const merchantId = await authorizeMerchantId(data.token);
       const merchant = await merchantProfile(merchantId);
       if (!matchesMerchant(order, merchant)) throw new Error("لا تملك صلاحية تعديل هذا الطلب.");
-      await appendOrderUpdate(order, { finalStatus: "web_hidden_merchant" }, "web_notification_cleared");
+      await appendOrderUpdate(order, { webHiddenMerchant: true }, "web_notification_cleared");
     } else {
       if (!data.requesterPhone || !data.requesterType) throw new Error("بيانات الحساب غير مكتملة.");
       if (!matchesRequester(order, data.requesterPhone, data.requesterType)) {
         throw new Error("لا تملك صلاحية تعديل هذا الطلب.");
       }
-      await appendOrderUpdate(order, { finalStatus: "web_hidden_requester" }, "web_notification_cleared");
+      await appendOrderUpdate(order, { webHiddenRequester: true }, "web_notification_cleared");
     }
     return { ok: true };
+  });
+
+export const clearWebOrderNotificationsBulk = createServerFn({ method: "POST" })
+  .inputValidator((d) => clearBulkInput.parse(d))
+  .handler(async ({ data }) => {
+    const requestedIds = new Set(data.orderIds);
+    const orders = (await latestOrders()).filter((order) => requestedIds.has(order.orderId));
+    if (data.role === "merchant") {
+      if (!data.token) throw new Error("انتهت الجلسة. سجل دخول مرة ثانية.");
+      const merchantId = await authorizeMerchantId(data.token);
+      const merchant = await merchantProfile(merchantId);
+      const allowed = orders.filter((order) => matchesMerchant(order, merchant));
+      if (allowed.length !== requestedIds.size) throw new Error("لا تملك صلاحية مسح بعض الطلبات.");
+      await Promise.all(
+        allowed.map((order) => appendOrderUpdate(order, { webHiddenMerchant: true }, "web_notification_cleared")),
+      );
+      return { ok: true, clearedCount: allowed.length };
+    }
+
+    if (!data.requesterPhone || !data.requesterType) throw new Error("بيانات الحساب غير مكتملة.");
+    const allowed = orders.filter((order) => matchesRequester(order, data.requesterPhone!, data.requesterType!));
+    if (allowed.length !== requestedIds.size) throw new Error("لا تملك صلاحية مسح بعض الطلبات.");
+    await Promise.all(
+      allowed.map((order) => appendOrderUpdate(order, { webHiddenRequester: true }, "web_notification_cleared")),
+    );
+    return { ok: true, clearedCount: allowed.length };
   });
 
 export const rateMerchantFromWeb = createServerFn({ method: "POST" })

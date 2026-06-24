@@ -264,7 +264,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const wantGovernorate = normalizeGovernorate(data.governorate ?? "");
     const searchScope = data.searchScope ?? "governorate";
 
-    if (!wantMake || !wantModel || (searchScope === "governorate" && !wantGovernorate)) {
+    if (!wantMake || (searchScope === "governorate" && !wantGovernorate)) {
       return [];
     }
 

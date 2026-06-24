@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   clearWebOrderNotification,
+  clearWebOrderNotificationsBulk,
   listMerchantWebNotifications,
   listRequesterWebNotifications,
   merchantConfirmWebSale,
@@ -43,6 +44,7 @@ export function WebOrderNotifications(props: Props) {
   const merchantSaleFn = useServerFn(merchantConfirmWebSale);
   const requesterPurchaseFn = useServerFn(requesterConfirmWebPurchase);
   const clearFn = useServerFn(clearWebOrderNotification);
+  const clearBulkFn = useServerFn(clearWebOrderNotificationsBulk);
   const rateFn = useServerFn(rateMerchantFromWeb);
   const [orders, setOrders] = useState<WebOrderNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,21 +159,24 @@ export function WebOrderNotifications(props: Props) {
     if (visible.length === 0) return;
     setBusyKey("clear-all");
     try {
-      for (const order of visible) {
-        await clearFn({
-          data:
-            role === "merchant"
-              ? { role: "merchant", token: merchantToken, orderId: order.orderId }
-              : {
-                  role: "requester",
-                  requesterPhone,
-                  requesterType,
-                  orderId: order.orderId,
-                },
-        });
-      }
+      const orderIds = visible.map((order) => order.orderId);
+      await clearBulkFn({
+        data:
+          role === "merchant"
+            ? { role: "merchant", token: merchantToken, orderIds }
+            : {
+                role: "requester",
+                requesterPhone,
+                requesterType,
+                orderIds,
+              },
+      });
+      const nextStoredIds = new Set([...readStoredIds(readStorageKey), ...orderIds]);
+      saveStoredIds(readStorageKey, nextStoredIds);
+      setReadIds(nextStoredIds);
+      setOrders((current) => current.filter((order) => !orderIds.includes(order.orderId)));
       toast.success("تم مسح الطلبات الأخيرة");
-      await refresh();
+      refresh(true).catch(() => {});
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر مسح الطلبات");
     } finally {
