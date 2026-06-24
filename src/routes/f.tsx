@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { browseCarProducts, getEnabledCarCatalogue, type CustomerProduct } from "@/lib/customer.functions";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import {
   cancelFitterOrder,
   confirmFitterReceipt,
@@ -66,28 +67,6 @@ function compressImageFile(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 function FitterPage() {
   const [session, setSession] = useState(() => readFitterSession());

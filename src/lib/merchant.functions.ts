@@ -10,6 +10,7 @@ import {
   toEnabledCatalogue,
   type CarMake,
 } from "@/lib/car-data";
+import { normalizeGovernorate } from "@/lib/governorates";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
@@ -597,6 +598,7 @@ export const signupMerchant = createServerFn({ method: "POST" })
     const passwordHash = await hashPassword(data.password, salt);
     const whatsappNormalized = normalizePhone(data.whatsapp);
     const merchantId = crypto.randomUUID();
+    const city = normalizeGovernorate(data.city);
 
     const storeSlug = await generateStoreSlug(data.storeName);
 
@@ -610,7 +612,7 @@ export const signupMerchant = createServerFn({ method: "POST" })
       passwordSalt: salt,
       passwordHash,
       bio: "",
-      city: data.city,
+      city,
       address: "",
       latitude: undefined,
       longitude: undefined,
@@ -670,6 +672,7 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
     const currentPayload = row.payload ?? {};
     const nextPhone = normalizePhone(data.whatsapp);
     const currentPhone = getString(currentPayload.whatsappNormalized);
+    const city = data.city ? normalizeGovernorate(data.city) : getString(currentPayload.city);
 
     if (nextPhone !== currentPhone) {
       const existing = await findMerchantByPhone(data.whatsapp);
@@ -685,7 +688,7 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
       whatsapp: data.whatsapp,
       whatsappNormalized: nextPhone,
       bio: data.bio || "",
-      city: data.city || getString(currentPayload.city),
+      city,
       address: data.address || "",
       latitude: data.latitude,
       longitude: data.longitude,

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { updateFitterProfile } from "@/lib/fitter.functions";
 import { clearFitterSession, readFitterSession, writeFitterSession } from "@/lib/fitterSession";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/f_/settings")({
@@ -20,28 +21,6 @@ export const Route = createFileRoute("/f_/settings")({
   }),
   component: FitterSettingsPage,
 });
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 function FitterSettingsPage() {
   const navigate = useNavigate();

@@ -13,6 +13,7 @@ import {
   sendWhatsAppButtons,
   sendWhatsAppImage,
 } from "@/lib/whatsapp/send.server";
+import { normalizeGovernorate } from "@/lib/governorates";
 
 type MissingRequestScope = "governorate" | "all";
 type MissingRequesterType = "customer" | "fitter";
@@ -123,8 +124,8 @@ async function findTargetMerchants(args: {
     const matchesMake = [...carMakes].some((make) => sameText(make, args.carMake) || make === "عام");
     if (!matchesMake) continue;
 
-    const governorate = getString(p.city) || getString(p.governorate);
-    if (args.scope === "governorate" && !sameText(governorate, args.governorate)) continue;
+    const governorate = normalizeGovernorate(getString(p.city) || getString(p.governorate));
+    if (args.scope === "governorate" && normalizeGovernorate(args.governorate) !== governorate) continue;
 
     seenPhones.add(phone);
     targets.push({
@@ -196,9 +197,10 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       (data.imageDataUrl ? `${publicBase}/api/missing-product-image/${encodeURIComponent(missingRequestId)}` : "");
     const carModel = data.carModel || "غير محدد";
     const productTitle = data.productName.trim();
+    const governorate = normalizeGovernorate(data.governorate);
     const targets = await findTargetMerchants({
       carMake: data.carMake,
-      governorate: data.governorate,
+      governorate,
       scope: data.searchScope,
     });
 
@@ -214,7 +216,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       requesterType: data.requesterType,
       requesterName: data.requesterName,
       requesterPhone: data.requesterPhone,
-      requesterGovernorate: data.governorate,
+      requesterGovernorate: governorate,
       searchScope: data.searchScope,
       imageUrl: deliverableImageUrl,
       imageDataUrl: data.imageDataUrl ?? "",
@@ -252,7 +254,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
         requesterType: data.requesterType,
         requesterName: data.requesterName,
         requesterPhone: data.requesterPhone,
-        requesterGovernorate: data.governorate,
+        requesterGovernorate: governorate,
         searchScope: data.searchScope,
         imageUrl: deliverableImageUrl,
         imageDataUrl: data.imageDataUrl ?? "",

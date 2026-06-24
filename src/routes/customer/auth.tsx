@@ -9,10 +9,12 @@ import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/auth")({
@@ -218,15 +220,18 @@ function CustomerAuthPage() {
                     <MapPin className="h-4 w-4" />
                     {t("customer.auth.governorate")}
                   </Label>
-                  <Input
-                    id="signup-governorate"
-                    type="text"
-                    placeholder={t("customer.auth.governorate.placeholder")}
-                    value={governorate}
-                    onChange={(e) => setGovernorate(e.target.value)}
-                    disabled={loading}
-                    className="h-11"
-                  />
+                  <Select value={governorate} onValueChange={setGovernorate} disabled={loading}>
+                    <SelectTrigger id="signup-governorate" className="h-11">
+                      <SelectValue placeholder={t("customer.auth.governorate.placeholder")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IRAQI_GOVERNORATES.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>

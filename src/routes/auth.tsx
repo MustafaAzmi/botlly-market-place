@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
@@ -162,28 +163,6 @@ const copy = {
     pointThree: "گۆڕینی وشەی نهێنی لە ڕێی واتساپ یان ئیمەیڵ",
   },
 } as const;
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 function AuthPage() {
   const { locale } = useLanguage();

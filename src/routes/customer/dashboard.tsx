@@ -47,6 +47,7 @@ import {
   readCustomerSession,
   writeCustomerSession,
 } from "@/lib/customerSession";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/dashboard")({
@@ -89,28 +90,6 @@ function compressImageFile(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 // wa.me links need digits only (international format, no +).
 function toWhatsAppLink(phone: string) {

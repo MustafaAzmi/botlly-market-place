@@ -30,6 +30,7 @@ import {
   toEnabledCatalogue,
   type CarMake,
 } from "@/lib/car-data";
+import { normalizeGovernorate } from "@/lib/governorates";
 import {
   buildAvailabilityButtons,
   sendWhatsAppButtons,
@@ -129,12 +130,13 @@ export const signupCustomer = createServerFn({ method: "POST" })
     }
 
     const now = new Date().toISOString();
+    const governorate = normalizeGovernorate(data.governorate);
     const row = await appendEvent(CUSTOMER_PROVIDER, {
       customerId: crypto.randomUUID(),
       whatsapp: data.whatsapp,
       name: data.name,
       landmark: data.landmark,
-      governorate: data.governorate,
+      governorate,
       createdAt: now,
       updatedAt: now,
     });
@@ -148,13 +150,14 @@ export const updateCustomerProfile = createServerFn({ method: "POST" })
     if (!existing) throw new Error("الحساب غير موجود.");
 
     const now = new Date().toISOString();
+    const governorate = normalizeGovernorate(data.governorate);
     const row = await appendEvent(CUSTOMER_PROVIDER, {
       ...(existing.payload ?? {}),
       customerId: customerIdentity(existing),
       whatsapp: data.whatsapp,
       name: data.name,
       landmark: data.landmark,
-      governorate: data.governorate,
+      governorate,
       updatedAt: now,
     });
     return { customer: toCustomer(row) };
@@ -258,7 +261,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const wantModel = (data.carModel ?? "").trim();
     const wantYear = (data.carYear ?? "").trim();
     const wantColor = (data.color ?? "").trim();
-    const wantGovernorate = (data.governorate ?? "").trim();
+    const wantGovernorate = normalizeGovernorate(data.governorate ?? "");
     const searchScope = data.searchScope ?? "governorate";
 
     if (!wantMake || !wantModel || (searchScope === "governorate" && !wantGovernorate)) {
@@ -287,7 +290,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       const merchantGovernorate = getString(p.merchantCity) || merchantGovernorates.get(merchantId) || "";
 
       // Universal parts ("عام") fit every car, so they pass any make filter.
-      if (searchScope === "governorate" && wantGovernorate && merchantGovernorate !== wantGovernorate) continue;
+      if (searchScope === "governorate" && wantGovernorate && normalizeGovernorate(merchantGovernorate) !== wantGovernorate) continue;
       if (wantMake && carMake !== wantMake && carMake !== "عام") continue;
       if (
         wantModel &&
@@ -558,7 +561,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       readMediatorContacts(),
       resolveMerchantContact(product.id, product.merchantId),
     ]);
-    const orderGovernorate = product.merchantGovernorate || merchant.city;
+    const orderGovernorate = normalizeGovernorate(product.merchantGovernorate || merchant.city);
+    const customerGovernorate = normalizeGovernorate(data.customerGovernorate);
     const mediatorContacts = filterMediatorContactsByGovernorate(
       allMediatorContacts,
       orderGovernorate,
@@ -593,7 +597,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       "👤 بيانات الزبون:",
       `الاسم: ${data.customerName}`,
       `الهاتف: ${data.customerPhone}`,
-      `المحافظة: ${data.customerGovernorate}`,
+      `المحافظة: ${customerGovernorate}`,
       `أقرب نقطة دالة: ${data.customerLandmark}`,
     );
     const message = lines.join("\n");
@@ -633,7 +637,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerNumber: data.customerPhone,
-      customerGovernorate: data.customerGovernorate,
+      customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,
@@ -677,7 +681,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerNumber: data.customerPhone,
-      customerGovernorate: data.customerGovernorate,
+      customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,

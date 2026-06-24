@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { getCurrentMerchant, updateMerchantProfile } from "@/lib/merchant.functions";
 import { readMerchantSession, writeMerchantSession } from "@/lib/merchantSession";
 
@@ -17,28 +18,6 @@ export const Route = createFileRoute("/dashboard/store/")({
   head: () => ({ meta: [{ title: "Store profile - Botly" }] }),
   component: StoreProfilePage,
 });
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 function StoreProfilePage() {
   const navigate = useNavigate();

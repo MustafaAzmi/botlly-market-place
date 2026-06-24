@@ -18,6 +18,7 @@ import {
   sendWhatsAppButtons,
   sendWhatsAppText,
 } from "@/lib/whatsapp/send.server";
+import { normalizeGovernorate } from "@/lib/governorates";
 
 export type FitterProfile = {
   id: string;
@@ -195,11 +196,12 @@ export const signupFitter = createServerFn({ method: "POST" })
 
     const salt = randomToken();
     const now = new Date().toISOString();
+    const city = normalizeGovernorate(data.city);
     const row = await appendEvent("botly_fitter", {
       fitterId: crypto.randomUUID(),
       whatsapp: data.whatsapp,
       name: data.name,
-      city: data.city,
+      city,
       address: data.address,
       latitude: data.latitude,
       longitude: data.longitude,
@@ -246,11 +248,12 @@ export const updateFitterProfile = createServerFn({ method: "POST" })
   .inputValidator((d) => profileInput.parse(d))
   .handler(async ({ data }) => {
     const row = await authorizeFitter(data.token);
+    const city = normalizeGovernorate(data.city);
     const updated = await appendEvent("botly_fitter", {
       ...(row.payload ?? {}),
       fitterId: fitterIdentity(row),
       name: data.name,
-      city: data.city,
+      city,
       address: data.address,
       latitude: data.latitude,
       longitude: data.longitude,
