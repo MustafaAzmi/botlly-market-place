@@ -1,11 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Car, CheckCircle2, Loader2, LogOut, MapPin, Package, Search, Send, Settings, UserRound, Wrench } from "lucide-react";
+import { BellRing, Car, CheckCircle2, Loader2, LogOut, MapPin, Package, Search, Send, Settings, UserRound, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { InstallAppCard } from "@/components/pwa/InstallAppCard";
-import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -203,6 +202,12 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" className="gap-2">
+              <Link to="/f/notifications">
+                <BellRing className="h-4 w-4" />
+                الإشعارات
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="gap-2">
               <Link to="/f/settings">
                 <Settings className="h-4 w-4" />
                 الإعدادات
@@ -216,14 +221,6 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
         </div>
       </header>
       <main className="mx-auto grid max-w-6xl gap-5 px-4 py-6 lg:grid-cols-[320px_1fr]">
-        <div className="lg:col-span-2">
-          <WebOrderNotifications
-            role="requester"
-            requesterType="fitter"
-            requesterPhone={session.fitter.whatsapp}
-            title="إشعارات طلبات الفيتر"
-          />
-        </div>
         <aside className="space-y-4">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div className="text-sm text-muted-foreground">الأرباح بعد آخر تصفير</div>

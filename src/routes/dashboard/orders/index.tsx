@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Badge } from "@/components/ui/badge";
 import { useT } from "@/i18n/LanguageProvider";
 import { listMerchantOrders, type MerchantOrder } from "@/lib/merchant.functions";
@@ -21,6 +22,7 @@ function OrdersPage() {
   const listMerchantOrdersFn = useServerFn(listMerchantOrders);
   const [orders, setOrders] = useState<MerchantOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [merchantToken, setMerchantToken] = useState("");
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -28,6 +30,7 @@ function OrdersPage() {
       navigate({ to: "/auth" });
       return;
     }
+    setMerchantToken(merchantSession.token);
 
     listMerchantOrdersFn({ data: { token: merchantSession.token } })
       .then(setOrders)
@@ -39,6 +42,16 @@ function OrdersPage() {
 
   return (
     <DashboardLayout title={t("orders.title")} subtitle={t("orders.subtitle")}>
+      {merchantToken ? (
+        <div className="mb-6">
+          <WebOrderNotifications
+            role="merchant"
+            token={merchantToken}
+            title="إشعارات وطلبات التاجر"
+          />
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
           <Loader2 className="mx-auto h-6 w-6 animate-spin" />

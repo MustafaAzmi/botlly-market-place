@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  BellRing,
   Car,
   ChevronLeft,
   ChevronRight,
@@ -18,7 +19,6 @@ import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
-import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -152,6 +152,12 @@ function CustomerDashboard() {
           <Logo />
           <div className="flex items-center gap-2">
             <LanguageSwitcher />
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <a href="/customer/notifications">
+                <BellRing className="h-4 w-4" />
+                الإشعارات
+              </a>
+            </Button>
             <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
               {t("customer.logout")}
@@ -183,13 +189,6 @@ function CustomerDashboard() {
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-6">
-          <WebOrderNotifications
-            role="requester"
-            requesterType="customer"
-            requesterPhone={customer.whatsapp}
-          />
-        </div>
         {tab === "shop" && <ShopTab customer={customer} mediatorPhone={mediatorPhone} />}
         {tab === "profile" && (
           <ProfileTab

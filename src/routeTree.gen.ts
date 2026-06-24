@@ -21,6 +21,8 @@ import { Route as CustomerIndexRouteImport } from './routes/customer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
 import { Route as FSettingsRouteImport } from './routes/f.settings'
+import { Route as FNotificationsRouteImport } from './routes/f.notifications'
+import { Route as CustomerNotificationsRouteImport } from './routes/customer/notifications'
 import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
 import { Route as CustomerAppRouteImport } from './routes/customer/app'
@@ -110,6 +112,16 @@ const FSettingsRoute = FSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => FRoute,
+} as any)
+const FNotificationsRoute = FNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => FRoute,
+} as any)
+const CustomerNotificationsRoute = CustomerNotificationsRouteImport.update({
+  id: '/customer/notifications',
+  path: '/customer/notifications',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const CustomerDashboardRoute = CustomerDashboardRouteImport.update({
   id: '/customer/dashboard',
@@ -282,6 +294,8 @@ export interface FileRoutesByFullPath {
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
@@ -325,6 +339,8 @@ export interface FileRoutesByTo {
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
@@ -368,6 +384,8 @@ export interface FileRoutesById {
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
@@ -413,6 +431,8 @@ export interface FileRouteTypes {
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
+    | '/customer/notifications'
+    | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
     | '/admin/'
@@ -456,6 +476,8 @@ export interface FileRouteTypes {
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
+    | '/customer/notifications'
+    | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
     | '/admin'
@@ -498,6 +520,8 @@ export interface FileRouteTypes {
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
+    | '/customer/notifications'
+    | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
     | '/admin/'
@@ -542,6 +566,7 @@ export interface RootRouteChildren {
   CustomerAppRoute: typeof CustomerAppRoute
   CustomerAuthRoute: typeof CustomerAuthRoute
   CustomerDashboardRoute: typeof CustomerDashboardRoute
+  CustomerNotificationsRoute: typeof CustomerNotificationsRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   CustomerIndexRoute: typeof CustomerIndexRoute
@@ -646,6 +671,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/f/settings'
       preLoaderRoute: typeof FSettingsRouteImport
       parentRoute: typeof FRoute
+    }
+    '/f/notifications': {
+      id: '/f/notifications'
+      path: '/notifications'
+      fullPath: '/f/notifications'
+      preLoaderRoute: typeof FNotificationsRouteImport
+      parentRoute: typeof FRoute
+    }
+    '/customer/notifications': {
+      id: '/customer/notifications'
+      path: '/customer/notifications'
+      fullPath: '/customer/notifications'
+      preLoaderRoute: typeof CustomerNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/customer/dashboard': {
       id: '/customer/dashboard'
@@ -854,10 +893,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface FRouteChildren {
+  FNotificationsRoute: typeof FNotificationsRoute
   FSettingsRoute: typeof FSettingsRoute
 }
 
 const FRouteChildren: FRouteChildren = {
+  FNotificationsRoute: FNotificationsRoute,
   FSettingsRoute: FSettingsRoute,
 }
 
@@ -887,6 +928,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomerAppRoute: CustomerAppRoute,
   CustomerAuthRoute: CustomerAuthRoute,
   CustomerDashboardRoute: CustomerDashboardRoute,
+  CustomerNotificationsRoute: CustomerNotificationsRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   CustomerIndexRoute: CustomerIndexRoute,

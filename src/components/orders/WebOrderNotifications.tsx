@@ -1,5 +1,5 @@
 import { useServerFn } from "@tanstack/react-start";
-import { CheckCircle2, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -46,9 +46,16 @@ export function WebOrderNotifications(props: Props) {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
+  const notifiedStorageKey = useMemo(
+    () =>
+      `botly_web_notifications_seen:${role}:${
+        role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
+      }`,
+    [merchantToken, requesterPhone, requesterType, role],
+  );
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const next =
         role === "merchant"
@@ -59,21 +66,39 @@ export function WebOrderNotifications(props: Props) {
                 requesterType,
               },
             });
-      setOrders(next.slice(0, 12));
+      const visibleOrders = next.slice(0, 12);
+      const actionableIds = visibleOrders
+        .filter((order) => hasUnreadNotification(order, role))
+        .map((order) => order.orderId);
+      const notifiedIds = readNotifiedIds(notifiedStorageKey);
+      const newActionableIds = actionableIds.filter((orderId) => !notifiedIds.has(orderId));
+      if (newActionableIds.length > 0) {
+        playNotificationBell();
+        saveNotifiedIds(notifiedStorageKey, new Set([...notifiedIds, ...newActionableIds]));
+      }
+      setOrders(visibleOrders);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر تحميل إشعارات الطلبات");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, requesterPhone, requesterType, role]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role]);
 
   useEffect(() => {
     refresh().catch(() => {});
+    const timer = window.setInterval(() => {
+      refresh(true).catch(() => {});
+    }, 30000);
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   const title = props.title ?? (role === "merchant" ? "طلبات الموقع والواتساب" : "إشعارات الطلبات");
   const actionableCount = useMemo(
     () => orders.filter((order) => hasActions(order, role)).length,
+    [orders, role],
+  );
+  const notificationCount = useMemo(
+    () => orders.filter((order) => hasUnreadNotification(order, role)).length,
     [orders, role],
   );
 
@@ -140,7 +165,14 @@ export function WebOrderNotifications(props: Props) {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 font-semibold">
-            <PackageCheck className="h-5 w-5 text-primary" />
+            <span className="relative inline-flex">
+              <BellRing className="h-5 w-5 text-primary" />
+              {notificationCount > 0 ? (
+                <span className="absolute -end-2 -top-2 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {notificationCount}
+                </span>
+              ) : null}
+            </span>
             {title}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -148,6 +180,7 @@ export function WebOrderNotifications(props: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Badge variant="outline">{notificationCount} إشعار جديد</Badge>
           <Badge variant={actionableCount > 0 ? "default" : "secondary"}>{actionableCount} بحاجة إجراء</Badge>
           <Button
             type="button"
@@ -435,6 +468,59 @@ function statusLabel(order: WebOrderNotification) {
   if (order.merchantStatus === "Sold") return "بانتظار تأكيد الزبون";
   if (order.requesterStatus === "Purchased") return "بانتظار تأكيد التاجر";
   return "قيد المتابعة";
+}
+
+function playNotificationBell() {
+  if (typeof window === "undefined") return;
+  const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return;
+  try {
+    const context = new AudioContextClass();
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+    gain.connect(context.destination);
+
+    [880, 1175].forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      oscillator.connect(gain);
+      const start = context.currentTime + index * 0.16;
+      oscillator.start(start);
+      oscillator.stop(start + 0.18);
+    });
+
+    window.setTimeout(() => context.close().catch(() => {}), 800);
+  } catch {
+    // Some browsers block audio until the user interacts with the page.
+  }
+}
+
+function readNotifiedIds(key: string) {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const raw = window.localStorage.getItem(key);
+    const values = raw ? (JSON.parse(raw) as unknown[]) : [];
+    return new Set(values.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function saveNotifiedIds(key: string, ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify([...ids].slice(-200)));
+  } catch {
+    // Ignore storage failures; the notification UI still works.
+  }
+}
+
+function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "requester") {
+  if (role === "merchant") return order.merchantStatus === "Pending";
+  return order.merchantStatus === "Available" && order.requesterStatus === "Pending";
 }
 
 function hasActions(order: WebOrderNotification, role: "merchant" | "requester") {

@@ -15,7 +15,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useT } from "@/i18n/LanguageProvider";
@@ -37,7 +36,6 @@ function DashboardHome() {
   const getMerchantDashboardFn = useServerFn(getMerchantDashboard);
   const [dashboard, setDashboard] = useState<MerchantDashboard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [merchantToken, setMerchantToken] = useState("");
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -45,8 +43,6 @@ function DashboardHome() {
       navigate({ to: "/auth" });
       return;
     }
-    setMerchantToken(merchantSession.token);
-
     getMerchantDashboardFn({ data: { token: merchantSession.token } })
       .then((nextDashboard) => {
         setDashboard(nextDashboard);
@@ -153,12 +149,6 @@ function DashboardHome() {
               value={`${stats.completion}%`}
             />
           </div>
-
-          {merchantToken ? (
-            <div className="mt-6">
-              <WebOrderNotifications role="merchant" token={merchantToken} />
-            </div>
-          ) : null}
 
           <div className="mt-6 grid gap-6 lg:grid-cols-3">
             <div className="rounded-2xl border border-border bg-card p-6 shadow-soft lg:col-span-2">
