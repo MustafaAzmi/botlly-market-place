@@ -205,19 +205,9 @@ async function sendCustomerOrderStatusNotifications(args: {
     }
   }
 
-  let merchantResult: unknown = null;
-  if (args.status === "purchased" && merchantWhatsapp) {
-    const merchantMessage = [
-      "تأكيد بيع من Botly:",
-      `تم تأكيد شراء القطعة: ${productTitle}`,
-      "يرجى متابعة الوسيط لإكمال الإجراءات.",
-    ].filter(Boolean).join("\n");
-    merchantResult = await sendWhatsAppText(toWhatsAppRecipient(merchantWhatsapp), merchantMessage).catch((error) => ({
-      ok: false,
-      status: 0,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
+  const merchantResult: unknown = merchantWhatsapp
+    ? { ok: false, status: 0, skipped: true, reason: "web_notifications_only" }
+    : null;
 
   return { mediatorPhones, mediatorResults, merchantResult };
 }

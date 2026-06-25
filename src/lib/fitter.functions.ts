@@ -13,11 +13,7 @@ import {
   sha256,
   type EventRow,
 } from "@/lib/eventStore.server";
-import {
-  buildAvailabilityButtons,
-  sendWhatsAppButtons,
-  sendWhatsAppText,
-} from "@/lib/whatsapp/send.server";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 import { normalizeGovernorate } from "@/lib/governorates";
 
 export type FitterProfile = {
@@ -284,28 +280,6 @@ async function resolveProduct(productId: string) {
     merchantWhatsapp: getString(p.whatsapp),
     merchantGovernorate: getString(p.merchantCity),
   };
-}
-
-async function sendMerchantAvailabilityQuestion(args: {
-  merchantWhatsapp: string;
-  productTitle: string;
-  currentPrice: number;
-  currency: string;
-}) {
-  if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
-  const body = [
-    "يوجد طلب على منتج من Botly:",
-    `المنتج: ${args.productTitle}`,
-    `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
-    "نوع الطلب: فيتر",
-    "",
-    "هل لا يزال المنتج متوفر؟",
-  ].join("\n");
-  return sendWhatsAppButtons(
-    normalizePhone(args.merchantWhatsapp).replace(/^\+/, ""),
-    body,
-    buildAvailabilityButtons(),
-  );
 }
 
 async function resolveMerchantContact(merchantId: string, fallbackWhatsapp = "") {
@@ -641,18 +615,12 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     const scopedMediatorContacts = (await readMediatorContacts().catch(
       () => [] as MediatorContact[],
     )).filter((contact) => contact.city === orderGovernorate);
-    const merchantAvailabilityResult = merchant.whatsapp
-      ? await sendMerchantAvailabilityQuestion({
-          merchantWhatsapp: merchant.whatsapp,
-          productTitle: product.title,
-          currentPrice: product.currentPrice,
-          currency: product.currency,
-        }).catch((error) => ({
-          ok: false,
-          status: 0,
-          error: error instanceof Error ? error.message : String(error),
-        }))
-      : { ok: false, status: 0, error: "Missing merchant phone" };
+    const merchantAvailabilityResult = {
+      ok: false,
+      status: 0,
+      skipped: true,
+      reason: "web_notifications_only",
+    };
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "fitter_site",

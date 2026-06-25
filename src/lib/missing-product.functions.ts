@@ -5,14 +5,9 @@ import {
   appendEvent,
   getString,
   listEvents,
-  normalizePhone,
   phoneKey,
   type EventRow,
 } from "@/lib/eventStore.server";
-import {
-  sendWhatsAppButtons,
-  sendWhatsAppImage,
-} from "@/lib/whatsapp/send.server";
 import { normalizeGovernorate } from "@/lib/governorates";
 
 type MissingRequestScope = "governorate" | "all";
@@ -60,10 +55,6 @@ function isInactiveMerchant(payload: Record<string, unknown>) {
     (Boolean(getString(payload.packageExpiry)) &&
       new Date(getString(payload.packageExpiry)).getTime() < Date.now())
   );
-}
-
-function toWhatsAppRecipient(phone: string) {
-  return normalizePhone(phone).replace(/^\+/, "");
 }
 
 function sameText(a: string, b: string) {
@@ -139,53 +130,6 @@ async function findTargetMerchants(args: {
   return targets;
 }
 
-function merchantMessage(args: {
-  productName: string;
-  carMake: string;
-  carModel: string;
-  requesterType: MissingRequesterType;
-}) {
-  const requester = args.requesterType === "fitter" ? "فيتر" : "زبون";
-  return [
-    `هنالك ${requester} يبحث عن المنتج التالي:`,
-    "",
-    `اسم المنتج: ${args.productName}`,
-    "",
-    `نوع السيارة: ${args.carMake}`,
-    "",
-    `موديل السيارة: ${args.carModel || "غير محدد"}`,
-    "",
-    "هل المنتج متوفر لديك؟",
-  ]
-    .filter((line): line is string => line !== null)
-    .join("\n");
-}
-
-async function sendMissingProductToMerchant(args: {
-  merchant: TargetMerchant;
-  body: string;
-  imageUrl: string;
-}) {
-  const recipient = toWhatsAppRecipient(args.merchant.whatsapp);
-  const imageResult =
-    /^https:\/\//i.test(args.imageUrl)
-      ? await sendWhatsAppImage(recipient, args.imageUrl).catch((error) => ({
-          ok: false,
-          status: 0,
-          error: error instanceof Error ? error.message : String(error),
-        }))
-      : null;
-  const buttonResult = await sendWhatsAppButtons(recipient, args.body, [
-    { id: "missing_product_available", title: "المنتج متوفر" },
-  ]).catch((error) => ({
-    ok: false,
-    status: 0,
-    error: error instanceof Error ? error.message : String(error),
-  }));
-
-  return { imageResult, buttonResult };
-}
-
 export const submitMissingProductRequest = createServerFn({ method: "POST" })
   .inputValidator((d) => missingProductInput.parse(d))
   .handler(async ({ data }) => {
@@ -226,21 +170,13 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       eventAt: now,
     });
 
-    const body = merchantMessage({
-      productName: productTitle,
-      carMake: data.carMake,
-      carModel,
-      requesterType: data.requesterType,
-    });
-
     const sendResults = [];
     for (const merchant of targets) {
       const orderId = crypto.randomUUID();
-      const sendResult = await sendMissingProductToMerchant({
-        merchant,
-        body,
-        imageUrl: deliverableImageUrl,
-      });
+      const sendResult = {
+        skipped: true,
+        reason: "web_notifications_only",
+      };
       sendResults.push({ merchantId: merchant.id, ...sendResult });
       await appendEvent("botly_order", {
         orderId,
@@ -263,7 +199,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
         merchantWhatsapp: merchant.whatsapp,
         merchantGovernorate: merchant.governorate,
         status: "sent_to_merchant",
-        merchantNotified: Boolean(sendResult.buttonResult.ok),
+        merchantNotified: false,
         whatsappSendResults: sendResult,
         createdAt: now,
         eventAt: now,
@@ -274,6 +210,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       ok: true,
       missingRequestId,
       targetMerchantCount: targets.length,
-      sentCount: sendResults.filter((result) => result.buttonResult.ok).length,
+      sentCount: 0,
+      webNotificationCount: sendResults.length,
     };
   });

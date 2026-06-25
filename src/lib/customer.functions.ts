@@ -31,11 +31,7 @@ import {
   type CarMake,
 } from "@/lib/car-data";
 import { normalizeGovernorate } from "@/lib/governorates";
-import {
-  buildAvailabilityButtons,
-  sendWhatsAppButtons,
-  sendWhatsAppText,
-} from "@/lib/whatsapp/send.server";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -482,29 +478,6 @@ async function resolveMerchantContact(
   return { whatsapp, storeName, merchantId, city };
 }
 
-async function sendMerchantAvailabilityQuestion(args: {
-  merchantWhatsapp: string;
-  productTitle: string;
-  finalPrice: number;
-  currency: string;
-  requesterLabel: string;
-}) {
-  if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
-  const body = [
-    "يوجد طلب على منتج من Botly:",
-    `المنتج: ${args.productTitle}`,
-    `السعر النهائي: ${args.finalPrice.toLocaleString()} ${args.currency}`,
-    `نوع الطلب: ${args.requesterLabel}`,
-    "",
-    "هل لا يزال المنتج متوفر؟",
-  ].join("\n");
-  return sendWhatsAppButtons(
-    normalizePhone(args.merchantWhatsapp).replace(/^\+/, ""),
-    body,
-    buildAvailabilityButtons(),
-  );
-}
-
 async function resolveOrderProduct(productId: string): Promise<{
   id: string;
   title: string;
@@ -603,19 +576,12 @@ export const submitProductOrder = createServerFn({ method: "POST" })
     const message = lines.join("\n");
 
     const orderId = crypto.randomUUID();
-    const merchantAvailabilityResult = merchant.whatsapp
-      ? await sendMerchantAvailabilityQuestion({
-          merchantWhatsapp: merchant.whatsapp,
-          productTitle: product.title,
-          finalPrice: product.price,
-          currency: product.currency,
-          requesterLabel: "زبون",
-        }).catch((error) => ({
-          ok: false,
-          status: 0,
-          error: error instanceof Error ? error.message : String(error),
-        }))
-      : { ok: false, status: 0, error: "Missing merchant phone" };
+    const merchantAvailabilityResult = {
+      ok: false,
+      status: 0,
+      skipped: true,
+      reason: "web_notifications_only",
+    };
 
     // Store the order in the event store for history/admin view (optional).
     await appendEvent("botly_order", {
