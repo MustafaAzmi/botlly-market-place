@@ -66,11 +66,7 @@ export function extractPriceRegex(text: string): {
   // Pattern: "دينار", "IQD", "ج.م", "ريال", "درهم", "دولار", "$"
   const currencyPatterns: Array<[RegExp, string]> = [
     [/دينار عراقي|د\.ع|IQD|عراقي/i, "IQD"],
-    [/دينار|د\.ج|JOD/i, "JOD"],
-    [/درهم|AED|د\.ا/i, "AED"],
-    [/ريال|SAR|ر\.س/i, "SAR"],
     [/دولار|USD|us\$/i, "USD"],
-    [/يورو|EUR|€/i, "EUR"],
   ];
 
   let currency: string | undefined;
@@ -85,7 +81,7 @@ export function extractPriceRegex(text: string): {
   // Look for number patterns
   // Pattern 1: "25000", "25,000", "25.000"
   const matches = expanded.matchAll(
-    /(\d+(?:[.,]\d{3})*|\d+)\s*(?:دينار|عراقي|IQD|USD|دولار|درهم|AED|ريال|SAR|€|ج\.م|ريال|k|ك|م|م)?/gi,
+    /(\d+(?:[.,]\d{3})*|\d+)\s*(?:دينار|عراقي|IQD|USD|دولار|درهم|ريال|€|ج\.م|ريال|k|ك|م|م)?/gi,
   );
 
   let maxPrice: number | undefined;

@@ -13,9 +13,9 @@ export interface Currency {
 export const DEFAULT_CURRENCIES: Currency[] = [
   { code: "IQD", label: "دينار عراقي", active: true },
   { code: "USD", label: "دولار أمريكي", active: true },
-  { code: "SAR", label: "ريال سعودي", active: true },
-  { code: "AED", label: "درهم إماراتي", active: true },
 ];
+
+const ALLOWED_CURRENCY_CODES = new Set(DEFAULT_CURRENCIES.map((currency) => currency.code));
 
 const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
 const currencyInput = z.object({
@@ -52,6 +52,7 @@ async function readCurrenciesFromDb(): Promise<Currency[]> {
   for (const row of rows) {
     const code = getString(row.payload?.code).trim().toUpperCase();
     if (!code || saved.has(code)) continue;
+    if (!ALLOWED_CURRENCY_CODES.has(code)) continue;
     if (row.payload?.deleted === true) {
       saved.set(code, null);
       continue;
@@ -92,6 +93,9 @@ export const savePlatformCurrency = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Currency[]> => {
     await authorizeCurrencyAdmin(data.token);
     const currency = normalizeCurrency(data.currency);
+    if (!ALLOWED_CURRENCY_CODES.has(currency.code)) {
+      throw new Error("هذه العملة غير متاحة حالياً.");
+    }
     await appendEvent("botly_currency", {
       ...currency,
       deleted: false,
