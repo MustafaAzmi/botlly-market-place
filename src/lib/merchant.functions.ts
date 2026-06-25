@@ -151,7 +151,7 @@ const imageUrlSchema = z
 
 const productInput = tokenInput.extend({
   title: z.string().trim().min(1).max(140),
-  description: z.string().trim().min(1).max(280),
+  description: z.string().trim().max(280).optional().or(z.literal("")),
   imageUrl: imageUrlSchema,
   // Additional photos beyond the primary one (up to 6 total).
   imageUrls: z.array(imageUrlSchema).max(6).optional(),
@@ -754,7 +754,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       source: "manual",
       platform: "manual",
       title: data.title,
-      description: data.description,
+      description: data.description || "",
       imageUrl: imageUrls[0],
       imageUrls,
       currentPrice: data.currentPrice,
@@ -821,7 +821,7 @@ export const getMerchantProduct = createServerFn({ method: "POST" })
 const updateProductInput = tokenInput.extend({
   productId: z.string().min(1),
   title: z.string().trim().min(1).max(140).optional(),
-  description: z.string().trim().min(1).max(280).optional(),
+  description: z.string().trim().max(280).optional().or(z.literal("")),
   imageUrl: imageUrlSchema.optional(),
   imageUrls: z.array(imageUrlSchema).max(6).optional(),
   currentPrice: z.number().min(0).max(999_999_999).optional(),
@@ -850,9 +850,11 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     if (!row) throw new Error("لم يتم العثور على المنتج.");
 
     const currentPayload = row.payload ?? {};
+    const nextDescription =
+      data.description !== undefined ? data.description : getString(currentPayload.description);
     const keywords = buildManualProductKeywords({
       title: data.title || getString(currentPayload.title),
-      description: data.description || getString(currentPayload.description),
+      description: nextDescription,
       size: data.size || getString(currentPayload.size),
       color: data.color || getString(currentPayload.color),
     });
@@ -863,7 +865,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
 
     const searchText = [
       data.title || getString(currentPayload.title),
-      data.description || getString(currentPayload.description),
+      nextDescription,
       data.color || getString(currentPayload.color),
       data.size || getString(currentPayload.size),
       carMake,
@@ -892,7 +894,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       merchantId,
       whatsapp: getString(merchant.payload?.whatsapp) || getString(currentPayload.whatsapp),
       title: data.title || getString(currentPayload.title),
-      description: data.description || getString(currentPayload.description),
+      description: nextDescription,
       imageUrl: imageUrls[0] || data.imageUrl || getString(currentPayload.imageUrl),
       imageUrls,
       currentPrice: data.currentPrice ?? getNumber(currentPayload.currentPrice),

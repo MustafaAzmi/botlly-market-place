@@ -602,11 +602,9 @@ function ProductCard({
   const [submitting, setSubmitting] = useState(false);
   const images = product.imageUrls;
   const specs = [
-    product.carMake,
-    product.carModel,
-    product.carYear ? `${t("customer.shop.year")} ${product.carYear}` : undefined,
-    product.color,
-    product.size,
+    product.carYear ? `سنة الصنع: ${product.carYear}` : undefined,
+    product.carModel ? `الموديل: ${product.carModel}` : undefined,
+    product.color ? `اللون: ${product.color}` : undefined,
   ].filter(Boolean);
 
   const handleSubmitOrder = async () => {
@@ -671,9 +669,6 @@ function ProductCard({
       </div>
       <div className="p-4">
         <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
-        {product.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.description}</p>
-        )}
         {specs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {specs.map((spec) => (

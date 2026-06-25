@@ -102,7 +102,16 @@ function PublicStorePage() {
             </div>
           ) : (
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {store.products.map((product) => (
+              {store.products.map((product) => {
+                const specs = [
+                  product.carYear ? `سنة الصنع: ${product.carYear}` : "",
+                  product.carModel ? `الموديل: ${product.carModel}` : "",
+                  product.color ? `اللون: ${product.color}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" - ");
+
+                return (
                 <div
                   key={product.id}
                   className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated"
@@ -116,9 +125,7 @@ function PublicStorePage() {
                       <div className="min-w-0">
                         <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {[product.description, product.color, product.size]
-                            .filter(Boolean)
-                            .join(" - ") || "منتج"}
+                          {specs || "منتج"}
                         </p>
                       </div>
                       {product.quantity !== undefined && product.quantity > 0 && (
@@ -140,7 +147,8 @@ function PublicStorePage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </main>

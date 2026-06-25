@@ -8,7 +8,6 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -47,7 +46,6 @@ function EditProductPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
   const [carMake, setCarMake] = useState("");
@@ -104,7 +102,6 @@ function EditProductPage() {
     getMerchantProductFn({ data: { token: merchantSession.token, productId: id } })
       .then((product) => {
         setTitle(product.title);
-        setDescription(product.description);
         setImages(product.imageUrls.length > 0 ? product.imageUrls : product.imageUrl ? [product.imageUrl] : []);
         setCurrentPrice(String(product.currentPrice));
         setFinalPrice(product.discountPrice ? String(product.discountPrice) : "");
@@ -197,8 +194,8 @@ function EditProductPage() {
     const price = Number(currentPrice);
     const customerPrice = finalPrice.trim() ? Number(finalPrice) : undefined;
     const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
-    if (!title.trim() || !description.trim() || !Number.isFinite(price)) {
-      toast.error("اسم المنتج والوصف والسعر مطلوبة");
+    if (!title.trim() || !Number.isFinite(price)) {
+      toast.error("اسم المنتج والسعر مطلوبان");
       return;
     }
     if (customerPrice !== undefined && !Number.isFinite(customerPrice)) {
@@ -217,7 +214,7 @@ function EditProductPage() {
           token: merchantSession.token,
           productId: id,
           title: title.trim(),
-          description: description.trim(),
+          description: "",
           imageUrl: images[0],
           imageUrls: images,
           currentPrice: price,
@@ -360,17 +357,6 @@ function EditProductPage() {
               />
             </Field>
 
-            <Field id="description" label="وصف مختصر">
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                placeholder="مثال: لايت أمامي أصلي، حالة ممتازة، يناسب موديلات 2016-2020"
-                maxLength={280}
-                required
-              />
-            </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field id="carMake" label="نوع السيارة">

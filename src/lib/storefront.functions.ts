@@ -20,6 +20,8 @@ export type PublicStoreProduct = {
   currency: string;
   size?: string;
   color?: string;
+  carModel?: string;
+  carYear?: string;
   quantity?: number;
 };
 
@@ -95,6 +97,8 @@ export const getPublicStore = createServerFn({ method: "POST" })
         currency: getString(pp.currency) || "IQD",
         size: getString(pp.size) || undefined,
         color: getString(pp.color) || undefined,
+        carModel: getString(pp.carModel) || undefined,
+        carYear: getString(pp.carYear) || undefined,
         quantity: getNumber(pp.quantity),
       });
     }
