@@ -1157,7 +1157,7 @@ function latestFitterRows(rows: EventRow[]) {
   return [...seen.values()].filter((row) => !getString(row.payload?.deletedAt));
 }
 
-async function currentFitterProfit(fitterId: string) {
+async function currentFitterProfit(fitterId: string, fallbackCommissionPercent = 0) {
   const resetRows = await listEvents("botly_fitter_reset");
   const reset = resetRows.find((row) => getString(row.payload?.fitterId) === fitterId);
   const resetAt = reset ? new Date(getString(reset.payload?.createdAt) || eventTime(reset)).getTime() : 0;
@@ -1180,7 +1180,12 @@ async function currentFitterProfit(fitterId: string) {
   return {
     totalProfit: Number(
       [...confirmedOrders, ...legacySales]
-        .reduce((sum, row) => sum + (getNumber(row.payload?.commissionAmount) ?? 0), 0)
+        .reduce((sum, row) => {
+          const storedCommission = getNumber(row.payload?.commissionAmount) ?? 0;
+          if (storedCommission > 0) return sum + storedCommission;
+          const productPrice = getNumber(row.payload?.productPrice) ?? getNumber(row.payload?.price) ?? 0;
+          return sum + Number(((productPrice * fallbackCommissionPercent) / 100).toFixed(2));
+        }, 0)
         .toFixed(2),
     ),
     salesCount: confirmedOrders.length + legacySales.length,
@@ -1196,7 +1201,8 @@ export const listFitters = createServerFn({ method: "POST" })
       fitters.map(async (row) => {
         const p = row.payload ?? {};
         const fitterId = fitterIdentity(row);
-        const profit = await currentFitterProfit(fitterId);
+        const commissionPercent = getNumber(p.commissionPercent) ?? 0;
+        const profit = await currentFitterProfit(fitterId, commissionPercent);
         return {
           fitterId,
           name: getString(p.name) || "فيتر",
@@ -1206,7 +1212,7 @@ export const listFitters = createServerFn({ method: "POST" })
           latitude: getNumber(p.latitude),
           longitude: getNumber(p.longitude),
           visaNumber: getString(p.visaNumber),
-          commissionPercent: getNumber(p.commissionPercent) ?? 0,
+          commissionPercent,
           totalProfit: profit.totalProfit,
           salesCount: profit.salesCount,
           createdAt: getString(p.createdAt) || eventTime(row),

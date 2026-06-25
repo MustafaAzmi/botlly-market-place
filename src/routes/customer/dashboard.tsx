@@ -128,9 +128,9 @@ function CustomerDashboard() {
   return (
     <div className="min-h-screen bg-secondary/30 pb-24">
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+        <div className="container mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
           <Logo />
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <LanguageSwitcher />
             <Button asChild variant="outline" size="sm" className="gap-2">
               <a href="/customer/notifications">

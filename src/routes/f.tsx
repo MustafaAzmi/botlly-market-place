@@ -175,12 +175,12 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
   return (
     <div className="min-h-screen bg-secondary/30 pb-10">
       <header className="sticky top-0 z-20 border-b border-border bg-background/85 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-bold">لوحة الفيتر</h1>
             <p className="text-xs text-muted-foreground">{session.fitter.whatsapp}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <Button asChild variant="outline" className="gap-2">
               <Link to="/f/notifications">
                 <BellRing className="h-4 w-4" />

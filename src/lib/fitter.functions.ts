@@ -543,6 +543,14 @@ function toOrder(row: EventRow): FitterOrder {
   };
 }
 
+function currentFitterCommissionPercent(fitter: EventRow) {
+  return Math.min(100, Math.max(0, getNumber(fitter.payload?.commissionPercent) ?? 0));
+}
+
+function calculateCommission(amount: number, percent: number) {
+  return Number(((amount * percent) / 100).toFixed(2));
+}
+
 async function latestFitterOrders(fitterId: string): Promise<FitterOrder[]> {
   const rows = await listEvents("botly_fitter_order");
   const latest = new Map<string, FitterOrder>();
@@ -616,8 +624,8 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     const product = await resolveProduct(data.productId);
     const merchant = await resolveMerchantContact(product.merchantId, product.merchantWhatsapp);
     const orderGovernorate = product.merchantGovernorate || merchant.city;
-    const commissionPercent = getNumber(fitter.payload?.commissionPercent) ?? 0;
-    const commissionAmount = Number(((product.price * commissionPercent) / 100).toFixed(2));
+    const commissionPercent = currentFitterCommissionPercent(fitter);
+    const commissionAmount = calculateCommission(product.price, commissionPercent);
     const orderId = crypto.randomUUID();
     const mediatorMessage = buildFitterMediatorMessage({
       fitter,
@@ -716,14 +724,16 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       address: order.merchantAddress,
       city: order.merchantGovernorate,
     };
+    const commissionPercent = currentFitterCommissionPercent(fitter);
+    const commissionAmount = calculateCommission(order.productPrice, commissionPercent);
     await appendEvent("botly_fitter_order", buildOrderPayload({
       orderId: order.id,
       fitter,
       product,
       merchant,
       status: "confirmed",
-      commissionPercent: order.commissionPercent,
-      commissionAmount: order.commissionAmount,
+      commissionPercent,
+      commissionAmount,
     }));
     await appendEvent("botly_fitter_sale", {
       saleId: crypto.randomUUID(),
@@ -743,11 +753,11 @@ export const confirmFitterReceipt = createServerFn({ method: "POST" })
       merchantStoreName: order.merchantStoreName,
       merchantWhatsapp: order.merchantWhatsapp,
       merchantAddress: order.merchantAddress,
-      commissionPercent: order.commissionPercent,
-      commissionAmount: order.commissionAmount,
+      commissionPercent,
+      commissionAmount,
       createdAt: new Date().toISOString(),
     });
-    return { ok: true, commissionAmount: order.commissionAmount, currency: order.currency };
+    return { ok: true, commissionAmount, currency: order.currency };
   });
 
 export const cancelFitterOrder = createServerFn({ method: "POST" })
@@ -817,8 +827,9 @@ export const getFitterSummary = createServerFn({ method: "POST" })
       productPrice: order.productPrice,
       productCurrentPrice: order.productCurrentPrice,
       currency: order.currency,
-      commissionPercent: order.commissionPercent,
-      commissionAmount: order.commissionAmount,
+      commissionPercent: order.commissionPercent || fitter.commissionPercent,
+      commissionAmount:
+        order.commissionAmount || calculateCommission(order.productPrice, order.commissionPercent || fitter.commissionPercent),
       createdAt: order.updatedAt,
     }));
     const sales = [...orderSales, ...legacySales];
