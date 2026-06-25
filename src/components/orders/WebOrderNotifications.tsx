@@ -49,18 +49,10 @@ export function WebOrderNotifications(props: Props) {
   const [orders, setOrders] = useState<WebOrderNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
-  const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
   const notifiedStorageKey = useMemo(
     () =>
       `botly_web_notifications_seen:${role}:${
-        role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
-      }`,
-    [merchantToken, requesterPhone, requesterType, role],
-  );
-  const readStorageKey = useMemo(
-    () =>
-      `botly_web_notifications_read:${role}:${
         role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
       }`,
     [merchantToken, requesterPhone, requesterType, role],
@@ -88,22 +80,13 @@ export function WebOrderNotifications(props: Props) {
         playNotificationBell();
         saveNotifiedIds(notifiedStorageKey, new Set([...notifiedIds, ...newActionableIds]));
       }
-      const readIdsBefore = readStoredIds(readStorageKey);
-      const unreadVisibleIds = visibleOrders
-        .filter((order) => hasUnreadNotification(order, role))
-        .map((order) => order.orderId);
-      const readIdsAfter = new Set([...readIdsBefore, ...unreadVisibleIds]);
-      if (unreadVisibleIds.some((orderId) => !readIdsBefore.has(orderId))) {
-        saveStoredIds(readStorageKey, readIdsAfter);
-      }
-      setReadIds(readIdsAfter);
       setOrders(visibleOrders);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر تحميل إشعارات الطلبات");
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, readStorageKey, requesterPhone, requesterType, role]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -119,8 +102,8 @@ export function WebOrderNotifications(props: Props) {
     [orders, role],
   );
   const notificationCount = useMemo(
-    () => orders.filter((order) => hasUnreadNotification(order, role) && !readIds.has(order.orderId)).length,
-    [orders, readIds, role],
+    () => orders.filter((order) => hasUnreadNotification(order, role)).length,
+    [orders, role],
   );
 
   const runAction = async (key: string, action: () => Promise<unknown>, success: string) => {
@@ -171,9 +154,6 @@ export function WebOrderNotifications(props: Props) {
                 orderIds,
               },
       });
-      const nextStoredIds = new Set([...readStoredIds(readStorageKey), ...orderIds]);
-      saveStoredIds(readStorageKey, nextStoredIds);
-      setReadIds(nextStoredIds);
       setOrders((current) => current.filter((order) => !orderIds.includes(order.orderId)));
       toast.success("تم مسح الطلبات الأخيرة");
       refresh(true).catch(() => {});
@@ -560,10 +540,6 @@ function readNotifiedIds(key: string) {
 
 function saveNotifiedIds(key: string, ids: Set<string>) {
   saveStoredIds(key, ids);
-}
-
-function readStoredIds(key: string) {
-  return readNotifiedIds(key);
 }
 
 function saveStoredIds(key: string, ids: Set<string>) {

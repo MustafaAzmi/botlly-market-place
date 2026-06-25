@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
+import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +135,11 @@ function CustomerDashboard() {
             <Button asChild variant="outline" size="sm" className="gap-2">
               <a href="/customer/notifications">
                 <BellRing className="h-4 w-4" />
+                <WebNotificationCountBadge
+                  role="requester"
+                  requesterType="customer"
+                  requesterPhone={customer.whatsapp}
+                />
                 الإشعارات
               </a>
             </Button>

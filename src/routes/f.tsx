@@ -4,6 +4,7 @@ import { BellRing, Car, CheckCircle2, Loader2, LogOut, MapPin, Package, Search, 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
 import { InstallAppCard } from "@/components/pwa/InstallAppCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -183,6 +184,11 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
             <Button asChild variant="outline" className="gap-2">
               <Link to="/f/notifications">
                 <BellRing className="h-4 w-4" />
+                <WebNotificationCountBadge
+                  role="requester"
+                  requesterType="fitter"
+                  requesterPhone={session.fitter.whatsapp}
+                />
                 الإشعارات
               </Link>
             </Button>

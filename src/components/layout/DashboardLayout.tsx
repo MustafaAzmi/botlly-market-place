@@ -1,11 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { LayoutDashboard, Package, Store, ShoppingBag, LogOut } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
 import { clearMerchantSession, readMerchantSession } from "@/lib/merchantSession";
+import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
@@ -27,12 +28,14 @@ export function DashboardLayout({
 }) {
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [merchantToken, setMerchantToken] = useState("");
 
   // Keep the signed-in store's unique identifier visible in the URL
   // (?store=<slug>) on every dashboard page, so each store's pages are
   // unambiguously addressed and links/bookmarks never mix stores up.
   useEffect(() => {
     const session = readMerchantSession();
+    setMerchantToken(session?.token ?? "");
     const slug = session?.storeSlug || session?.merchantId?.slice(0, 8);
     if (!slug) return;
     const url = new URL(window.location.href);
@@ -66,6 +69,9 @@ export function DashboardLayout({
                 >
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
+                  {item.to === "/dashboard/orders" && merchantToken ? (
+                    <WebNotificationCountBadge role="merchant" token={merchantToken} />
+                  ) : null}
                 </Link>
               );
             })}
@@ -114,6 +120,9 @@ export function DashboardLayout({
                 >
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
+                  {item.to === "/dashboard/orders" && merchantToken ? (
+                    <WebNotificationCountBadge role="merchant" token={merchantToken} />
+                  ) : null}
                 </Link>
               );
             })}
