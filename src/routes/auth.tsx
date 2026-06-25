@@ -26,6 +26,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
+import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/auth")({
@@ -221,9 +222,9 @@ function AuthPage() {
 
     setLoading(true);
     try {
-      const result =
+      const result = await withNetworkRetry(() =>
         mode === "signup"
-          ? await signupMerchantFn({
+          ? signupMerchantFn({
               data: {
                 storeName: storeName.trim(),
                 city,
@@ -232,12 +233,13 @@ function AuthPage() {
                 password,
               },
             })
-          : await loginMerchantFn({
+          : loginMerchantFn({
               data: {
                 whatsapp: whatsapp.trim(),
                 password,
               },
-            });
+            }),
+      );
       saveAuthSession(mode === "signup" ? text.signupSuccess : text.loginSuccess, result);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : text.required);

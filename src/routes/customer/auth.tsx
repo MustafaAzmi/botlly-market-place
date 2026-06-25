@@ -15,6 +15,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
 import { IRAQI_GOVERNORATES } from "@/lib/governorates";
+import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/auth")({
@@ -59,7 +60,7 @@ function CustomerAuthPage() {
 
     setLoading(true);
     try {
-      const result = await loginFn({ data: { whatsapp: whatsapp.trim() } });
+      const result = await withNetworkRetry(() => loginFn({ data: { whatsapp: whatsapp.trim() } }));
       writeCustomerSession(result.customer, result.token);
       toast.success(t("customer.auth.welcome_back", { name: result.customer.name }));
       navigate({ to: "/customer/dashboard" });
@@ -79,14 +80,16 @@ function CustomerAuthPage() {
 
     setLoading(true);
     try {
-      const result = await signupFn({
-        data: {
-          whatsapp: whatsapp.trim(),
-          name: name.trim(),
-          landmark: landmark.trim(),
-          governorate: governorate.trim(),
-        },
-      });
+      const result = await withNetworkRetry(() =>
+        signupFn({
+          data: {
+            whatsapp: whatsapp.trim(),
+            name: name.trim(),
+            landmark: landmark.trim(),
+            governorate: governorate.trim(),
+          },
+        }),
+      );
       writeCustomerSession(result.customer, result.token);
       toast.success(
         result.existed ? t("customer.auth.welcome_back", { name: result.customer.name }) : t("customer.auth.account_created"),
