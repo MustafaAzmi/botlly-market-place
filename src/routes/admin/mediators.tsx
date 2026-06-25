@@ -51,6 +51,7 @@ function AdminMediatorsPage() {
   const setMediatorFn = useServerFn(setMediatorPhone);
 
   const [mediators, setMediators] = useState<MediatorRow[]>([{ phone: "", city: "" }]);
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState(5);
   const [loading, setLoading] = useState(true);
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
 
@@ -66,6 +67,7 @@ function AdminMediatorsPage() {
                 .filter((phone): phone is string => Boolean(phone))
                 .map((phone) => ({ phone, city: "" }));
         setMediators(contacts.length > 0 ? contacts : [{ phone: "", city: "" }]);
+        setPlatformCommissionPercent(settings.platformCommissionPercent ?? 5);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل الوسطاء");
@@ -104,7 +106,13 @@ function AdminMediatorsPage() {
         toast.error("اختار محافظة لكل وسيط قبل الحفظ");
         return;
       }
-      await setMediatorFn({ data: { token: session.token, mediatorContacts } });
+      await setMediatorFn({
+        data: {
+          token: session.token,
+          mediatorContacts,
+          platformCommissionPercent,
+        },
+      });
       toast.success("تم حفظ الوسطاء");
       setMediators(mediatorContacts.length > 0 ? mediatorContacts : [{ phone: "", city: "" }]);
     } catch (error) {
@@ -133,6 +141,23 @@ function AdminMediatorsPage() {
         <p className="mt-1 text-xs text-muted-foreground">
           كل طلب جديد يرسل لكل الأرقام المحفوظة. أول رقم بالقائمة يظهر للزبون بزر التواصل مع الوسيط.
         </p>
+
+        <div className="mt-5 max-w-xs space-y-2">
+          <label className="text-sm font-medium" htmlFor="platform-commission-percent">
+            نسبة عمولة الوسيط %
+          </label>
+          <Input
+            id="platform-commission-percent"
+            dir="ltr"
+            type="number"
+            min={0}
+            max={100}
+            inputMode="decimal"
+            value={platformCommissionPercent}
+            onChange={(event) => setPlatformCommissionPercent(Number(event.target.value) || 0)}
+            className="h-11 text-start"
+          />
+        </div>
 
         <div className="mt-5 space-y-3">
           {loading ? (

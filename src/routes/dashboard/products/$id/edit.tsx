@@ -18,7 +18,12 @@ import {
 } from "@/components/ui/select";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
-import { getMerchantProduct, updateMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
+import {
+  getMerchantProduct,
+  updateMerchantProduct,
+  getEnabledCarCatalogueForMerchant,
+  getMerchantPlatformCommission,
+} from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/$id/edit")({
@@ -34,6 +39,7 @@ function EditProductPage() {
   const getMerchantProductFn = useServerFn(getMerchantProduct);
   const updateMerchantProductFn = useServerFn(updateMerchantProduct);
   const getCatalogFn = useServerFn(getEnabledCarCatalogueForMerchant);
+  const getCommissionFn = useServerFn(getMerchantPlatformCommission);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   // All product photos (saved + newly added). First one is the primary image.
@@ -49,6 +55,7 @@ function EditProductPage() {
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
   const [finalPrice, setFinalPrice] = useState("");
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState(5);
   const [carYear, setCarYear] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -70,10 +77,22 @@ function EditProductPage() {
         setYears(catalog.years);
       })
       .catch(() => {});
+    getCommissionFn({ data: { token: merchantSession.token } })
+      .then((settings) => setPlatformCommissionPercent(settings.platformCommissionPercent))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getCatalogFn]);
 
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
+  const updateCurrentPrice = (value: string) => {
+    setCurrentPrice(value);
+    const price = Number(value);
+    if (Number.isFinite(price) && value.trim()) {
+      setFinalPrice(String(Number((price + (price * platformCommissionPercent) / 100).toFixed(2))));
+    } else {
+      setFinalPrice("");
+    }
+  };
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -452,7 +471,7 @@ function EditProductPage() {
               <Input
                 id="currentPrice"
                 value={currentPrice}
-                onChange={(e) => setCurrentPrice(e.target.value)}
+                onChange={(e) => updateCurrentPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"

@@ -99,6 +99,7 @@ function AdminStoresPage() {
             <td>${excelCell(sale.customerPhone)}</td>
             <td>${excelCell(sale.commissionPercent + "%")}</td>
             <td>${excelCell(sale.commissionAmount)}</td>
+            <td>${excelCell(sale.merchantNet)}</td>
             <td>${excelCell(sale.operationStatus)}</td>
           </tr>`,
       )
@@ -139,6 +140,8 @@ function AdminStoresPage() {
                 <th>اسم الزبون</th>
                 <th>رقم الزبون</th>
                 <th>التاريخ</th>
+                <th>صافي التاجر</th>
+                <th>حالة العملية</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>

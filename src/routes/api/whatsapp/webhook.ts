@@ -47,6 +47,7 @@ import {
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
 function getVerifyToken() {
   return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
@@ -54,6 +55,18 @@ function getVerifyToken() {
 
 function getAppSecret() {
   return process.env.WHATSAPP_APP_SECRET;
+}
+
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings").catch(() => []);
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -583,7 +596,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
       eventName: merchantStatus === "Sold" ? "merchant_pressed_sold" : "merchant_pressed_cancelled",
       eventAt: now,
       merchantRespondedAt: now,
-      commissionPercent: 5,
+      commissionPercent: await getPlatformCommissionPercent(),
     };
     await appendEvent("botly_order", order);
     await notifyRequesterOfMissingOrderStatus(
@@ -609,7 +622,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
       eventName: requesterStatus === "Purchased" ? "requester_pressed_purchased" : "requester_pressed_cancelled",
       eventAt: now,
       requesterRespondedAt: now,
-      commissionPercent: 5,
+      commissionPercent: await getPlatformCommissionPercent(),
     };
     await appendEvent("botly_order", order);
     await notifyMerchantOfMissingOrderStatus(
@@ -1645,7 +1658,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 status: isConfirmed ? "available" : "out_of_stock",
                 eventName: isConfirmed ? "merchant_pressed_available" : "merchant_pressed_cancelled",
                 eventAt: new Date().toISOString(),
-                commissionPercent: 5,
+                commissionPercent: await getPlatformCommissionPercent(),
                 customerNotifiedOfStatus: Boolean((requesterResult as { ok?: unknown }).ok),
                 requesterNotificationResult: requesterResult,
                 mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),

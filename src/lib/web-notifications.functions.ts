@@ -302,6 +302,45 @@ async function notifyMediator(order: WebOrderNotification, title: string) {
   );
 }
 
+async function notifyRequesterOfMerchantSale(order: WebOrderNotification, merchantStatus: MerchantStatus) {
+  if (!order.requesterPhone) return;
+  const body = [
+    merchantStatus === "Sold" ? "أكد التاجر عملية بيع المنتج." : "ألغى التاجر طلب المنتج.",
+    "",
+    `اسم المنتج: ${order.productTitle}`,
+    `التاجر: ${order.merchantStoreName || "غير محدد"}`,
+    order.price > 0 ? `السعر النهائي: ${order.price.toLocaleString()} ${order.currency}` : "",
+    "",
+    merchantStatus === "Sold"
+      ? "يرجى تأكيد الشراء من صفحة الإشعارات إذا تمت العملية، أو إلغاء الطلب إذا لم تتم."
+      : "يمكنك البحث عن قطعة بديلة من التطبيق.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await sendWhatsAppText(toWhatsAppRecipient(order.requesterPhone), body);
+}
+
+async function notifyMerchantOfRequesterPurchase(order: WebOrderNotification, requesterStatus: RequesterStatus) {
+  if (!order.merchantWhatsapp) return;
+  const requesterLabel = order.requesterType === "fitter" ? "الفيتر" : "الزبون";
+  const body = [
+    requesterStatus === "Purchased"
+      ? `${requesterLabel} أكد عملية شراء المنتج.`
+      : `${requesterLabel} ألغى طلب المنتج.`,
+    "",
+    `اسم المنتج: ${order.productTitle}`,
+    `مقدم الطلب: ${order.requesterName || "غير محدد"}`,
+    order.price > 0 ? `السعر النهائي: ${order.price.toLocaleString()} ${order.currency}` : "",
+    "",
+    requesterStatus === "Purchased"
+      ? "يرجى تأكيد البيع من صفحة الطلبات إذا تمت العملية."
+      : "تم تسجيل الإلغاء داخل النظام.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await sendWhatsAppText(toWhatsAppRecipient(order.merchantWhatsapp), body);
+}
+
 export const listMerchantWebNotifications = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
   .handler(async ({ data }) => {
@@ -384,6 +423,7 @@ export const merchantConfirmWebSale = createServerFn({ method: "POST" })
       { ...order, merchantStatus, finalStatus },
       data.result === "sold" ? "التاجر أكد بيع المنتج من الموقع" : "التاجر ألغى الطلب من الموقع",
     );
+    await notifyRequesterOfMerchantSale({ ...order, merchantStatus, finalStatus }, merchantStatus);
     return { ok: true };
   });
 
@@ -406,6 +446,7 @@ export const requesterConfirmWebPurchase = createServerFn({ method: "POST" })
       { ...order, requesterStatus, finalStatus },
       data.result === "purchased" ? "الزبون/الفيتر أكد الشراء من الموقع" : "الزبون/الفيتر ألغى الطلب من الموقع",
     );
+    await notifyMerchantOfRequesterPurchase({ ...order, requesterStatus, finalStatus }, requesterStatus);
     return { ok: true };
   });
 

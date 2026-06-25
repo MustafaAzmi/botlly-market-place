@@ -456,6 +456,7 @@ async function loadMerchantMetrics(): Promise<{
   const salesByMerchant = new Map<string, MerchantSaleDetail[]>();
   const salesTotalsByMerchant = new Map<string, MerchantSalesTotal[]>();
   const salesResetAtByMerchant = new Map<string, string>();
+  const platformCommissionPercent = await getPlatformCommissionPercent();
 
   // Products: count latest-per-productId, non-rejected.
   const productRows = await listEvents("botly_product");
@@ -490,7 +491,7 @@ async function loadMerchantMetrics(): Promise<{
     if (resetAt && saleCreatedAt <= resetAt) continue;
     const price = getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0;
     const currency = getString(p.currency) || "IQD";
-    const commissionPercent = 5;
+    const commissionPercent = getNumber(p.commissionPercent) ?? platformCommissionPercent;
     const commissionAmount = Number(((price * commissionPercent) / 100).toFixed(2));
     const sale: MerchantSaleDetail = {
       orderId: getString(p.orderId) || row.id,
@@ -523,6 +524,18 @@ async function loadMerchantMetrics(): Promise<{
   }
 
   return { productCounts, salesByMerchant, salesTotalsByMerchant };
+}
+
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings");
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
 }
 
 export const listMerchants = createServerFn({ method: "POST" })
@@ -1066,6 +1079,8 @@ export interface MediatorContact {
   city: string;
 }
 
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
+
 export interface FitterAdminView {
   fitterId: string;
   name: string;
@@ -1257,6 +1272,12 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
     const rows = await listEvents("botly_settings");
+    const latestSettings = rows[0]?.payload ?? {};
+    const platformCommissionPercent =
+      getNumber(latestSettings.platformCommissionPercent) ??
+      getNumber(latestSettings.merchantCommissionPercent) ??
+      getNumber(latestSettings.commissionPercent) ??
+      DEFAULT_PLATFORM_COMMISSION_PERCENT;
     for (const row of rows) {
       const mediatorContacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
       const storedPhones = Array.isArray(row.payload?.mediatorPhones)
@@ -1277,6 +1298,7 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
           mediatorPhone: contacts[0].phone,
           mediatorPhones: contacts.map((contact) => contact.phone),
           mediatorContacts: contacts,
+          platformCommissionPercent,
         };
       }
     }
@@ -1284,12 +1306,14 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
       mediatorPhone: "",
       mediatorPhones: [] as string[],
       mediatorContacts: [] as MediatorContact[],
+      platformCommissionPercent,
     };
   });
 
 const mediatorPhoneInput = tokenInput.extend({
   mediatorPhone: z.string().trim().max(40).optional().or(z.literal("")),
   mediatorPhones: z.array(z.string().trim().min(3).max(40)).max(20).optional(),
+  platformCommissionPercent: z.number().min(0).max(100).optional(),
   mediatorContacts: z
     .array(
       z.object({
@@ -1336,6 +1360,7 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
   .inputValidator((d) => mediatorPhoneInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
+    const existingCommissionPercent = await getPlatformCommissionPercent();
     const mediatorContacts = normalizeMediatorContacts(data.mediatorContacts ?? []);
     const mediatorPhones = normalizeMediatorPhones([
       ...mediatorContacts.map((contact) => contact.phone),
@@ -1349,6 +1374,7 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
         mediatorContacts.length > 0
           ? mediatorContacts
           : mediatorPhones.map((phone) => ({ phone, city: "" })),
+      platformCommissionPercent: data.platformCommissionPercent ?? existingCommissionPercent,
       updatedAt: new Date().toISOString(),
     });
     return { ok: true };

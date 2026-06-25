@@ -16,6 +16,7 @@ const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
 const SESSION_PROVIDER = "botly_session";
 const SESSION_TTL_DAYS = 30;
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
 type EventStore = "whatsapp_webhook_events" | "broadcasts";
 
@@ -235,6 +236,18 @@ async function getMerchantSalesResetAt(merchantId: string) {
   const rows = await listEvents("botly_merchant_sales_reset");
   const row = rows.find((event) => getString(event.payload?.merchantId) === merchantId);
   return row ? getString(row.payload?.resetAt) || eventTime(row) : "";
+}
+
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
 }
 
 async function getMerchantSalesReport(merchantId: string): Promise<MerchantSalesReport> {
@@ -701,6 +714,13 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
 
     const updated = await insertEvent(MERCHANT_PROVIDER, payload);
     return toProfile(updated);
+  });
+
+export const getMerchantPlatformCommission = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await getAuthorizedMerchant(data.token);
+    return { platformCommissionPercent: await getPlatformCommissionPercent() };
   });
 
 export const createMerchantProduct = createServerFn({ method: "POST" })

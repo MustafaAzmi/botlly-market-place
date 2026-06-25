@@ -249,7 +249,9 @@ export function WebOrderNotifications(props: Props) {
                         </span>
                       ) : null}
                     </div>
-                    {role === "requester" && order.merchantStatus === "Available" ? (
+                    {role === "requester" &&
+                    (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
+                    order.requesterStatus === "Pending" ? (
                       <p className="mt-3 rounded-lg bg-secondary/70 p-3 text-sm">
                         يرجى اكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟
                       </p>
@@ -352,7 +354,7 @@ export function WebOrderNotifications(props: Props) {
                   ) : null}
 
                   {role === "requester" &&
-                  order.merchantStatus === "Available" &&
+                  (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
                   order.requesterStatus === "Pending" ? (
                     <>
                       <Button
@@ -552,14 +554,24 @@ function saveStoredIds(key: string, ids: Set<string>) {
 }
 
 function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "requester") {
-  if (role === "merchant") return order.merchantStatus === "Pending";
+  if (role === "merchant") {
+    return (
+      order.merchantStatus === "Pending" ||
+      (order.merchantStatus === "Available" && order.requesterStatus === "Purchased")
+    );
+  }
   return (
-    (order.merchantStatus === "Available" || order.merchantStatus === "Unavailable") &&
+    (order.merchantStatus === "Available" ||
+      order.merchantStatus === "Unavailable" ||
+      order.merchantStatus === "Sold") &&
     order.requesterStatus === "Pending"
   );
 }
 
 function hasActions(order: WebOrderNotification, role: "merchant" | "requester") {
   if (role === "merchant") return order.merchantStatus === "Pending" || order.merchantStatus === "Available";
-  return order.merchantStatus === "Available" && order.requesterStatus === "Pending";
+  return (
+    (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
+    order.requesterStatus === "Pending"
+  );
 }

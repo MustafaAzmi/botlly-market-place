@@ -18,7 +18,11 @@ import {
 } from "@/components/ui/select";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
-import { createMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
+import {
+  createMerchantProduct,
+  getEnabledCarCatalogueForMerchant,
+  getMerchantPlatformCommission,
+} from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/new")({
@@ -32,6 +36,7 @@ function NewProductPage() {
   const navigate = useNavigate();
   const createMerchantProductFn = useServerFn(createMerchantProduct);
   const getCatalogFn = useServerFn(getEnabledCarCatalogueForMerchant);
+  const getCommissionFn = useServerFn(getMerchantPlatformCommission);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   // Multiple product photos: first one is the primary image.
@@ -48,6 +53,7 @@ function NewProductPage() {
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
   const [finalPrice, setFinalPrice] = useState("");
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState(5);
   const [saving, setSaving] = useState(false);
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [colors, setColors] = useState<string[]>([]);
@@ -64,10 +70,22 @@ function NewProductPage() {
         setYears(catalog.years);
       })
       .catch(() => {});
+    getCommissionFn({ data: { token: merchantSession.token } })
+      .then((settings) => setPlatformCommissionPercent(settings.platformCommissionPercent))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencies]);
 
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
+  const updateCurrentPrice = (value: string) => {
+    setCurrentPrice(value);
+    const price = Number(value);
+    if (Number.isFinite(price) && value.trim()) {
+      setFinalPrice(String(Number((price + (price * platformCommissionPercent) / 100).toFixed(2))));
+    } else {
+      setFinalPrice("");
+    }
+  };
 
   // Resize + recompress the uploaded image to a small JPEG data URL. Raw
   // camera photos are megabytes; the server caps the stored image, and big
@@ -414,7 +432,7 @@ function NewProductPage() {
               <Input
                 id="currentPrice"
                 value={currentPrice}
-                onChange={(e) => setCurrentPrice(e.target.value)}
+                onChange={(e) => updateCurrentPrice(e.target.value)}
                 type="number"
                 min={0}
                 inputMode="decimal"

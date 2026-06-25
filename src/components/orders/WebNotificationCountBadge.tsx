@@ -70,9 +70,16 @@ export function WebNotificationCountBadge(props: Props) {
 }
 
 function hasBadgeNotification(order: WebOrderNotification, role: "merchant" | "requester") {
-  if (role === "merchant") return order.merchantStatus === "Pending";
+  if (role === "merchant") {
+    return (
+      order.merchantStatus === "Pending" ||
+      (order.merchantStatus === "Available" && order.requesterStatus === "Purchased")
+    );
+  }
   return (
-    (order.merchantStatus === "Available" || order.merchantStatus === "Unavailable") &&
+    (order.merchantStatus === "Available" ||
+      order.merchantStatus === "Unavailable" ||
+      order.merchantStatus === "Sold") &&
     order.requesterStatus === "Pending"
   );
 }
