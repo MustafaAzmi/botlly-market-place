@@ -252,9 +252,17 @@ export function WebOrderNotifications(props: Props) {
                     {role === "requester" &&
                     (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
                     order.requesterStatus === "Pending" ? (
-                      <p className="mt-3 rounded-lg bg-secondary/70 p-3 text-sm">
-                        يرجى اكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟
-                      </p>
+                      <div className="mt-3 space-y-2 rounded-lg bg-secondary/70 p-3 text-sm">
+                        <p>
+                          يرجى اكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟
+                        </p>
+                        {order.mediatorPhone ? (
+                          <ContactLink label="رقم الوسيط" phone={order.mediatorPhone} />
+                        ) : null}
+                        {order.merchantPhoneVisible && order.merchantWhatsapp ? (
+                          <ContactLink label="رقم التاجر" phone={order.merchantWhatsapp} />
+                        ) : null}
+                      </div>
                     ) : null}
                     {role === "requester" && order.merchantStatus === "Unavailable" ? (
                       <p className="mt-3 rounded-lg bg-secondary/70 p-3 text-sm">
@@ -489,6 +497,27 @@ export function WebOrderNotifications(props: Props) {
       )}
     </section>
   );
+}
+
+function ContactLink({ label, phone }: { label: string; phone: string }) {
+  return (
+    <a
+      href={toWhatsAppLink(phone)}
+      target="_blank"
+      rel="noreferrer"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/20 bg-background px-3 py-2 font-medium text-primary hover:bg-primary/5"
+    >
+      <span>{label}</span>
+      <span dir="ltr">{phone}</span>
+    </a>
+  );
+}
+
+function toWhatsAppLink(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return "#";
+  const normalized = digits.startsWith("0") ? `964${digits.slice(1)}` : digits;
+  return `https://wa.me/${normalized}`;
 }
 
 function statusLabel(order: WebOrderNotification) {

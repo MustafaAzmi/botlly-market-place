@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 
 import {
   listMerchants,
+  setMerchantPhoneVisibility,
   setMerchantSubscription,
   setMerchantSuspended,
   setMerchantVisibility,
@@ -38,6 +40,7 @@ export const Route = createFileRoute("/admin/stores")({
 function AdminStoresPage() {
   const listMerchantsFn = useServerFn(listMerchants);
   const setVisibilityFn = useServerFn(setMerchantVisibility);
+  const setPhoneVisibilityFn = useServerFn(setMerchantPhoneVisibility);
   const setSuspendedFn = useServerFn(setMerchantSuspended);
   const setSubscriptionFn = useServerFn(setMerchantSubscription);
   const deleteStoreFn = useServerFn(deleteMerchantStore);
@@ -217,13 +220,14 @@ function AdminStoresPage() {
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
                   <th className="px-4 py-3 text-center font-medium">المبيعات</th>
                   <th className="px-4 py-3 text-center font-medium">الظهور</th>
+                  <th className="px-4 py-3 text-center font-medium">رقم التاجر</th>
                   <th className="px-4 py-3 text-center font-medium">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -254,6 +258,13 @@ function AdminStoresPage() {
                           <Badge className="bg-green-100 text-green-800">ظاهر</Badge>
                         ) : m.suspended ? (
                           <Badge className="bg-red-100 text-red-800">موقوف</Badge>
+                        ) : (
+                          <Badge className="bg-gray-200 text-gray-700">مخفي</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {m.showPhoneToRequesters ? (
+                          <Badge className="bg-green-100 text-green-800">يظهر</Badge>
                         ) : (
                           <Badge className="bg-gray-200 text-gray-700">مخفي</Badge>
                         )}
@@ -301,6 +312,29 @@ function AdminStoresPage() {
                             >
                               إخفاء من البحث
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>رقم التاجر للزبون/الفيتر</DropdownMenuLabel>
+                            <DropdownMenuCheckboxItem
+                              checked={m.showPhoneToRequesters}
+                              onCheckedChange={(checked) =>
+                                run(
+                                  () =>
+                                    setPhoneVisibilityFn({
+                                      data: {
+                                        token: session!.token,
+                                        merchantId: m.merchantId,
+                                        enabled: checked === true,
+                                      },
+                                    }),
+                                  checked === true
+                                    ? "تم تفعيل إظهار رقم التاجر"
+                                    : "تم إخفاء رقم التاجر",
+                                )
+                              }
+                            >
+                              إظهار رقم التاجر في الإشعارات
+                            </DropdownMenuCheckboxItem>
 
                             <DropdownMenuSeparator />
                             <DropdownMenuLabel>حالة المتجر</DropdownMenuLabel>

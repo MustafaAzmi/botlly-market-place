@@ -12,12 +12,14 @@ import {
   phoneKey,
   type EventRow,
 } from "@/lib/eventStore.server";
+import { normalizeGovernorate } from "@/lib/governorates";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 type WebRole = "merchant" | "requester";
 type RequesterType = "customer" | "fitter";
 type MerchantStatus = "Available" | "Unavailable" | "Sold" | "Cancelled" | "Pending";
 type RequesterStatus = "Purchased" | "Cancelled" | "Pending";
+type MediatorContact = { phone: string; city: string };
 
 export type WebOrderNotification = {
   orderId: string;
@@ -34,6 +36,9 @@ export type WebOrderNotification = {
   merchantId: string;
   merchantStoreName: string;
   merchantWhatsapp: string;
+  merchantGovernorate: string;
+  merchantPhoneVisible: boolean;
+  mediatorPhone: string;
   merchantStatus: MerchantStatus;
   requesterStatus: RequesterStatus;
   finalStatus: string;
@@ -126,6 +131,72 @@ function normalizeRequesterStatus(value: string): RequesterStatus {
   return "Pending";
 }
 
+function normalizeMediatorContacts(values: unknown): MediatorContact[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const contacts: MediatorContact[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const record = value as Record<string, unknown>;
+    const phone = getString(record.phone);
+    const city = getString(record.city);
+    const key = phoneKey(phone);
+    if (!phone || !key || seen.has(key)) continue;
+    seen.add(key);
+    contacts.push({ phone, city });
+  }
+  return contacts;
+}
+
+function normalizeMediatorPhones(values: unknown[]) {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    if (typeof value !== "string") return false;
+    const phone = value.trim();
+    const key = phoneKey(phone);
+    if (!phone || !key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function latestMediatorContacts() {
+  const rows = await listEvents("botly_settings", 20);
+  for (const row of rows) {
+    const contacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
+    if (contacts.length > 0) return contacts;
+    const storedPhones = Array.isArray(row.payload?.mediatorPhones) ? row.payload.mediatorPhones : [];
+    const phones = normalizeMediatorPhones([
+      ...storedPhones,
+      getString(row.payload?.mediatorPhone),
+    ]);
+    if (phones.length > 0) return phones.map((phone) => ({ phone, city: "" }));
+  }
+  return [];
+}
+
+async function latestMerchantPhoneVisibility() {
+  const rows = await listEvents("botly_merchant", 5000);
+  const visibility = new Map<string, boolean>();
+  for (const row of rows) {
+    const id = merchantIdentity(row);
+    if (!id || visibility.has(id)) continue;
+    visibility.set(id, row.payload?.showPhoneToRequesters === true);
+  }
+  return visibility;
+}
+
+function mediatorPhoneForGovernorate(
+  storedPhone: string,
+  contacts: MediatorContact[],
+  governorate: string,
+) {
+  if (storedPhone) return storedPhone;
+  const wanted = normalizeGovernorate(governorate);
+  const match = contacts.find((contact) => normalizeGovernorate(contact.city) === wanted);
+  return match?.phone ?? contacts[0]?.phone ?? "";
+}
+
 function mergeLatestOrders(rows: EventRow[]) {
   const orders = new Map<string, { payload: Record<string, unknown>; createdAt: string; updatedAt: string }>();
   for (const row of [...rows].reverse()) {
@@ -171,6 +242,13 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     merchantId: getString(p.merchantId),
     merchantStoreName: getString(p.merchantStoreName) || getString(p.storeName),
     merchantWhatsapp: getString(p.merchantWhatsapp) || getString(p.whatsapp),
+    merchantGovernorate:
+      getString(p.merchantGovernorate) ||
+      getString(p.merchantCity) ||
+      getString(p.customerGovernorate) ||
+      getString(p.requesterGovernorate),
+    merchantPhoneVisible: p.merchantPhoneVisible === true,
+    mediatorPhone: getString(p.mediatorPhone),
     merchantStatus,
     requesterStatus,
     finalStatus: getString(p.finalStatus) || getString(p.status) || statusFor(merchantStatus, requesterStatus),
@@ -205,8 +283,24 @@ function resolveRequesterPhone(payload: Record<string, unknown>, requesterType: 
 }
 
 async function latestOrders() {
-  return mergeLatestOrders(await listEvents("botly_order", 5000))
+  const [orderRows, mediatorContacts, merchantVisibility] = await Promise.all([
+    listEvents("botly_order", 5000),
+    latestMediatorContacts(),
+    latestMerchantPhoneVisibility(),
+  ]);
+  return mergeLatestOrders(orderRows)
     .map(toNotification)
+    .map((order) => ({
+      ...order,
+      merchantPhoneVisible:
+        merchantVisibility.get(order.merchantId) ??
+        order.merchantPhoneVisible,
+      mediatorPhone: mediatorPhoneForGovernorate(
+        order.mediatorPhone,
+        mediatorContacts,
+        order.merchantGovernorate,
+      ),
+    }))
     .filter((order) => order.orderId && (order.merchantId || order.merchantWhatsapp || order.requesterPhone))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -259,26 +353,11 @@ async function appendOrderUpdate(
 }
 
 async function mediatorPhonesForOrder(order: WebOrderNotification) {
-  const rows = await listEvents("botly_settings", 20);
+  const contacts = await latestMediatorContacts();
   const phones = new Set<string>();
-  for (const row of rows) {
-    const contacts = Array.isArray(row.payload?.mediatorContacts) ? row.payload.mediatorContacts : [];
-    for (const contact of contacts) {
-      if (typeof contact === "object" && contact) {
-        const phone = getString((contact as Record<string, unknown>).phone);
-        if (phone) phones.add(phone);
-      }
-    }
-    const storedPhones = Array.isArray(row.payload?.mediatorPhones) ? row.payload.mediatorPhones : [];
-    for (const phone of storedPhones) if (typeof phone === "string" && phone) phones.add(phone);
-    const legacy = getString(row.payload?.mediatorPhone);
-    if (legacy) phones.add(legacy);
-    if (phones.size > 0) break;
-  }
-  if (phones.size === 0) {
-    const stored = getString((order as unknown as Record<string, unknown>).mediatorPhone);
-    if (stored) phones.add(stored);
-  }
+  const scopedPhone = mediatorPhoneForGovernorate(order.mediatorPhone, contacts, order.merchantGovernorate);
+  if (scopedPhone) phones.add(scopedPhone);
+  if (phones.size === 0 && order.mediatorPhone) phones.add(order.mediatorPhone);
   return [...phones];
 }
 

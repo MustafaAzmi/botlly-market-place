@@ -62,6 +62,7 @@ export interface MerchantAdminView {
   packageExpiry: string | null;
   isActive: boolean;
   visibilityEnabled: boolean;
+  showPhoneToRequesters: boolean;
   suspended: boolean;
   bannedFromBot: boolean;
   // Effective customer-facing visibility (false = hidden from search/bot).
@@ -107,6 +108,7 @@ const merchantActionInput = tokenInput.extend({
 });
 
 const visibilityInput = merchantActionInput.extend({ enabled: z.boolean() });
+const phoneVisibilityInput = merchantActionInput.extend({ enabled: z.boolean() });
 const suspendInput = merchantActionInput.extend({ suspended: z.boolean() });
 const subscriptionInput = merchantActionInput.extend({
   status: z.enum(["active", "expired", "trial", "none"]),
@@ -558,6 +560,7 @@ export const listMerchants = createServerFn({ method: "POST" })
           packageExpiry: getString(p.packageExpiry) || null,
           isActive: p.isActive !== false,
           visibilityEnabled: p.visibilityEnabled !== false,
+          showPhoneToRequesters: p.showPhoneToRequesters === true,
           suspended: Boolean(getString(p.suspendedAt)),
           bannedFromBot: p.bannedFromBot === true,
           visibleInSearch: isVisibleInSearch(p),
@@ -636,6 +639,14 @@ export const setMerchantVisibility = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
     return applyMerchantControl(data.merchantId, { visibilityEnabled: data.enabled });
+  });
+
+// Enable/disable exposing the merchant WhatsApp number to customers/fitters.
+export const setMerchantPhoneVisibility = createServerFn({ method: "POST" })
+  .inputValidator((d) => phoneVisibilityInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    return applyMerchantControl(data.merchantId, { showPhoneToRequesters: data.enabled });
   });
 
 // Suspend / reactivate a merchant entirely.
