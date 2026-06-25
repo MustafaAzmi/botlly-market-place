@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 
 export type PwaApp = "customer" | "merchant" | "fitter";
-export type BrowserFamily = "chrome" | "firefox" | "opera" | "edge" | "samsung" | "ios" | "other";
+export type BrowserFamily = "chrome" | "firefox" | "opera" | "edge" | "samsung" | "ios" | "in-app" | "other";
 
 export const PWA_APPS: Record<
   PwaApp,
@@ -44,6 +44,7 @@ export function pwaHeadLinks(app: PwaApp) {
   const cfg = PWA_APPS[app];
   return [
     { rel: "manifest", href: cfg.manifest },
+    { rel: "icon", href: cfg.icon, type: "image/svg+xml" },
     { rel: "apple-touch-icon", href: `/icons/${app}-apple-180.png` },
   ];
 }
@@ -52,6 +53,7 @@ export function pwaHeadMeta(app: PwaApp) {
   const cfg = PWA_APPS[app];
   return [
     { name: "theme-color", content: cfg.themeColor },
+    { name: "application-name", content: cfg.name },
     { name: "mobile-web-app-capable", content: "yes" },
     { name: "apple-mobile-web-app-capable", content: "yes" },
     { name: "apple-mobile-web-app-status-bar-style", content: "default" },
@@ -123,14 +125,20 @@ export function usePwaInstall() {
   const [installed, setInstalled] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIos, setIsIos] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
   const [browserFamily, setBrowserFamily] = useState<BrowserFamily>("other");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const isIosDevice = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    const isAndroidDevice = /android/i.test(window.navigator.userAgent);
+    const inAppBrowser = detectInAppBrowser(window.navigator.userAgent);
     setIsIos(isIosDevice);
-    setBrowserFamily(detectBrowserFamily(window.navigator.userAgent));
+    setIsAndroid(isAndroidDevice);
+    setIsInAppBrowser(inAppBrowser);
+    setBrowserFamily(inAppBrowser ? "in-app" : detectBrowserFamily(window.navigator.userAgent));
 
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
@@ -141,6 +149,8 @@ export function usePwaInstall() {
       console.log("[PWA] Init:", {
         userAgent: window.navigator.userAgent,
         isIos: isIosDevice,
+        isAndroid: isAndroidDevice,
+        isInAppBrowser: inAppBrowser,
         isStandalone: standalone,
         hasServiceWorker: !!navigator.serviceWorker,
         protocol: window.location.protocol,
@@ -187,12 +197,15 @@ export function usePwaInstall() {
     installed,
     isStandalone,
     isIos,
+    isAndroid,
+    isInAppBrowser,
     browserFamily,
   };
 }
 
 export function detectBrowserFamily(userAgent: string): BrowserFamily {
   const ua = userAgent.toLowerCase();
+  if (detectInAppBrowser(userAgent)) return "in-app";
   if (/iphone|ipad|ipod/.test(ua)) return "ios";
   if (ua.includes("samsungbrowser")) return "samsung";
   if (ua.includes("opr/") || ua.includes("opera")) return "opera";
@@ -200,6 +213,18 @@ export function detectBrowserFamily(userAgent: string): BrowserFamily {
   if (ua.includes("firefox") || ua.includes("fxios")) return "firefox";
   if (ua.includes("chrome") || ua.includes("crios")) return "chrome";
   return "other";
+}
+
+export function detectInAppBrowser(userAgent: string) {
+  const ua = userAgent.toLowerCase();
+  return (
+    ua.includes("fbav") ||
+    ua.includes("fban") ||
+    ua.includes("instagram") ||
+    ua.includes("line/") ||
+    ua.includes("wv") ||
+    ua.includes("whatsapp")
+  );
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {

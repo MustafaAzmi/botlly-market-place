@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Download, ExternalLink, Menu, Share, SquarePlus } from "lucide-react";
+import { Bell, CheckCircle2, Copy, Download, ExternalLink, Menu, Share, SquarePlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,7 +16,7 @@ import {
 export function InstallAppCard({ app }: { app: PwaApp }) {
   const t = useT();
   const cfg = PWA_APPS[app];
-  const { canInstall, promptInstall, installed, isStandalone, isIos, browserFamily } = usePwaInstall();
+  const { canInstall, promptInstall, installed, isStandalone, isIos, isInAppBrowser, browserFamily } = usePwaInstall();
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [showManualInstall, setShowManualInstall] = useState(false);
 
@@ -42,6 +42,15 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
       console.error("[PWA Install Error]", error);
       setShowManualInstall(true);
       toast.error(t("pwa.install.error"));
+    }
+  };
+
+  const copyInstallLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success("تم نسخ رابط التنصيب");
+    } catch {
+      toast.error("تعذر نسخ الرابط");
     }
   };
 
@@ -87,7 +96,17 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
             </a>
           </Button>
 
-          {(isIos || showManualInstall) ? (
+          {isInAppBrowser ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-start text-xs leading-6 text-amber-900">
+              افتح هذه الصفحة من Chrome أو Firefox أو Opera أو Samsung Internet، لأن متصفح واتساب/فيسبوك لا يضيف التطبيق للشاشة الرئيسية غالباً.
+              <Button type="button" variant="outline" size="sm" className="mt-3 w-full gap-2" onClick={copyInstallLink}>
+                <Copy className="h-3.5 w-3.5" />
+                نسخ رابط التنصيب
+              </Button>
+            </div>
+          ) : null}
+
+          {(isIos || showManualInstall || (!canInstall && !installed)) ? (
             <div className="rounded-xl bg-secondary/60 p-4 text-start text-xs leading-6 text-muted-foreground">
               {isIos ? <IosInstallInstructions /> : <ManualInstallInstructions browser={browserFamily} appName={cfg.name} />}
             </div>

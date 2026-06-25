@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Download, Store, User } from "lucide-react";
+import { ArrowRight, Download, Store, User, Wrench } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
@@ -130,6 +130,13 @@ function LandingPage() {
               >
                 <Download className="h-4 w-4" />
                 {text.merchantApp}
+              </Link>
+              <Link
+                to="/f/app"
+                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-primary"
+              >
+                <Wrench className="h-4 w-4" />
+                تطبيق الفيتر
               </Link>
             </div>
           </div>

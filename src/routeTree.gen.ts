@@ -22,6 +22,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
 import { Route as FSettingsRouteImport } from './routes/f_.settings'
 import { Route as FNotificationsRouteImport } from './routes/f_.notifications'
+import { Route as FAppRouteImport } from './routes/f_.app'
 import { Route as CustomerNotificationsRouteImport } from './routes/customer/notifications'
 import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
@@ -116,6 +117,11 @@ const FSettingsRoute = FSettingsRouteImport.update({
 const FNotificationsRoute = FNotificationsRouteImport.update({
   id: '/f_/notifications',
   path: '/f/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FAppRoute = FAppRouteImport.update({
+  id: '/f_/app',
+  path: '/f/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomerNotificationsRoute = CustomerNotificationsRouteImport.update({
@@ -295,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/app': typeof FAppRoute
   '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -340,6 +347,7 @@ export interface FileRoutesByTo {
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/app': typeof FAppRoute
   '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -385,6 +393,7 @@ export interface FileRoutesById {
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
   '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f_/app': typeof FAppRoute
   '/f_/notifications': typeof FNotificationsRoute
   '/f_/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
@@ -432,6 +441,7 @@ export interface FileRouteTypes {
     | '/customer/auth'
     | '/customer/dashboard'
     | '/customer/notifications'
+    | '/f/app'
     | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
@@ -477,6 +487,7 @@ export interface FileRouteTypes {
     | '/customer/auth'
     | '/customer/dashboard'
     | '/customer/notifications'
+    | '/f/app'
     | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
@@ -521,6 +532,7 @@ export interface FileRouteTypes {
     | '/customer/auth'
     | '/customer/dashboard'
     | '/customer/notifications'
+    | '/f_/app'
     | '/f_/notifications'
     | '/f_/settings'
     | '/store/$slug'
@@ -567,6 +579,7 @@ export interface RootRouteChildren {
   CustomerAuthRoute: typeof CustomerAuthRoute
   CustomerDashboardRoute: typeof CustomerDashboardRoute
   CustomerNotificationsRoute: typeof CustomerNotificationsRoute
+  FAppRoute: typeof FAppRoute
   FNotificationsRoute: typeof FNotificationsRoute
   FSettingsRoute: typeof FSettingsRoute
   StoreSlugRoute: typeof StoreSlugRoute
@@ -679,6 +692,13 @@ declare module '@tanstack/react-router' {
       path: '/f/notifications'
       fullPath: '/f/notifications'
       preLoaderRoute: typeof FNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/f_/app': {
+      id: '/f_/app'
+      path: '/f/app'
+      fullPath: '/f/app'
+      preLoaderRoute: typeof FAppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/customer/notifications': {
@@ -919,6 +939,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomerAuthRoute: CustomerAuthRoute,
   CustomerDashboardRoute: CustomerDashboardRoute,
   CustomerNotificationsRoute: CustomerNotificationsRoute,
+  FAppRoute: FAppRoute,
   FNotificationsRoute: FNotificationsRoute,
   FSettingsRoute: FSettingsRoute,
   StoreSlugRoute: StoreSlugRoute,
