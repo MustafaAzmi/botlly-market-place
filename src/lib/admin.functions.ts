@@ -74,6 +74,21 @@ export interface MerchantAdminView {
   createdAt: string;
 }
 
+export interface AdminMerchantProductView {
+  id: string;
+  title: string;
+  imageUrl: string;
+  currentPrice: number;
+  discountPrice?: number;
+  currency: string;
+  carMake: string;
+  carModel: string;
+  carYear: string;
+  color: string;
+  quantity?: number;
+  createdAt: string;
+}
+
 export interface SalesConfirmationSummary {
   confirmedByBoth: number;
   customerOnly: number;
@@ -105,6 +120,10 @@ const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
 
 const merchantActionInput = tokenInput.extend({
   merchantId: z.string().trim().min(1).max(100),
+});
+
+const merchantProductActionInput = merchantActionInput.extend({
+  productId: z.string().trim().min(1).max(160),
 });
 
 const visibilityInput = merchantActionInput.extend({ enabled: z.boolean() });
@@ -425,6 +444,36 @@ function merchantIdentity(row: EventRow) {
   return getString(row.payload?.merchantId) || row.id;
 }
 
+function productIdentity(row: EventRow) {
+  return getString(row.payload?.productId) || row.id;
+}
+
+function isDeletedProduct(row: EventRow) {
+  return getString(row.payload?.status) === "deleted";
+}
+
+function toAdminMerchantProduct(row: EventRow): AdminMerchantProductView {
+  const p = row.payload ?? {};
+  const primaryImage = getString(p.imageUrl);
+  const extraImages = Array.isArray(p.imageUrls)
+    ? (p.imageUrls as unknown[]).filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+  return {
+    id: productIdentity(row),
+    title: getString(p.title) || getString(p.description) || "منتج",
+    imageUrl: primaryImage || extraImages[0] || "",
+    currentPrice: getNumber(p.currentPrice) ?? getNumber(p.price) ?? 0,
+    discountPrice: getNumber(p.discountPrice),
+    currency: getString(p.currency) || "IQD",
+    carMake: getString(p.carMake),
+    carModel: getString(p.carModel),
+    carYear: getString(p.carYear),
+    color: getString(p.color),
+    quantity: getNumber(p.quantity),
+    createdAt: getString(p.createdAt) || eventTime(row),
+  };
+}
+
 // Latest merchant event per merchantId.
 async function latestMerchants(): Promise<EventRow[]> {
   const rows = await listEvents("botly_merchant");
@@ -460,15 +509,15 @@ async function loadMerchantMetrics(): Promise<{
   const salesResetAtByMerchant = new Map<string, string>();
   const platformCommissionPercent = await getPlatformCommissionPercent();
 
-  // Products: count latest-per-productId, non-rejected.
+  // Products: count latest-per-productId, visible in merchant dashboards.
   const productRows = await listEvents("botly_product");
   const seenProduct = new Set<string>();
   for (const row of productRows) {
-    const pid = getString(row.payload?.productId) || row.id;
+    const pid = productIdentity(row);
     if (seenProduct.has(pid)) continue;
     seenProduct.add(pid);
     const status = getString(row.payload?.status) || "active";
-    if (status === "rejected") continue;
+    if (status === "rejected" || status === "deleted") continue;
     const mId = getString(row.payload?.merchantId);
     if (!mId) continue;
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
@@ -572,6 +621,70 @@ export const listMerchants = createServerFn({ method: "POST" })
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  });
+
+export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }): Promise<AdminMerchantProductView[]> => {
+    await authorizeAdmin(data.token);
+    const merchant = (await latestMerchants()).find(
+      (row) => merchantIdentity(row) === data.merchantId || row.id === data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents("botly_product");
+    const seen = new Set<string>();
+    const products: AdminMerchantProductView[] = [];
+    for (const row of rows) {
+      if (getString(row.payload?.merchantId) !== merchantId) continue;
+      const productId = productIdentity(row);
+      if (seen.has(productId)) continue;
+      seen.add(productId);
+      if (isDeletedProduct(row)) continue;
+      const status = getString(row.payload?.status) || "active";
+      if (status === "rejected") continue;
+      products.push(toAdminMerchantProduct(row));
+    }
+    return products;
+  });
+
+export const deleteMerchantProductForAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantProductActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchant = (await latestMerchants()).find(
+      (row) => merchantIdentity(row) === data.merchantId || row.id === data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(merchant);
+    const rows = await listEvents("botly_product");
+    const row = rows.find(
+      (candidate) =>
+        !isDeletedProduct(candidate) &&
+        getString(candidate.payload?.merchantId) === merchantId &&
+        (productIdentity(candidate) === data.productId || candidate.id === data.productId),
+    );
+    if (!row) throw new Error("لم يتم العثور على المنتج.");
+
+    const p = row.payload ?? {};
+    const productId = productIdentity(row);
+    await appendEvent("botly_product", {
+      ...p,
+      productId,
+      merchantId,
+      title: getString(p.title) || getString(p.description),
+      imageUrl: getString(p.imageUrl),
+      currentPrice: getNumber(p.currentPrice) ?? getNumber(p.price) ?? 0,
+      currency: getString(p.currency) || "IQD",
+      status: "deleted",
+      deletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdAt: getString(p.createdAt) || eventTime(row),
+    });
+
+    return { ok: true };
   });
 
 export const getSalesConfirmationSummary = createServerFn({ method: "POST" })

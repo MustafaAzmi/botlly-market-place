@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { AlertCircle, Download, MoreVertical, ReceiptText, RotateCcw } from "lucide-react";
+import { AlertCircle, Download, MoreVertical, PackageSearch, ReceiptText, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,7 +26,10 @@ import {
   setMerchantSuspended,
   setMerchantVisibility,
   deleteMerchantStore,
+  deleteMerchantProductForAdmin,
+  listMerchantProductsForAdmin,
   resetMerchantSalesReport,
+  type AdminMerchantProductView,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
@@ -44,12 +47,20 @@ function AdminStoresPage() {
   const setSuspendedFn = useServerFn(setMerchantSuspended);
   const setSubscriptionFn = useServerFn(setMerchantSubscription);
   const deleteStoreFn = useServerFn(deleteMerchantStore);
+  const deleteProductFn = useServerFn(deleteMerchantProductForAdmin);
+  const listMerchantProductsFn = useServerFn(listMerchantProductsForAdmin);
   const resetSalesReportFn = useServerFn(resetMerchantSalesReport);
 
   const [searchTerm, setSearchTerm] = useState("");
   const session = readAdminSession();
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleteProductConfirm, setDeleteProductConfirm] = useState<{
+    merchantId: string;
+    productId: string;
+    title: string;
+  } | null>(null);
   const [salesDetails, setSalesDetails] = useState<MerchantAdminView | null>(null);
+  const [selectedMerchantId, setSelectedMerchantId] = useState("");
 
   const {
     data: merchants = [],
@@ -63,6 +74,25 @@ function AdminStoresPage() {
       return await listMerchantsFn({ data: { token: session.token } });
     },
     enabled: !!session?.token,
+    retry: 1,
+  });
+
+  const selectedMerchant =
+    merchants.find((merchant: MerchantAdminView) => merchant.merchantId === selectedMerchantId) ?? null;
+
+  const {
+    data: selectedProducts = [],
+    isFetching: isLoadingProducts,
+    refetch: refetchSelectedProducts,
+  } = useQuery<AdminMerchantProductView[]>({
+    queryKey: ["admin-merchant-products", selectedMerchantId],
+    queryFn: async () => {
+      if (!session?.token || !selectedMerchantId) return [];
+      return await listMerchantProductsFn({
+        data: { token: session.token, merchantId: selectedMerchantId },
+      });
+    },
+    enabled: !!session?.token && !!selectedMerchantId,
     retry: 1,
   });
 
@@ -233,15 +263,41 @@ function AdminStoresPage() {
                   </tr>
                 ) : (
                   filtered.map((m: MerchantAdminView) => (
-                    <tr key={m.merchantId} className="border-b hover:bg-muted/40">
-                      <td className="px-4 py-3 font-medium">{m.storeName}</td>
+                    <tr
+                      key={m.merchantId}
+                      className={`border-b hover:bg-muted/40 ${
+                        selectedMerchantId === m.merchantId ? "bg-primary/5" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId))
+                          }
+                          className="text-right hover:text-primary"
+                        >
+                          {m.storeName}
+                        </button>
+                      </td>
                       <td className="px-4 py-3" dir="ltr">
                         {m.whatsapp || "—"}
                       </td>
                       <td className="px-4 py-3">
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>
-                      <td className="px-4 py-3 text-center">{m.productCount}</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId))
+                          }
+                          className="inline-flex min-w-10 items-center justify-center rounded border px-2 py-1 text-xs font-medium hover:bg-muted"
+                          title="عرض منتجات التاجر"
+                        >
+                          {m.productCount}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           type="button"
@@ -448,6 +504,83 @@ function AdminStoresPage() {
           </div>
         )}
 
+        {selectedMerchant && (
+          <div className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <PackageSearch className="h-5 w-5 text-primary" />
+                  <h2 className="text-lg font-semibold">منتجات {selectedMerchant.storeName}</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">اختر المنتج المراد حذفه من منتجات هذا التاجر.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedMerchantId("")}>
+                إغلاق
+              </Button>
+            </div>
+
+            {isLoadingProducts ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              </div>
+            ) : selectedProducts.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                لا توجد منتجات لهذا التاجر حالياً.
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {selectedProducts.map((product) => {
+                  const price = product.discountPrice ?? product.currentPrice;
+                  const details = [product.carYear, product.carModel, product.color].filter(Boolean).join(" - ");
+                  return (
+                    <div key={product.id} className="rounded-lg border p-3">
+                      <div className="flex gap-3">
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.title}
+                            className="h-20 w-20 rounded-md border object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-20 w-20 items-center justify-center rounded-md border bg-muted text-xs text-muted-foreground">
+                            بدون صورة
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
+                          {details && <p className="mt-1 text-xs text-muted-foreground">{details}</p>}
+                          <p className="mt-2 text-sm font-medium" dir="ltr">
+                            {price.toLocaleString()} {product.currency}
+                          </p>
+                          {product.quantity !== undefined && (
+                            <p className="text-xs text-muted-foreground">الكمية: {product.quantity}</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="mt-3 w-full"
+                        onClick={() =>
+                          setDeleteProductConfirm({
+                            merchantId: selectedMerchant.merchantId,
+                            productId: product.id,
+                            title: product.title,
+                          })
+                        }
+                      >
+                        <Trash2 className="ml-2 h-4 w-4" />
+                        حذف المنتج
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {!isLoading && !error && (
           <p className="text-sm text-muted-foreground">عرض {filtered.length} متجر</p>
         )}
@@ -485,6 +618,46 @@ function AdminStoresPage() {
                 className="flex-1"
               >
                 حذف نهائياً
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteProductConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
+            <h2 className="text-lg font-semibold">تأكيد حذف المنتج</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              هل تريد حذف "{deleteProductConfirm.title}" من منتجات هذا التاجر؟
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button variant="outline" onClick={() => setDeleteProductConfirm(null)} className="flex-1">
+                إلغاء
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!session?.token) return;
+                  deleteProductFn({
+                    data: {
+                      token: session.token,
+                      merchantId: deleteProductConfirm.merchantId,
+                      productId: deleteProductConfirm.productId,
+                    },
+                  })
+                    .then(async () => {
+                      toast.success("تم حذف المنتج");
+                      setDeleteProductConfirm(null);
+                      await Promise.all([refetch(), refetchSelectedProducts()]);
+                    })
+                    .catch((err) => {
+                      toast.error(err instanceof Error ? err.message : "فشل حذف المنتج");
+                    });
+                }}
+                className="flex-1"
+              >
+                حذف المنتج
               </Button>
             </div>
           </div>
