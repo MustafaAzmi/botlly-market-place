@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 export type PwaApp = "customer" | "merchant" | "fitter";
+export type BrowserFamily = "chrome" | "firefox" | "opera" | "edge" | "samsung" | "ios" | "other";
 
 export const PWA_APPS: Record<
   PwaApp,
@@ -122,12 +123,14 @@ export function usePwaInstall() {
   const [installed, setInstalled] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIos, setIsIos] = useState(false);
+  const [browserFamily, setBrowserFamily] = useState<BrowserFamily>("other");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const isIosDevice = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
     setIsIos(isIosDevice);
+    setBrowserFamily(detectBrowserFamily(window.navigator.userAgent));
 
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
@@ -184,7 +187,19 @@ export function usePwaInstall() {
     installed,
     isStandalone,
     isIos,
+    browserFamily,
   };
+}
+
+export function detectBrowserFamily(userAgent: string): BrowserFamily {
+  const ua = userAgent.toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (ua.includes("samsungbrowser")) return "samsung";
+  if (ua.includes("opr/") || ua.includes("opera")) return "opera";
+  if (ua.includes("edg/")) return "edge";
+  if (ua.includes("firefox") || ua.includes("fxios")) return "firefox";
+  if (ua.includes("chrome") || ua.includes("crios")) return "chrome";
+  return "other";
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
