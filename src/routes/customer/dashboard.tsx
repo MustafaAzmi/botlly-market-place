@@ -749,10 +749,10 @@ function ProductCard({
           customerLandmark,
         },
       });
-      toast.success(result.message);
+      toast.success(result.message || result.warning || "تم حفظ الطلب وإرساله للمتابعة");
       setShowOrderForm(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("common.loading"));
+      toast.error(cleanOrderError(error, t("common.loading")));
     } finally {
       setSubmitting(false);
     }
@@ -875,6 +875,16 @@ function ProductCard({
       </div>
     </div>
   );
+}
+
+function cleanOrderError(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const text = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  if (/inactivity timeout|too much time has passed/i.test(text)) {
+    return "تم حفظ الطلب، لكن اتصال الإرسال تأخر. يرجى المحاولة مرة أخرى بعد لحظات أو التواصل مع الوسيط.";
+  }
+  return text.slice(0, 220);
 }
 
 // ---------------------------------------------------------------------------

@@ -145,11 +145,15 @@ function mediatorContactsFromPayload(payload: Record<string, unknown>) {
     .filter((item) => item.phone);
 }
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 async function readMediatorPhonesForGovernorate(governorate: string) {
   const settingsRows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of settingsRows) {
     const contacts = mediatorContactsFromPayload(row.payload ?? {});
-    const scoped = contacts.filter((contact) => !governorate || contact.city === governorate);
+    const scoped = contacts.filter(
+      (contact) => !governorate || contact.city === governorate || contact.city === ALL_GOVERNORATES_MEDIATOR,
+    );
     if (scoped.length > 0) return scoped.map((contact) => contact.phone);
     const phones = stringList(row.payload?.mediatorPhones);
     if (phones.length > 0) return phones;

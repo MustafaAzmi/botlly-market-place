@@ -23,6 +23,8 @@ type MediatorRow = {
   city: string;
 };
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 const IRAQI_GOVERNORATES = [
   "بغداد",
   "نينوى",
@@ -44,6 +46,8 @@ const IRAQI_GOVERNORATES = [
   "ميسان",
   "حلبجة",
 ];
+
+const MEDIATOR_GOVERNORATE_OPTIONS = [ALL_GOVERNORATES_MEDIATOR, ...IRAQI_GOVERNORATES];
 
 function AdminMediatorsPage() {
   const session = readAdminSession();
@@ -186,7 +190,7 @@ function AdminMediatorsPage() {
                     <SelectValue placeholder="المحافظة" />
                   </SelectTrigger>
                   <SelectContent>
-                    {IRAQI_GOVERNORATES.map((city) => (
+                    {MEDIATOR_GOVERNORATE_OPTIONS.map((city) => (
                       <SelectItem key={city} value={city}>
                         {city}
                       </SelectItem>

@@ -336,6 +336,8 @@ type MediatorContact = {
   city: string;
 };
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 function normalizeMediatorPhones(values: string[]): string[] {
   const seen = new Set<string>();
   const phones: string[] = [];
@@ -390,9 +392,17 @@ function filterMediatorContactsByGovernorate(
   contacts: MediatorContact[],
   governorate: string,
 ): MediatorContact[] {
-  const wanted = governorate.trim();
+  const wanted = normalizeGovernorate(governorate);
   if (!wanted) return [];
-  return contacts.filter((contact) => contact.city === wanted);
+  const seen = new Set<string>();
+  return contacts.filter((contact) => {
+    const city = normalizeGovernorate(contact.city);
+    const isMatch = city === wanted || contact.city.trim() === ALL_GOVERNORATES_MEDIATOR;
+    const key = phoneKey(contact.phone);
+    if (!isMatch || !key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // WhatsApp Graph API expects the recipient number without a leading "+".
@@ -406,6 +416,7 @@ async function sendOrderToMediator(phone: string, message: string) {
 
   const primary = await sendWhatsAppText(primaryRecipient, message);
   if (primary.ok) return { phone: primaryRecipient, ...primary };
+  if (primary.status === 0) return { phone: primaryRecipient, ...primary };
 
   // Before the mediator split, this order path sent the normalized number with
   // "+". Keep that as a compatibility fallback for accounts that were already
@@ -612,20 +623,21 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       createdAt: new Date().toISOString(),
     });
 
-    const sendResults = [];
-    for (const mediatorPhone of mediatorPhones) {
+    const sendResults = await Promise.all(
+      mediatorPhones.map(async (mediatorPhone) => {
       try {
         const result = await sendOrderToMediator(mediatorPhone, message);
-        sendResults.push(result);
+        return result;
       } catch (error) {
-        sendResults.push({
+        return {
           phone: mediatorPhone,
           ok: false,
           status: 0,
           error: error instanceof Error ? error.message : String(error),
-        });
+        };
       }
-    }
+      }),
+    );
 
     const sentCount = sendResults.filter((result) => result.ok).length;
     await appendEvent("botly_order", {

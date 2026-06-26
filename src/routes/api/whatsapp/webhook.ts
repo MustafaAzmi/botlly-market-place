@@ -263,6 +263,8 @@ type MediatorContact = {
   city: string;
 };
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 function normalizeMediatorContacts(values: unknown): MediatorContact[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
@@ -314,7 +316,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
     getString(args.order.fitterCity) ||
     getString(args.order.customerGovernorate);
   const fallbackContacts = (await readMediatorContactsFromSettings()).filter(
-    (contact) => contact.city === orderGovernorate,
+    (contact) => contact.city === orderGovernorate || contact.city === ALL_GOVERNORATES_MEDIATOR,
   );
   const mediatorPhones = normalizeMediatorPhones(
     storedContacts.length > 0
@@ -466,7 +468,10 @@ async function findLatestMissingOrderByRequester(phone: string) {
 async function notifyMediatorsOfMissingOrderEvent(order: Record<string, unknown>, eventLabel: string) {
   const contacts = await readMediatorContactsFromSettings();
   const scoped = contacts.filter(
-    (contact) => !getString(order.requesterGovernorate) || contact.city === getString(order.requesterGovernorate),
+    (contact) =>
+      !getString(order.requesterGovernorate) ||
+      contact.city === getString(order.requesterGovernorate) ||
+      contact.city === ALL_GOVERNORATES_MEDIATOR,
   );
   const phones = normalizeMediatorPhones((scoped.length > 0 ? scoped : contacts).map((contact) => contact.phone));
   const status = missingOrderFinalStatus(order);

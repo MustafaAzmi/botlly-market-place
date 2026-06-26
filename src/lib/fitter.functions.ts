@@ -335,6 +335,8 @@ function normalizeMediatorContacts(values: unknown): MediatorContact[] {
   return contacts;
 }
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 async function readMediatorContacts(): Promise<MediatorContact[]> {
   const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of rows) {
@@ -358,9 +360,17 @@ function filterMediatorContactsByGovernorate(
   contacts: MediatorContact[],
   governorate: string,
 ): MediatorContact[] {
-  const wanted = governorate.trim();
+  const wanted = normalizeGovernorate(governorate);
   if (!wanted) return [];
-  return contacts.filter((contact) => contact.city === wanted);
+  const seen = new Set<string>();
+  return contacts.filter((contact) => {
+    const city = normalizeGovernorate(contact.city);
+    const isMatch = city === wanted || contact.city.trim() === ALL_GOVERNORATES_MEDIATOR;
+    const key = phoneKey(contact.phone);
+    if (!isMatch || !key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function toWhatsAppRecipient(phone: string): string {
@@ -445,21 +455,20 @@ async function sendFitterOrderToMediators(message: string, governorate: string) 
   if (mediatorPhones.length === 0) {
     throw new Error(`لا يوجد وسيط مسجل لمحافظة ${governorate || "هذا المنتج"}.`);
   }
-  const results = [];
-  for (const phone of mediatorPhones) {
+  const results = await Promise.all(mediatorPhones.map(async (phone) => {
     const recipient = toWhatsAppRecipient(phone);
     try {
       const result = await sendWhatsAppText(recipient, message);
-      results.push({ phone: recipient, ...result });
+      return { phone: recipient, ...result };
     } catch (error) {
-      results.push({
+      return {
         phone: recipient,
         ok: false,
         status: 0,
         error: error instanceof Error ? error.message : String(error),
-      });
+      };
     }
-  }
+  }));
   return results;
 }
 
@@ -612,9 +621,10 @@ export const requestFitterProduct = createServerFn({ method: "POST" })
     if (!hasSuccessfulWhatsAppSend(whatsappSendResults)) {
       throw new Error("تعذر إرسال طلب المنتج إلى الوسيط عبر واتساب.");
     }
-    const scopedMediatorContacts = (await readMediatorContacts().catch(
-      () => [] as MediatorContact[],
-    )).filter((contact) => contact.city === orderGovernorate);
+    const scopedMediatorContacts = filterMediatorContactsByGovernorate(
+      await readMediatorContacts().catch(() => [] as MediatorContact[]),
+      orderGovernorate,
+    );
     const merchantAvailabilityResult = {
       ok: false,
       status: 0,

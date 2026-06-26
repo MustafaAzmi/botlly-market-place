@@ -15,6 +15,46 @@ function getWhatsAppPhoneNumberId() {
 
 export type SendResult = { ok: boolean; status: number; error?: string };
 
+const WHATSAPP_SEND_TIMEOUT_MS = 8000;
+
+async function readErrorText(response: Response) {
+  const text = await response.text().catch(() => "Unknown WhatsApp API error");
+  return text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700) || "Unknown WhatsApp API error";
+}
+
+async function postWhatsAppMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WHATSAPP_SEND_TIMEOUT_MS);
+  try {
+    return await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function sendError(error: unknown): SendResult {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return { ok: false, status: 0, error: "WhatsApp request timed out" };
+  }
+  return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
+}
+
 export async function sendWhatsAppText(
   to: string,
   body: string,
@@ -26,25 +66,23 @@ export async function sendWhatsAppText(
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  let response: Response;
+  try {
+    response = await postWhatsAppMessage(phoneNumberId, accessToken, {
       messaging_product: "whatsapp",
       to,
       type: "text",
       text: { preview_url: false, body },
-    }),
-  });
+    });
+  } catch (error) {
+    return sendError(error);
+  }
 
   if (response.ok) return { ok: true, status: response.status };
   return {
     ok: false,
     status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+    error: await readErrorText(response),
   };
 }
 
@@ -60,13 +98,9 @@ export async function sendWhatsAppButtons(
     return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  let response: Response;
+  try {
+    response = await postWhatsAppMessage(phoneNumberId, accessToken, {
       messaging_product: "whatsapp",
       to,
       type: "interactive",
@@ -83,14 +117,16 @@ export async function sendWhatsAppButtons(
           })),
         },
       },
-    }),
-  });
+    });
+  } catch (error) {
+    return sendError(error);
+  }
 
   if (response.ok) return { ok: true, status: response.status };
   return {
     ok: false,
     status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+    error: await readErrorText(response),
   };
 }
 
@@ -116,24 +152,22 @@ export async function sendWhatsAppImage(
     return { ok: false, status: 0, error: "Image URL must be public https" };
   }
 
-  const response = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  let response: Response;
+  try {
+    response = await postWhatsAppMessage(phoneNumberId, accessToken, {
       messaging_product: "whatsapp",
       to,
       type: "image",
       image: caption ? { link: imageUrl, caption } : { link: imageUrl },
-    }),
-  });
+    });
+  } catch (error) {
+    return sendError(error);
+  }
 
   if (response.ok) return { ok: true, status: response.status };
   return {
     ok: false,
     status: response.status,
-    error: await response.text().catch(() => "Unknown WhatsApp API error"),
+    error: await readErrorText(response),
   };
 }
