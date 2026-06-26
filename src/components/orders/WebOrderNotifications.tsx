@@ -50,9 +50,17 @@ export function WebOrderNotifications(props: Props) {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
+  const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
   const notifiedStorageKey = useMemo(
     () =>
       `botly_web_notifications_seen:${role}:${
+        role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
+      }`,
+    [merchantToken, requesterPhone, requesterType, role],
+  );
+  const rungStorageKey = useMemo(
+    () =>
+      `botly_web_notifications_rung:${role}:${
         role === "merchant" ? merchantToken.slice(-16) : `${requesterType}:${requesterPhone}`
       }`,
     [merchantToken, requesterPhone, requesterType, role],
@@ -75,18 +83,22 @@ export function WebOrderNotifications(props: Props) {
         .filter((order) => hasUnreadNotification(order, role))
         .map((order) => order.orderId);
       const notifiedIds = readNotifiedIds(notifiedStorageKey);
-      const newActionableIds = actionableIds.filter((orderId) => !notifiedIds.has(orderId));
-      if (newActionableIds.length > 0) {
+      const rungIds = readNotifiedIds(rungStorageKey);
+      const unrungIds = actionableIds.filter((orderId) => !rungIds.has(orderId));
+      if (unrungIds.length > 0) {
         playNotificationBell();
-        saveNotifiedIds(notifiedStorageKey, new Set([...notifiedIds, ...newActionableIds]));
+        saveNotifiedIds(rungStorageKey, new Set([...rungIds, ...unrungIds]));
       }
+      const nextSeenIds = new Set([...notifiedIds, ...actionableIds]);
+      saveNotifiedIds(notifiedStorageKey, nextSeenIds);
+      setSeenNotificationIds(nextSeenIds);
       setOrders(visibleOrders);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر تحميل إشعارات الطلبات");
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role, rungStorageKey]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -102,8 +114,8 @@ export function WebOrderNotifications(props: Props) {
     [orders, role],
   );
   const notificationCount = useMemo(
-    () => orders.filter((order) => hasUnreadNotification(order, role)).length,
-    [orders, role],
+    () => orders.filter((order) => hasUnreadNotification(order, role) && !seenNotificationIds.has(order.orderId)).length,
+    [orders, role, seenNotificationIds],
   );
 
   const runAction = async (key: string, action: () => Promise<unknown>, success: string) => {
@@ -274,7 +286,7 @@ export function WebOrderNotifications(props: Props) {
                     ) : null}
                     {role === "merchant" && order.requesterStatus === "Purchased" ? (
                       <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
-                        الزبون/الفيتر أكد شراء المنتج. هذا إشعار معلوماتي فقط ولا يحتاج إلى إجراء.
+                        الزبون قام بتأكيد الشراء
                       </p>
                     ) : null}
                     {order.rating ? (

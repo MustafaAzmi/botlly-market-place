@@ -29,7 +29,14 @@ export function WebNotificationCountBadge(props: Props) {
 
   const seenStorageKey = useMemo(
     () =>
-      `botly_web_notifications_badge_seen:${role}:${
+      `botly_web_notifications_seen:${role}:${
+        role === "merchant" ? token.slice(-16) : `${requesterType}:${requesterPhone}`
+      }`,
+    [requesterPhone, requesterType, role, token],
+  );
+  const rungStorageKey = useMemo(
+    () =>
+      `botly_web_notifications_rung:${role}:${
         role === "merchant" ? token.slice(-16) : `${requesterType}:${requesterPhone}`
       }`,
     [requesterPhone, requesterType, role, token],
@@ -45,13 +52,15 @@ export function WebNotificationCountBadge(props: Props) {
     const unreadOrders = orders.filter((order) => hasBadgeNotification(order, role));
     const unreadIds = unreadOrders.map((order) => order.orderId);
     const seenIds = readStoredIds(seenStorageKey);
-    const newIds = unreadIds.filter((orderId) => !seenIds.has(orderId));
-    if (newIds.length > 0) {
+    const rungIds = readStoredIds(rungStorageKey);
+    const unseenIds = unreadIds.filter((orderId) => !seenIds.has(orderId));
+    const unrungIds = unseenIds.filter((orderId) => !rungIds.has(orderId));
+    if (unrungIds.length > 0) {
       playNotificationBell();
-      saveStoredIds(seenStorageKey, new Set([...seenIds, ...newIds]));
+      saveStoredIds(rungStorageKey, new Set([...rungIds, ...unrungIds]));
     }
-    setCount(unreadOrders.length);
-  }, [listMerchantFn, listRequesterFn, requesterPhone, requesterType, role, seenStorageKey, token]);
+    setCount(unseenIds.length);
+  }, [listMerchantFn, listRequesterFn, requesterPhone, requesterType, role, rungStorageKey, seenStorageKey, token]);
 
   useEffect(() => {
     refresh().catch(() => {});
