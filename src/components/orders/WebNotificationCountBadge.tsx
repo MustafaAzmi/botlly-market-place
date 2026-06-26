@@ -73,7 +73,7 @@ function hasBadgeNotification(order: WebOrderNotification, role: "merchant" | "r
   if (role === "merchant") {
     return (
       order.merchantStatus === "Pending" ||
-      (order.merchantStatus === "Available" && order.requesterStatus === "Purchased")
+      order.requesterStatus === "Purchased"
     );
   }
   return (

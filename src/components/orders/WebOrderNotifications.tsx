@@ -272,6 +272,11 @@ export function WebOrderNotifications(props: Props) {
                         أبلغ التاجر أن المنتج غير متوفر حالياً.
                       </p>
                     ) : null}
+                    {role === "merchant" && order.requesterStatus === "Purchased" ? (
+                      <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                        الزبون/الفيتر أكد شراء المنتج. هذا إشعار معلوماتي فقط ولا يحتاج إلى إجراء.
+                      </p>
+                    ) : null}
                     {order.rating ? (
                       <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         <Star className="h-4 w-4 fill-primary text-primary" />
@@ -320,7 +325,7 @@ export function WebOrderNotifications(props: Props) {
                     </>
                   ) : null}
 
-                  {role === "merchant" && order.merchantStatus === "Available" ? (
+                  {role === "merchant" && order.merchantStatus === "Available" && order.requesterStatus === "Pending" ? (
                     <>
                       <Button
                         type="button"
@@ -589,7 +594,7 @@ function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "
   if (role === "merchant") {
     return (
       order.merchantStatus === "Pending" ||
-      (order.merchantStatus === "Available" && order.requesterStatus === "Purchased")
+      order.requesterStatus === "Purchased"
     );
   }
   return (
@@ -601,7 +606,9 @@ function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "
 }
 
 function hasActions(order: WebOrderNotification, role: "merchant" | "requester") {
-  if (role === "merchant") return order.merchantStatus === "Pending" || order.merchantStatus === "Available";
+  if (role === "merchant") {
+    return order.merchantStatus === "Pending" || (order.merchantStatus === "Available" && order.requesterStatus === "Pending");
+  }
   return (
     (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
     order.requesterStatus === "Pending"

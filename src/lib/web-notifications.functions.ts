@@ -478,9 +478,18 @@ export const requesterConfirmWebPurchase = createServerFn({ method: "POST" })
     const requesterStatus: RequesterStatus = data.result === "purchased" ? "Purchased" : "Cancelled";
     if (order.requesterStatus === requesterStatus) return { ok: true };
     const finalStatus = statusFor(order.merchantStatus, requesterStatus);
+    const purchaseNotice =
+      requesterStatus === "Purchased"
+        ? { webHiddenMerchant: false, merchantRequesterPurchaseNoticeAt: new Date().toISOString() }
+        : {};
     await appendOrderUpdate(
       order,
-      { merchantStatus: order.merchantStatus, requesterStatus, finalStatus },
+      {
+        merchantStatus: order.merchantStatus,
+        requesterStatus,
+        finalStatus,
+        ...purchaseNotice,
+      },
       data.result === "purchased" ? "web_requester_purchased" : "web_requester_cancelled",
     );
     await notifyMediator(
