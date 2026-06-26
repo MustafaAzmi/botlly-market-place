@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { BellRing, Car, CheckCircle2, Loader2, LogOut, MapPin, Package, Search, Send, Settings, UserRound, Wrench } from "lucide-react";
+import { BellRing, Car, CheckCircle2, ChevronRight, Loader2, LogOut, MapPin, Package, Search, Send, Settings, Sparkles, UserRound, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -167,6 +167,7 @@ function FitterPage() {
 
 function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnType<typeof readFitterSession>>; onLogout: () => void }) {
   const [summary, setSummary] = useState<FitterSummary | null>(null);
+  const [view, setView] = useState<"home" | "all-parts" | "smart-search">("home");
   const summaryFn = useServerFn(getFitterSummary);
 
   const refresh = async () => setSummary(await summaryFn({ data: { token: session.token } }));
@@ -205,7 +206,14 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
           </div>
         </div>
       </header>
-      <main className="mx-auto grid max-w-6xl gap-5 px-4 py-6 lg:grid-cols-[320px_1fr]">
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        {view === "home" ? (
+          <SearchModeHome
+            onAllParts={() => setView("all-parts")}
+            onSmartSearch={() => setView("smart-search")}
+          />
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
         <aside className="space-y-4">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div className="text-sm text-muted-foreground">الأرباح بعد آخر تصفير</div>
@@ -219,8 +227,39 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
           </div>
           <InstallAppCard app="fitter" />
         </aside>
-        <FitterShop token={session.token} summary={summary} onSale={refresh} />
+        <FitterShop token={session.token} summary={summary} onSale={refresh} mode={view} onBack={() => setView("home")} />
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function SearchModeHome({
+  onAllParts,
+  onSmartSearch,
+}: {
+  onAllParts: () => void;
+  onSmartSearch: () => void;
+}) {
+  return (
+    <div className="mx-auto grid min-h-[55vh] max-w-3xl content-center gap-5">
+      <button
+        type="button"
+        onClick={onAllParts}
+        className="rounded-2xl border border-primary/20 bg-card p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-primary hover:shadow-elevated"
+      >
+        <Search className="mx-auto h-12 w-12 text-primary" />
+        <div className="mt-4 text-3xl font-extrabold text-foreground sm:text-4xl">بحث عن كل القطع</div>
+      </button>
+      <button
+        type="button"
+        onClick={onSmartSearch}
+        className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-emerald-500 hover:shadow-elevated"
+      >
+        <Sparkles className="mx-auto h-12 w-12 text-emerald-600" />
+        <div className="mt-4 text-3xl font-extrabold text-emerald-700 sm:text-4xl">البحث الذكي</div>
+      </button>
     </div>
   );
 }
@@ -229,10 +268,14 @@ function FitterShop({
   token,
   summary,
   onSale,
+  mode,
+  onBack,
 }: {
   token: string;
   summary: FitterSummary | null;
   onSale: () => Promise<void>;
+  mode: "all-parts" | "smart-search";
+  onBack: () => void;
 }) {
   const browseFn = useServerFn(browseCarProducts);
   const catalogFn = useServerFn(getEnabledCarCatalogue);
@@ -318,8 +361,63 @@ function FitterShop({
     }
   };
 
+  if (mode === "smart-search") {
+    return (
+      <section className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+            <ChevronRight className="h-4 w-4" />
+            رجوع
+          </Button>
+          <h1 className="text-3xl font-extrabold text-emerald-700">البحث الذكي</h1>
+        </div>
+        <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-soft">
+          <h2 className="flex items-center gap-2 text-xl font-extrabold text-emerald-700">
+            <Sparkles className="h-6 w-6" />
+            البحث الذكي
+          </h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Select value={governorate} onValueChange={setGovernorate}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="المحافظة" /></SelectTrigger>
+              <SelectContent>{IRAQI_GOVERNORATES.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={carMake} onValueChange={(v) => { setCarMake(v); setCarModel(""); }}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="نوع السيارة" /></SelectTrigger>
+              <SelectContent>{makes.map((m) => <SelectItem key={m.key} value={m.label}>{m.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+              البحث داخل المحافظة
+            </Button>
+            <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+              البحث في جميع المحافظات
+            </Button>
+          </div>
+        </div>
+        <FitterMissingProductPanel
+          defaultProductName=""
+          carMake={carMake}
+          carModel=""
+          governorate={governorate}
+          requesterName={summary?.fitter.name ?? "ÙÙŠØªØ±"}
+          requesterPhone={summary?.fitter.whatsapp ?? ""}
+          searchScope={searchScope}
+          onSubmit={(data) => missingRequestFn({ data })}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </Button>
+        <h1 className="text-2xl font-extrabold">بحث عن كل القطع</h1>
+      </div>
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <h2 className="flex items-center gap-2 font-semibold"><Car className="h-5 w-5 text-primary" /> بحث قطع السيارات</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-5">

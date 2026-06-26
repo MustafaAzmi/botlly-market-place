@@ -238,6 +238,9 @@ export function WebOrderNotifications(props: Props) {
                     <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
                       <span>نوع السيارة: {order.carMake || "غير محدد"}</span>
                       <span>الموديل: {order.carModel || "غير محدد"}</span>
+                      {order.requestDetails ? (
+                        <span className="sm:col-span-2">الوصف: {order.requestDetails}</span>
+                      ) : null}
                       {role === "merchant" ? (
                         <span>مقدم الطلب: {order.requesterType === "fitter" ? "فيتر" : "زبون"}</span>
                       ) : (

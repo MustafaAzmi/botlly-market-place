@@ -8,10 +8,10 @@ import {
   Loader2,
   LogOut,
   MessageCircle,
-  Package,
   Save,
   Search,
   Send,
+  Sparkles,
   User,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -59,7 +59,7 @@ export const Route = createFileRoute("/customer/dashboard")({
   component: CustomerDashboard,
 });
 
-type TabKey = "shop" | "profile";
+type CustomerDashboardView = "home" | "all-parts" | "smart-search" | "profile";
 
 function compressImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -102,7 +102,7 @@ function CustomerDashboard() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [session, setSession] = useState(() => readCustomerSession());
-  const [tab, setTab] = useState<TabKey>("shop");
+  const [view, setView] = useState<CustomerDashboardView>("home");
   const [mediatorPhone, setMediatorPhone] = useState("");
   const getMediatorFn = useServerFn(getMediatorPhone);
 
@@ -149,33 +149,27 @@ function CustomerDashboard() {
             </Button>
           </div>
         </div>
-        {/* Tabs */}
-        <nav className="container mx-auto flex max-w-6xl gap-1 px-4 pb-2">
-          {(
-            [
-              { key: "shop" as const, icon: Search, label: t("customer.tab.shop") },
-              { key: "profile" as const, icon: User, label: t("customer.tab.profile") },
-            ] as Array<{ key: TabKey; icon: typeof Search; label: string }>
-          ).map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setTab(item.key)}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                tab === item.key
-                  ? "bg-primary-soft text-primary"
-                  : "text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
-        {tab === "shop" && <ShopTab customer={customer} mediatorPhone={mediatorPhone} />}
-        {tab === "profile" && (
+        {view === "home" && (
+          <SearchModeHome
+            onAllParts={() => setView("all-parts")}
+            onSmartSearch={() => setView("smart-search")}
+          />
+        )}
+        {view === "all-parts" && (
+          <ShopTab
+            customer={customer}
+            mediatorPhone={mediatorPhone}
+            onBack={() => setView("home")}
+            onSmartSearch={() => setView("smart-search")}
+          />
+        )}
+        {view === "smart-search" && (
+          <CustomerSmartSearchTab customer={customer} onBack={() => setView("home")} />
+        )}
+        {view === "profile" && (
           <ProfileTab
             session={session}
             onUpdated={(updated) => setSession(readCustomerSession() ?? updated)}
@@ -203,16 +197,48 @@ function CustomerDashboard() {
 // Shop: car filters → products (specs + final price only, no merchant info)
 // ---------------------------------------------------------------------------
 
+function SearchModeHome({
+  onAllParts,
+  onSmartSearch,
+}: {
+  onAllParts: () => void;
+  onSmartSearch: () => void;
+}) {
+  return (
+    <div className="mx-auto grid min-h-[55vh] max-w-3xl content-center gap-5">
+      <button
+        type="button"
+        onClick={onAllParts}
+        className="rounded-2xl border border-primary/20 bg-card p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-primary hover:shadow-elevated"
+      >
+        <Search className="mx-auto h-12 w-12 text-primary" />
+        <div className="mt-4 text-3xl font-extrabold text-foreground sm:text-4xl">بحث عن كل القطع</div>
+      </button>
+      <button
+        type="button"
+        onClick={onSmartSearch}
+        className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-emerald-500 hover:shadow-elevated"
+      >
+        <Sparkles className="mx-auto h-12 w-12 text-emerald-600" />
+        <div className="mt-4 text-3xl font-extrabold text-emerald-700 sm:text-4xl">البحث الذكي</div>
+      </button>
+    </div>
+  );
+}
+
 function ShopTab({
   customer,
   mediatorPhone,
+  onBack,
+  onSmartSearch,
 }: {
   customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
   mediatorPhone: string;
+  onBack: () => void;
+  onSmartSearch: () => void;
 }) {
   const { t } = useLanguage();
   const browseFn = useServerFn(browseCarProducts);
-  const missingRequestFn = useServerFn(submitMissingProductRequest);
   const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [carMake, setCarMake] = useState("");
   const [carModel, setCarModel] = useState("");
@@ -264,6 +290,14 @@ function ShopTab({
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </Button>
+        <h1 className="text-2xl font-extrabold">بحث عن كل القطع</h1>
+      </div>
+
       {/* Filters */}
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center gap-2 font-semibold">
@@ -390,17 +424,17 @@ function ShopTab({
           <p className="mt-3 text-sm">{t("customer.shop.empty.desc")}</p>
         </div>
       ) : products.length === 0 ? (
-        <MissingProductRequestPanel
-          defaultProductName=""
-          carMake={carMake}
-          carModel={carModel}
-          governorate={governorate}
-          requesterName={customer.name}
-          requesterPhone={customer.whatsapp}
-          searchScope={searchScope}
-          requesterType="customer"
-          onSubmit={async (data) => missingRequestFn({ data })}
-        />
+        <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft">
+          <Sparkles className="mx-auto h-10 w-10 text-emerald-600" />
+          <h2 className="mt-3 text-2xl font-extrabold text-emerald-700">البحث الذكي</h2>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-emerald-900">
+            لم تظهر نتائج في بحث كل القطع. استخدم البحث الذكي لإرسال اسم المنتج والوصف مباشرة إلى التجار المختصين.
+          </p>
+          <Button type="button" className="mt-4 gap-2 bg-emerald-600 hover:bg-emerald-700" onClick={onSmartSearch}>
+            <Sparkles className="h-4 w-4" />
+            فتح البحث الذكي
+          </Button>
+        </div>
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{t("customer.shop.results", { count: products.length })}</p>
@@ -419,6 +453,99 @@ function ShopTab({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function CustomerSmartSearchTab({
+  customer,
+  onBack,
+}: {
+  customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
+  onBack: () => void;
+}) {
+  const missingRequestFn = useServerFn(submitMissingProductRequest);
+  const getCatalogFn = useServerFn(getEnabledCarCatalogue);
+  const [makes, setMakes] = useState<CarMake[]>([]);
+  const [carMake, setCarMake] = useState("");
+  const [governorate, setGovernorate] = useState(customer.governorate);
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
+
+  useEffect(() => {
+    getCatalogFn({})
+      .then((catalog) => setMakes(catalog.makes))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </Button>
+        <h1 className="text-3xl font-extrabold text-emerald-700">البحث الذكي</h1>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-soft">
+        <div className="flex items-center gap-2 text-xl font-extrabold text-emerald-700">
+          <Sparkles className="h-6 w-6" />
+          البحث الذكي
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>المحافظة</Label>
+            <Select value={governorate} onValueChange={setGovernorate}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر المحافظة" />
+              </SelectTrigger>
+              <SelectContent>
+                {IRAQI_GOVERNORATES.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>نوع السيارة</Label>
+            <Select value={carMake} onValueChange={setCarMake}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر نوع السيارة" />
+              </SelectTrigger>
+              <SelectContent>
+                {makes.map((make) => (
+                  <SelectItem key={make.key} value={make.label}>
+                    {make.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+            البحث داخل المحافظة
+          </Button>
+          <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+            البحث في جميع المحافظات
+          </Button>
+        </div>
+      </div>
+
+      <MissingProductRequestPanel
+        defaultProductName=""
+        carMake={carMake}
+        carModel=""
+        governorate={governorate}
+        requesterName={customer.name}
+        requesterPhone={customer.whatsapp}
+        searchScope={searchScope}
+        requesterType="customer"
+        onSubmit={async (data) => missingRequestFn({ data })}
+      />
     </div>
   );
 }
@@ -513,7 +640,7 @@ function MissingProductRequestPanel({
   return (
     <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
       <div className="text-center text-muted-foreground">
-        <Package className="mx-auto h-10 w-10" />
+        <Sparkles className="mx-auto h-10 w-10 text-emerald-600" />
         <p className="mx-auto mt-3 max-w-2xl text-sm">
           لم نعثر على المنتج المطلوب، يمكنك إرسال صورة للقطعة أو كتابة تفاصيل إضافية ليتم إرسال الطلب مباشرة إلى التجار المختصين.
         </p>

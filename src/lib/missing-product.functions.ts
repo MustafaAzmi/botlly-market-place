@@ -141,6 +141,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       (data.imageDataUrl ? `${publicBase}/api/missing-product-image/${encodeURIComponent(missingRequestId)}` : "");
     const carModel = data.carModel || "غير محدد";
     const productTitle = data.productName.trim();
+    const requestDetails = data.requestDetails?.trim() ?? "";
     const governorate = normalizeGovernorate(data.governorate);
     const targets = await findTargetMerchants({
       carMake: data.carMake,
@@ -154,7 +155,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       sourceContext: "missing_product_request",
       eventName: "missing_request_created",
       productTitle,
-      requestDetails: "",
+      requestDetails,
       carMake: data.carMake,
       carModel,
       requesterType: data.requesterType,
@@ -184,7 +185,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
         sourceContext: "missing_product_request",
         eventName: "missing_request_sent_to_merchant",
         productTitle,
-        requestDetails: "",
+        requestDetails,
         carMake: data.carMake,
         carModel,
         requesterType: data.requesterType,

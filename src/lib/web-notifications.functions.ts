@@ -25,6 +25,7 @@ export type WebOrderNotification = {
   orderId: string;
   sourceContext: string;
   productTitle: string;
+  requestDetails: string;
   carMake: string;
   carModel: string;
   imageUrl: string;
@@ -226,6 +227,7 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     orderId: getString(p.orderId),
     sourceContext: getString(p.sourceContext),
     productTitle: getString(p.productTitle) || getString(p.title) || "منتج",
+    requestDetails: getString(p.requestDetails),
     carMake: getString(p.carMake),
     carModel: getString(p.carModel),
     imageUrl: getString(p.imageUrl),
