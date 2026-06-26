@@ -490,7 +490,7 @@ function FitterMissingProductPanel({
     requesterPhone: string;
     searchScope: "governorate" | "all";
     imageDataUrl?: string;
-  }) => Promise<{ sentCount: number }>;
+  }) => Promise<{ targetMerchantCount?: number; sentCount: number; webNotificationCount?: number }>;
 }) {
   const [productName, setProductName] = useState(defaultProductName);
   const [requestDetails, setRequestDetails] = useState("");
@@ -531,7 +531,12 @@ function FitterMissingProductPanel({
         searchScope,
         imageDataUrl,
       });
-      toast.success(result.sentCount > 0 ? `تم إرسال الطلب إلى ${result.sentCount} تاجر مختص` : "تم حفظ الطلب، لكن لم يتم العثور على تاجر مطابق حالياً");
+      const notifiedCount = result.webNotificationCount ?? result.sentCount ?? result.targetMerchantCount ?? 0;
+      toast.success(
+        notifiedCount > 0 || (result.targetMerchantCount ?? 0) > 0
+          ? `تم إرسال الطلب إلى ${notifiedCount || result.targetMerchantCount} تاجر مختص`
+          : "تم حفظ الطلب، لكن لا يوجد تاجر مختص مطابق حالياً",
+      );
       setProductName("");
       setRequestDetails("");
       setImageDataUrl("");

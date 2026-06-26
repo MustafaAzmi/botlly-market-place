@@ -453,7 +453,7 @@ function MissingProductRequestPanel({
     requesterPhone: string;
     searchScope: "governorate" | "all";
     imageDataUrl?: string;
-  }) => Promise<{ targetMerchantCount: number; sentCount: number }>;
+  }) => Promise<{ targetMerchantCount: number; sentCount: number; webNotificationCount?: number }>;
 }) {
   const [productName, setProductName] = useState(defaultProductName);
   const [requestDetails, setRequestDetails] = useState("");
@@ -494,10 +494,11 @@ function MissingProductRequestPanel({
         searchScope,
         imageDataUrl,
       });
+      const notifiedCount = result.webNotificationCount ?? result.sentCount ?? result.targetMerchantCount;
       toast.success(
-        result.sentCount > 0
-          ? `تم إرسال الطلب إلى ${result.sentCount} تاجر مختص`
-          : "تم حفظ الطلب، لكن لم يتم العثور على تاجر مطابق حالياً",
+        notifiedCount > 0 || result.targetMerchantCount > 0
+          ? `تم إرسال الطلب إلى ${notifiedCount || result.targetMerchantCount} تاجر مختص`
+          : "تم حفظ الطلب، لكن لا يوجد تاجر مختص مطابق حالياً",
       );
       setProductName("");
       setRequestDetails("");

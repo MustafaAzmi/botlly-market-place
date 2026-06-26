@@ -210,7 +210,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       ok: true,
       missingRequestId,
       targetMerchantCount: targets.length,
-      sentCount: 0,
+      sentCount: targets.length,
       webNotificationCount: sendResults.length,
     };
   });
