@@ -17,6 +17,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 import {
@@ -34,6 +41,10 @@ import {
 } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
+
+const ALL_GOVERNORATES = "all";
+const UNSPECIFIED_GOVERNORATE = "غير محدد";
 
 export const Route = createFileRoute("/admin/stores")({
   beforeLoad: () => requireAdminClient(),
@@ -52,6 +63,7 @@ function AdminStoresPage() {
   const resetSalesReportFn = useServerFn(resetMerchantSalesReport);
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [governorateFilter, setGovernorateFilter] = useState(ALL_GOVERNORATES);
   const session = readAdminSession();
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleteProductConfirm, setDeleteProductConfirm] = useState<{
@@ -109,12 +121,15 @@ function AdminStoresPage() {
 
   const filtered = merchants.filter((m: MerchantAdminView) => {
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return true;
-    return (
+    const matchesSearch =
+      !q ||
       m.storeName.toLowerCase().includes(q) ||
       m.whatsapp.toLowerCase().includes(q) ||
-      (m.email ?? "").toLowerCase().includes(q)
-    );
+      (m.email ?? "").toLowerCase().includes(q);
+    const matchesGovernorate =
+      governorateFilter === ALL_GOVERNORATES ||
+      m.governorate === governorateFilter;
+    return matchesSearch && matchesGovernorate;
   });
 
   const downloadMerchantSalesExcel = (merchant: MerchantAdminView) => {
@@ -211,13 +226,27 @@ function AdminStoresPage() {
   return (
     <AdminLayout title="المتاجر" subtitle="تحكّم بظهور المتاجر في البحث والاشتراكات">
       <div className="space-y-6">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
             placeholder="ابحث باسم المتجر أو الرقم..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="max-w-xs"
           />
+          <Select value={governorateFilter} onValueChange={setGovernorateFilter}>
+            <SelectTrigger className="w-full sm:w-56" aria-label="فلترة المتاجر حسب المحافظة">
+              <SelectValue placeholder="اختر المحافظة" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_GOVERNORATES}>كل المحافظات</SelectItem>
+              {IRAQI_GOVERNORATES.map((governorate) => (
+                <SelectItem key={governorate} value={governorate}>
+                  {governorate}
+                </SelectItem>
+              ))}
+              <SelectItem value={UNSPECIFIED_GOVERNORATE}>غير محدد</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {isLoading ? (
@@ -246,6 +275,7 @@ function AdminStoresPage() {
                 <tr>
                   <th className="px-4 py-3 text-right font-medium">المتجر</th>
                   <th className="px-4 py-3 text-right font-medium">الواتساب</th>
+                  <th className="px-4 py-3 text-right font-medium">المحافظة</th>
                   <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
                   <th className="px-4 py-3 text-center font-medium">المبيعات</th>
@@ -257,7 +287,7 @@ function AdminStoresPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -283,6 +313,7 @@ function AdminStoresPage() {
                       <td className="px-4 py-3" dir="ltr">
                         {m.whatsapp || "—"}
                       </td>
+                      <td className="px-4 py-3">{m.governorate}</td>
                       <td className="px-4 py-3">
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>

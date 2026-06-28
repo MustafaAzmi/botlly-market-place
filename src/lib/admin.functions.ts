@@ -20,6 +20,7 @@ import {
   parseCatalogueConfig,
   type CatalogueConfig,
 } from "@/lib/car-data";
+import { normalizeGovernorate } from "@/lib/governorates";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +58,7 @@ export interface MerchantAdminView {
   merchantId: string;
   storeName: string;
   whatsapp: string;
+  governorate: string;
   email?: string;
   subscriptionStatus: string; // active | expired | trial | none
   packageExpiry: string | null;
@@ -604,6 +606,12 @@ export const listMerchants = createServerFn({ method: "POST" })
           merchantId: mId,
           storeName: getString(p.storeName) || "متجر",
           whatsapp: getString(p.whatsapp),
+          governorate:
+            normalizeGovernorate(
+              getString(p.city) ||
+                getString(p.governorate) ||
+                getString(p.merchantGovernorate),
+            ) || "غير محدد",
           email: getString(p.email) || undefined,
           subscriptionStatus: getString(p.subscriptionStatus) || "none",
           packageExpiry: getString(p.packageExpiry) || null,

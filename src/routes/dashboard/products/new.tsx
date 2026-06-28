@@ -422,6 +422,7 @@ function NewProductPage() {
                 onChange={(e) => updateCurrentPrice(e.target.value)}
                 type="number"
                 min={0}
+                step="0.01"
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"
@@ -435,6 +436,7 @@ function NewProductPage() {
                 onChange={(e) => setFinalPrice(e.target.value)}
                 type="number"
                 min={0}
+                step="0.01"
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"
