@@ -711,7 +711,10 @@ export const getSalesConfirmationSummary = createServerFn({ method: "POST" })
         (merchantStatus === "Cancelled" && requesterStatus === "Purchased")
       ) summary.conflicts += 1;
       else if (merchantStatus === "Sold" && requesterStatus === "Pending") summary.merchantOnly += 1;
-      else if (merchantStatus === "Pending" && requesterStatus === "Purchased") summary.customerOnly += 1;
+      else if (
+        (merchantStatus === "Pending" || merchantStatus === "Available") &&
+        requesterStatus === "Purchased"
+      ) summary.customerOnly += 1;
       else summary.pending += 1;
     }
 

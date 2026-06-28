@@ -501,7 +501,7 @@ export function WebOrderNotifications(props: Props) {
                     </>
                   ) : null}
 
-                  {role === "merchant" && order.merchantStatus === "Available" && order.requesterStatus === "Pending" ? (
+                  {role === "merchant" && order.merchantStatus === "Available" ? (
                     <>
                       <Button
                         type="button"
@@ -707,10 +707,10 @@ function toWhatsAppLink(phone: string) {
 function statusLabel(order: WebOrderNotification, text: (typeof notificationCopy)[Locale]) {
   if (order.merchantStatus === "Sold" && order.requesterStatus === "Purchased") return text.completed;
   if (order.merchantStatus === "Cancelled" && order.requesterStatus === "Cancelled") return text.cancelled;
+  if (order.requesterStatus === "Purchased") return text.waitingMerchant;
   if (order.merchantStatus === "Available") return text.productAvailable;
   if (order.merchantStatus === "Unavailable") return text.productUnavailable;
   if (order.merchantStatus === "Sold") return text.waitingCustomer;
-  if (order.requesterStatus === "Purchased") return text.waitingMerchant;
   return text.following;
 }
 
@@ -783,7 +783,7 @@ function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "
 
 function hasActions(order: WebOrderNotification, role: "merchant" | "requester") {
   if (role === "merchant") {
-    return order.merchantStatus === "Pending" || (order.merchantStatus === "Available" && order.requesterStatus === "Pending");
+    return order.merchantStatus === "Pending" || order.merchantStatus === "Available";
   }
   return (
     (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&

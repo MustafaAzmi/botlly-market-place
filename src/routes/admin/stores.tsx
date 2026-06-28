@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -18,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 import {
   listMerchants,
@@ -250,7 +250,7 @@ function AdminStoresPage() {
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
                   <th className="px-4 py-3 text-center font-medium">المبيعات</th>
                   <th className="px-4 py-3 text-center font-medium">الظهور</th>
-                  <th className="px-4 py-3 text-center font-medium">رقم التاجر</th>
+                  <th className="px-4 py-3 text-center font-medium">إظهار الرقم للزبون/الفيتر</th>
                   <th className="px-4 py-3 text-center font-medium">إجراءات</th>
                 </tr>
               </thead>
@@ -319,11 +319,30 @@ function AdminStoresPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {m.showPhoneToRequesters ? (
-                          <Badge className="bg-green-100 text-green-800">يظهر</Badge>
-                        ) : (
-                          <Badge className="bg-gray-200 text-gray-700">مخفي</Badge>
-                        )}
+                        <div className="flex min-w-36 flex-col items-center gap-1.5">
+                          <Switch
+                            checked={m.showPhoneToRequesters}
+                            aria-label={`إظهار رقم ${m.storeName} للزبون والفيتر`}
+                            onCheckedChange={(checked) =>
+                              run(
+                                () =>
+                                  setPhoneVisibilityFn({
+                                    data: {
+                                      token: session!.token,
+                                      merchantId: m.merchantId,
+                                      enabled: checked,
+                                    },
+                                  }),
+                                checked
+                                  ? "تم تفعيل إظهار رقم التاجر في الإشعار"
+                                  : "تم إخفاء رقم التاجر من الإشعار",
+                              )
+                            }
+                          />
+                          <span className={m.showPhoneToRequesters ? "text-xs font-medium text-green-700" : "text-xs text-muted-foreground"}>
+                            {m.showPhoneToRequesters ? "ظاهر في إشعار الطلب" : "مخفي من الإشعار"}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <DropdownMenu>
@@ -368,30 +387,6 @@ function AdminStoresPage() {
                             >
                               إخفاء من البحث
                             </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>رقم التاجر للزبون/الفيتر</DropdownMenuLabel>
-                            <DropdownMenuCheckboxItem
-                              checked={m.showPhoneToRequesters}
-                              onCheckedChange={(checked) =>
-                                run(
-                                  () =>
-                                    setPhoneVisibilityFn({
-                                      data: {
-                                        token: session!.token,
-                                        merchantId: m.merchantId,
-                                        enabled: checked === true,
-                                      },
-                                    }),
-                                  checked === true
-                                    ? "تم تفعيل إظهار رقم التاجر"
-                                    : "تم إخفاء رقم التاجر",
-                                )
-                              }
-                            >
-                              إظهار رقم التاجر في الإشعارات
-                            </DropdownMenuCheckboxItem>
-
                             <DropdownMenuSeparator />
                             <DropdownMenuLabel>حالة المتجر</DropdownMenuLabel>
                             {m.suspended ? (

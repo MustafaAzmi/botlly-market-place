@@ -116,9 +116,16 @@ function statusFor(merchantStatus: string, requesterStatus: string) {
   ) {
     return "review";
   }
+  if (
+    merchantStatus === "Sold" ||
+    merchantStatus === "Cancelled" ||
+    requesterStatus === "Purchased" ||
+    requesterStatus === "Cancelled"
+  ) {
+    return "pending_review";
+  }
   if (merchantStatus === "Available") return "available";
   if (merchantStatus === "Unavailable") return "unavailable";
-  if (merchantStatus === "Sold" || requesterStatus === "Purchased") return "pending_review";
   return "pending";
 }
 
@@ -181,8 +188,12 @@ async function latestMerchantPhoneVisibility() {
   const visibility = new Map<string, boolean>();
   for (const row of rows) {
     const id = merchantIdentity(row);
-    if (!id || visibility.has(id)) continue;
-    visibility.set(id, row.payload?.showPhoneToRequesters === true);
+    const whatsapp = phoneKey(
+      getString(row.payload?.whatsappNormalized) || getString(row.payload?.whatsapp),
+    );
+    const enabled = row.payload?.showPhoneToRequesters === true;
+    if (id && !visibility.has(id)) visibility.set(id, enabled);
+    if (whatsapp && !visibility.has(whatsapp)) visibility.set(whatsapp, enabled);
   }
   return visibility;
 }
@@ -296,6 +307,7 @@ async function latestOrders() {
       ...order,
       merchantPhoneVisible:
         merchantVisibility.get(order.merchantId) ??
+        merchantVisibility.get(phoneKey(order.merchantWhatsapp)) ??
         order.merchantPhoneVisible,
       mediatorPhone: mediatorPhoneForGovernorate(
         order.mediatorPhone,
