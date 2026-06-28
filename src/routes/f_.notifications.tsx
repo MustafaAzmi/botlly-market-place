@@ -45,7 +45,7 @@ function FitterNotificationsPage() {
       logout: "Log out",
     },
   }[locale];
-  const [session, setSession] = useState(() => readFitterSession());
+  const [session, setSession] = useState<ReturnType<typeof readFitterSession>>(null);
 
   useEffect(() => {
     setSession(readFitterSession());

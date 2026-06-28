@@ -589,7 +589,7 @@ function completionScore(profile: MerchantProfile, productCount: number) {
 
 function buildManualProductKeywords(data: {
   title: string;
-  description: string;
+  description?: string;
   size?: string;
   color?: string;
 }) {

@@ -495,6 +495,8 @@ async function resolveOrderProduct(productId: string): Promise<{
   price: number;
   currentPrice: number;
   currency: string;
+  carMake: string;
+  carModel: string;
   merchantId: string;
   merchantGovernorate: string;
 }> {
@@ -521,6 +523,8 @@ async function resolveOrderProduct(productId: string): Promise<{
     price,
     currentPrice: currentPrice ?? price,
     currency: getString(p.currency) || "IQD",
+    carMake: getString(p.carMake),
+    carModel: getString(p.carModel),
     merchantId: getString(p.merchantId),
     merchantGovernorate: getString(p.merchantCity),
   };
@@ -605,6 +609,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       price: product.price,
       currentPrice: product.currentPrice,
       currency: product.currency,
+      carMake: product.carMake,
+      carModel: product.carModel,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
@@ -650,6 +656,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       price: product.price,
       currentPrice: product.currentPrice,
       currency: product.currency,
+      carMake: product.carMake,
+      carModel: product.carModel,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,

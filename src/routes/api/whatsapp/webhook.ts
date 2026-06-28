@@ -567,7 +567,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
   if (actionId === ACTION_MISSING_AVAILABLE) {
     const row = await findLatestMissingOrderByMerchant(from);
     if (!row) return false;
-    const order = {
+    const order: Record<string, unknown> = {
       ...(row.payload ?? {}),
       merchantStatus: "Available",
       requesterStatus: getString(row.payload?.requesterStatus) || "Pending",
@@ -593,7 +593,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
     const row = await findLatestMissingOrderByMerchant(from);
     if (!row) return false;
     const merchantStatus = actionId === ACTION_MISSING_MERCHANT_SOLD ? "Sold" : "Cancelled";
-    const order = {
+    const order: Record<string, unknown> = {
       ...(row.payload ?? {}),
       merchantStatus,
       requesterStatus: getString(row.payload?.requesterStatus) || "Pending",
@@ -619,7 +619,7 @@ async function handleMissingProductButton(from: string, actionId: string) {
     const row = await findLatestMissingOrderByRequester(from);
     if (!row) return false;
     const requesterStatus = actionId === ACTION_MISSING_REQUESTER_PURCHASED ? "Purchased" : "Cancelled";
-    const order = {
+    const order: Record<string, unknown> = {
       ...(row.payload ?? {}),
       requesterStatus,
       merchantStatus: getString(row.payload?.merchantStatus) || "Pending",

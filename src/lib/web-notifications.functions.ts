@@ -284,7 +284,7 @@ function resolveRequesterType(payload: Record<string, unknown>): RequesterType {
 
   const hasFitterOnlyFields =
     Boolean(getString(payload.fitterWhatsapp) || getString(payload.fitterOrderId)) &&
-    !Boolean(getString(payload.customerPhone) || getString(payload.customerNumber));
+    !(getString(payload.customerPhone) || getString(payload.customerNumber));
   return hasFitterOnlyFields ? "fitter" : "customer";
 }
 
@@ -414,6 +414,11 @@ export const listRequesterWebNotifications = createServerFn({ method: "POST" })
     return (await latestOrders()).filter(
       (order) =>
         matchesRequester(order, data.requesterPhone, data.requesterType) &&
+        !(
+          order.sourceContext === "missing_product_request" &&
+          !order.merchantId &&
+          !order.merchantWhatsapp
+        ) &&
         !order.webHiddenRequester &&
         order.finalStatus !== "web_hidden_requester",
     );

@@ -101,16 +101,18 @@ function toWhatsAppLink(phone: string) {
 function CustomerDashboard() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [session, setSession] = useState(() => readCustomerSession());
+  const [session, setSession] = useState<ReturnType<typeof readCustomerSession>>(null);
   const [view, setView] = useState<CustomerDashboardView>("home");
   const [mediatorPhone, setMediatorPhone] = useState("");
   const getMediatorFn = useServerFn(getMediatorPhone);
 
   useEffect(() => {
-    if (!session) {
+    const current = readCustomerSession();
+    if (!current) {
       navigate({ to: "/customer/auth" });
       return;
     }
+    setSession(current);
     getMediatorFn({})
       .then((result) => setMediatorPhone(result.phone))
       .catch(() => {});

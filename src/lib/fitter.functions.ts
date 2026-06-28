@@ -51,6 +51,7 @@ export type FitterOrder = {
   productId: string;
   productTitle: string;
   productPrice: number;
+  productCurrentPrice: number;
   currency: string;
   merchantId: string;
   merchantStoreName: string;
@@ -509,6 +510,7 @@ function toOrder(row: EventRow): FitterOrder {
     productId: getString(p.productId),
     productTitle: getString(p.productTitle),
     productPrice: getNumber(p.productPrice) ?? 0,
+    productCurrentPrice: getNumber(p.productCurrentPrice) ?? getNumber(p.productPrice) ?? 0,
     currency: getString(p.currency) || "IQD",
     merchantId: getString(p.merchantId),
     merchantStoreName: getString(p.merchantStoreName),

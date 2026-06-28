@@ -41,11 +41,16 @@ function CustomerNotificationsPage() {
     },
   }[locale];
   const navigate = useNavigate();
-  const [session] = useState(() => readCustomerSession());
+  const [session, setSession] = useState<ReturnType<typeof readCustomerSession>>(null);
 
   useEffect(() => {
-    if (!session) navigate({ to: "/customer/auth" });
-  }, [navigate, session]);
+    const current = readCustomerSession();
+    if (!current) {
+      navigate({ to: "/customer/auth" });
+      return;
+    }
+    setSession(current);
+  }, [navigate]);
 
   const logout = () => {
     clearCustomerSession();
