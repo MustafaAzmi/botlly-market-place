@@ -47,7 +47,6 @@ function OrdersPage() {
           <WebOrderNotifications
             role="merchant"
             token={merchantToken}
-            title="إشعارات وطلبات التاجر"
           />
         </div>
       ) : null}

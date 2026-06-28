@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { Locale } from "@/i18n/translations";
 import {
   clearWebOrderNotification,
   clearWebOrderNotificationsBulk,
@@ -17,7 +19,163 @@ import {
   rateMerchantFromWeb,
   requesterConfirmWebPurchase,
   type WebOrderNotification,
-} from "@/lib/web-notifications.functions";
+  } from "@/lib/web-notifications.functions";
+
+const notificationCopy = {
+  ar: {
+    merchantTitle: "إشعارات وطلبات التاجر",
+    customerTitle: "إشعارات الزبون",
+    fitterTitle: "إشعارات الفيتر",
+    subtitle: "تظهر هنا طلباتك مع أزرار المتابعة داخل الموقع.",
+    newNotification: "إشعار جديد",
+    needsAction: "بحاجة إجراء",
+    clearRecent: "مسح الطلبات الأخيرة",
+    loading: "جار تحميل الإشعارات...",
+    empty: "لا توجد طلبات حديثة حالياً.",
+    carMake: "نوع السيارة",
+    model: "الموديل",
+    description: "الوصف",
+    requester: "مقدم الطلب",
+    customer: "زبون",
+    fitter: "فيتر",
+    merchant: "التاجر",
+    price: "السعر",
+    unspecified: "غير محدد",
+    purchasePrompt:
+      "يرجى إكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو ألغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟",
+    mediatorPhone: "رقم الوسيط",
+    merchantPhone: "رقم التاجر",
+    unavailableNotice: "أبلغ التاجر أن المنتج غير متوفر حالياً.",
+    customerPurchasedNotice: "الزبون قام بتأكيد الشراء",
+    yourRating: "تقييمك للتاجر",
+    productAvailable: "المنتج متوفر",
+    productUnavailable: "المنتج غير متوفر",
+    productSold: "تم بيع المنتج",
+    orderCancelled: "تم إلغاء الطلب",
+    purchased: "تم الشراء",
+    clear: "مسح",
+    optionalRating: "تقييم التاجر اختياري",
+    optionalNote: "ملاحظة اختيارية عن التاجر",
+    saveRating: "حفظ التقييم",
+    completed: "مكتملة",
+    cancelled: "ملغاة",
+    waitingCustomer: "بانتظار تأكيد الزبون",
+    waitingMerchant: "بانتظار تأكيد التاجر",
+    following: "قيد المتابعة",
+    loadError: "تعذر تحميل إشعارات الطلبات",
+    actionError: "تعذر تنفيذ العملية",
+    clearError: "تعذر مسح الطلبات",
+    clearedOrder: "تم مسح الطلب من القائمة",
+    clearedRecent: "تم مسح الطلبات الأخيرة",
+    availableSuccess: "تم تأكيد توفر المنتج",
+    unavailableSuccess: "تم إشعار الزبون بعدم توفر المنتج",
+    soldSuccess: "تم تسجيل بيع المنتج",
+    purchaseSuccess: "تم تأكيد الشراء",
+    ratingSuccess: "تم حفظ تقييم التاجر",
+  },
+  ku: {
+    merchantTitle: "ئاگادارکردنەوە و داواکارییەکانی فرۆشیار",
+    customerTitle: "ئاگادارکردنەوەکانی کڕیار",
+    fitterTitle: "ئاگادارکردنەوەکانی فیتەر",
+    subtitle: "داواکارییەکانت لێرە لەگەڵ دوگمەکانی بەدواداچوون لە ناو ماڵپەڕدا پیشان دەدرێن.",
+    newNotification: "ئاگادارکردنەوەی نوێ",
+    needsAction: "پێویستی بە کردارە",
+    clearRecent: "سڕینەوەی داواکارییە کۆنەکان",
+    loading: "ئاگادارکردنەوەکان بار دەکرێن...",
+    empty: "لە ئێستادا هیچ داواکارییەکی نوێ نییە.",
+    carMake: "جۆری ئۆتۆمبێل",
+    model: "مۆدێل",
+    description: "وەسف",
+    requester: "داواکار",
+    customer: "کڕیار",
+    fitter: "فیتەر",
+    merchant: "فرۆشیار",
+    price: "نرخ",
+    unspecified: "دیاری نەکراوە",
+    purchasePrompt:
+      "تکایە پێش کرتەکردن لە دوگمەی کڕدرا، مامەڵەی کڕین لە ڕێگەی ناوبژیوانەوە تەواو بکە؛ ئەگەر ڕێککەوتن نەکرا داواکارییەکە هەڵبوەشێنەوە. ئایا بەرهەمە داواکراوەکەت کڕی؟",
+    mediatorPhone: "ژمارەی ناوبژیوان",
+    merchantPhone: "ژمارەی فرۆشیار",
+    unavailableNotice: "فرۆشیار ڕایگەیاند کە بەرهەمەکە لە ئێستادا بەردەست نییە.",
+    customerPurchasedNotice: "کڕیار کڕینەکەی پشتڕاست کردەوە",
+    yourRating: "هەڵسەنگاندنت بۆ فرۆشیار",
+    productAvailable: "بەرهەمەکە بەردەستە",
+    productUnavailable: "بەرهەمەکە بەردەست نییە",
+    productSold: "بەرهەمەکە فرۆشرا",
+    orderCancelled: "داواکارییەکە هەڵوەشێندرایەوە",
+    purchased: "کڕدرا",
+    clear: "سڕینەوە",
+    optionalRating: "هەڵسەنگاندنی فرۆشیار ئارەزوومەندانەیە",
+    optionalNote: "تێبینییەکی ئارەزوومەندانە دەربارەی فرۆشیار",
+    saveRating: "پاشەکەوتکردنی هەڵسەنگاندن",
+    completed: "تەواوبوو",
+    cancelled: "هەڵوەشاوە",
+    waitingCustomer: "چاوەڕوانی پشتڕاستکردنەوەی کڕیار",
+    waitingMerchant: "چاوەڕوانی پشتڕاستکردنەوەی فرۆشیار",
+    following: "لە ژێر بەدواداچووندایە",
+    loadError: "بارکردنی ئاگادارکردنەوەکان سەرکەوتوو نەبوو",
+    actionError: "جێبەجێکردنی کردارەکە سەرکەوتوو نەبوو",
+    clearError: "سڕینەوەی داواکارییەکان سەرکەوتوو نەبوو",
+    clearedOrder: "داواکارییەکە لە لیستەکە سڕایەوە",
+    clearedRecent: "داواکارییە کۆنەکان سڕانەوە",
+    availableSuccess: "بەردەستبوونی بەرهەمەکە پشتڕاست کرایەوە",
+    unavailableSuccess: "کڕیار لە بەردەست نەبوونی بەرهەمەکە ئاگادار کرایەوە",
+    soldSuccess: "فرۆشتنی بەرهەمەکە تۆمار کرا",
+    purchaseSuccess: "کڕینەکە پشتڕاست کرایەوە",
+    ratingSuccess: "هەڵسەنگاندنی فرۆشیار پاشەکەوت کرا",
+  },
+  en: {
+    merchantTitle: "Merchant notifications and requests",
+    customerTitle: "Customer notifications",
+    fitterTitle: "Fitter notifications",
+    subtitle: "Your requests and follow-up actions appear here.",
+    newNotification: "new notification",
+    needsAction: "needs action",
+    clearRecent: "Clear recent requests",
+    loading: "Loading notifications...",
+    empty: "There are no recent requests.",
+    carMake: "Car make",
+    model: "Model",
+    description: "Description",
+    requester: "Requester",
+    customer: "Customer",
+    fitter: "Fitter",
+    merchant: "Merchant",
+    price: "Price",
+    unspecified: "Not specified",
+    purchasePrompt:
+      "Please complete the purchase through the mediator before confirming it, or cancel the request if no agreement was reached. Was the requested product purchased?",
+    mediatorPhone: "Mediator number",
+    merchantPhone: "Merchant number",
+    unavailableNotice: "The merchant reported that the product is currently unavailable.",
+    customerPurchasedNotice: "The customer confirmed the purchase",
+    yourRating: "Your merchant rating",
+    productAvailable: "Product available",
+    productUnavailable: "Product unavailable",
+    productSold: "Product sold",
+    orderCancelled: "Request cancelled",
+    purchased: "Purchased",
+    clear: "Clear",
+    optionalRating: "Merchant rating (optional)",
+    optionalNote: "Optional note about the merchant",
+    saveRating: "Save rating",
+    completed: "Completed",
+    cancelled: "Cancelled",
+    waitingCustomer: "Waiting for customer confirmation",
+    waitingMerchant: "Waiting for merchant confirmation",
+    following: "In progress",
+    loadError: "Could not load request notifications",
+    actionError: "Could not complete the action",
+    clearError: "Could not clear requests",
+    clearedOrder: "Request removed from the list",
+    clearedRecent: "Recent requests cleared",
+    availableSuccess: "Product availability confirmed",
+    unavailableSuccess: "Customer notified that the product is unavailable",
+    soldSuccess: "Product sale recorded",
+    purchaseSuccess: "Purchase confirmed",
+    ratingSuccess: "Merchant rating saved",
+  },
+} as const satisfies Record<Locale, Record<string, string>>;
 
 type Props =
   | {
@@ -33,6 +191,8 @@ type Props =
     };
 
 export function WebOrderNotifications(props: Props) {
+  const { locale } = useLanguage();
+  const text = notificationCopy[locale];
   const role = props.role;
   const merchantToken = props.role === "merchant" ? props.token : "";
   const requesterPhone = props.role === "requester" ? props.requesterPhone : "";
@@ -94,11 +254,11 @@ export function WebOrderNotifications(props: Props) {
       setSeenNotificationIds(nextSeenIds);
       setOrders(visibleOrders);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تحميل إشعارات الطلبات");
+      toast.error(error instanceof Error ? error.message : text.loadError);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role, rungStorageKey]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role, rungStorageKey, text.loadError]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -108,7 +268,13 @@ export function WebOrderNotifications(props: Props) {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const title = props.title ?? (role === "merchant" ? "طلبات الموقع والواتساب" : "إشعارات الطلبات");
+  const title =
+    props.title ??
+    (role === "merchant"
+      ? text.merchantTitle
+      : requesterType === "fitter"
+        ? text.fitterTitle
+        : text.customerTitle);
   const actionableCount = useMemo(
     () => orders.filter((order) => hasActions(order, role)).length,
     [orders, role],
@@ -125,7 +291,7 @@ export function WebOrderNotifications(props: Props) {
       toast.success(success);
       await refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تنفيذ العملية");
+      toast.error(error instanceof Error ? error.message : text.actionError);
     } finally {
       setBusyKey("");
     }
@@ -146,7 +312,7 @@ export function WebOrderNotifications(props: Props) {
                   orderId,
                 },
         }),
-      "تم مسح الطلب من القائمة",
+      text.clearedOrder,
     );
 
   const clearAll = async () => {
@@ -167,10 +333,10 @@ export function WebOrderNotifications(props: Props) {
               },
       });
       setOrders((current) => current.filter((order) => !orderIds.includes(order.orderId)));
-      toast.success("تم مسح الطلبات الأخيرة");
+      toast.success(text.clearedRecent);
       refresh(true).catch(() => {});
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر مسح الطلبات");
+      toast.error(error instanceof Error ? error.message : text.clearError);
     } finally {
       setBusyKey("");
     }
@@ -192,12 +358,12 @@ export function WebOrderNotifications(props: Props) {
             {title}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            تظهر هنا نفس طلبات الواتساب مع أزرار المتابعة داخل الموقع.
+            {text.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">{notificationCount} إشعار جديد</Badge>
-          <Badge variant={actionableCount > 0 ? "default" : "secondary"}>{actionableCount} بحاجة إجراء</Badge>
+          <Badge variant="outline">{notificationCount} {text.newNotification}</Badge>
+          <Badge variant={actionableCount > 0 ? "default" : "secondary"}>{actionableCount} {text.needsAction}</Badge>
           <Button
             type="button"
             variant="outline"
@@ -207,7 +373,7 @@ export function WebOrderNotifications(props: Props) {
             disabled={orders.length === 0 || busyKey === "clear-all"}
           >
             {busyKey === "clear-all" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            مسح الطلبات الأخيرة
+            {text.clearRecent}
           </Button>
         </div>
       </div>
@@ -215,11 +381,11 @@ export function WebOrderNotifications(props: Props) {
       {loading ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-          جار تحميل الإشعارات...
+          {text.loading}
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          لا توجد طلبات حديثة حالياً.
+          {text.empty}
         </div>
       ) : (
         <div className="space-y-3">
@@ -245,22 +411,22 @@ export function WebOrderNotifications(props: Props) {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold">{order.productTitle}</h3>
-                      <Badge variant="secondary">{statusLabel(order)}</Badge>
+                      <Badge variant="secondary">{statusLabel(order, text)}</Badge>
                     </div>
                     <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
-                      <span>نوع السيارة: {order.carMake || "غير محدد"}</span>
-                      <span>الموديل: {order.carModel || "غير محدد"}</span>
+                      <span>{text.carMake}: {order.carMake || text.unspecified}</span>
+                      <span>{text.model}: {order.carModel || text.unspecified}</span>
                       {order.requestDetails ? (
-                        <span className="sm:col-span-2">الوصف: {order.requestDetails}</span>
+                        <span className="sm:col-span-2">{text.description}: {order.requestDetails}</span>
                       ) : null}
                       {role === "merchant" ? (
-                        <span>مقدم الطلب: {order.requesterType === "fitter" ? "فيتر" : "زبون"}</span>
+                        <span>{text.requester}: {order.requesterType === "fitter" ? text.fitter : text.customer}</span>
                       ) : (
-                        <span>التاجر: {order.merchantStoreName || "غير محدد"}</span>
+                        <span>{text.merchant}: {order.merchantStoreName || text.unspecified}</span>
                       )}
                       {order.price > 0 ? (
                         <span>
-                          السعر: {order.price.toLocaleString()} {order.currency}
+                          {text.price}: {order.price.toLocaleString()} {order.currency}
                         </span>
                       ) : null}
                     </div>
@@ -268,31 +434,29 @@ export function WebOrderNotifications(props: Props) {
                     (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
                     order.requesterStatus === "Pending" ? (
                       <div className="mt-3 space-y-2 rounded-lg bg-secondary/70 p-3 text-sm">
-                        <p>
-                          يرجى اكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق. هل تم شراء المنتج المطلوب؟
-                        </p>
+                        <p>{text.purchasePrompt}</p>
                         {order.mediatorPhone ? (
-                          <ContactLink label="رقم الوسيط" phone={order.mediatorPhone} />
+                          <ContactLink label={text.mediatorPhone} phone={order.mediatorPhone} />
                         ) : null}
                         {order.merchantPhoneVisible && order.merchantWhatsapp ? (
-                          <ContactLink label="رقم التاجر" phone={order.merchantWhatsapp} />
+                          <ContactLink label={text.merchantPhone} phone={order.merchantWhatsapp} />
                         ) : null}
                       </div>
                     ) : null}
                     {role === "requester" && order.merchantStatus === "Unavailable" ? (
                       <p className="mt-3 rounded-lg bg-secondary/70 p-3 text-sm">
-                        أبلغ التاجر أن المنتج غير متوفر حالياً.
+                        {text.unavailableNotice}
                       </p>
                     ) : null}
                     {role === "merchant" && order.requesterStatus === "Purchased" ? (
                       <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
-                        الزبون قام بتأكيد الشراء
+                        {text.customerPurchasedNotice}
                       </p>
                     ) : null}
                     {order.rating ? (
                       <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
                         <Star className="h-4 w-4 fill-primary text-primary" />
-                        تقييمك للتاجر: {order.rating}/5
+                        {text.yourRating}: {order.rating}/5
                       </div>
                     ) : null}
                   </div>
@@ -310,12 +474,12 @@ export function WebOrderNotifications(props: Props) {
                           runAction(
                             `available:${order.orderId}`,
                             () => availableFn({ data: { token: merchantToken, orderId: order.orderId } }),
-                            "تم تأكيد توفر المنتج",
+                            text.availableSuccess,
                           )
                         }
                       >
                         {busy("available") ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
-                        المنتج متوفر
+                        {text.productAvailable}
                       </Button>
                       <Button
                         type="button"
@@ -327,12 +491,12 @@ export function WebOrderNotifications(props: Props) {
                           runAction(
                             `unavailable:${order.orderId}`,
                             () => unavailableFn({ data: { token: merchantToken, orderId: order.orderId } }),
-                            "تم إشعار الزبون بعدم توفر المنتج",
+                            text.unavailableSuccess,
                           )
                         }
                       >
                         {busy("unavailable") ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                        المنتج غير متوفر
+                        {text.productUnavailable}
                       </Button>
                     </>
                   ) : null}
@@ -351,12 +515,12 @@ export function WebOrderNotifications(props: Props) {
                               merchantSaleFn({
                                 data: { token: merchantToken, orderId: order.orderId, result: "sold" },
                               }),
-                            "تم تسجيل بيع المنتج",
+                            text.soldSuccess,
                           )
                         }
                       >
                         {busy("sold") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                        تم بيع المنتج
+                        {text.productSold}
                       </Button>
                       <Button
                         type="button"
@@ -371,12 +535,12 @@ export function WebOrderNotifications(props: Props) {
                               merchantSaleFn({
                                 data: { token: merchantToken, orderId: order.orderId, result: "cancelled" },
                               }),
-                            "تم إلغاء الطلب",
+                            text.orderCancelled,
                           )
                         }
                       >
                         {busy("merchant-cancel") ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                        تم إلغاء الطلب
+                        {text.orderCancelled}
                       </Button>
                     </>
                   ) : null}
@@ -402,12 +566,12 @@ export function WebOrderNotifications(props: Props) {
                                   result: "purchased",
                                 },
                               }),
-                            "تم تأكيد الشراء",
+                            text.purchaseSuccess,
                           )
                         }
                       >
                         {busy("purchased") ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                        تم الشراء
+                        {text.purchased}
                       </Button>
                       <Button
                         type="button"
@@ -427,12 +591,12 @@ export function WebOrderNotifications(props: Props) {
                                   result: "cancelled",
                                 },
                               }),
-                            "تم إلغاء الطلب",
+                            text.orderCancelled,
                           )
                         }
                       >
                         {busy("requester-cancel") ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                        تم إلغاء الطلب
+                        {text.orderCancelled}
                       </Button>
                     </>
                   ) : null}
@@ -446,13 +610,13 @@ export function WebOrderNotifications(props: Props) {
                     onClick={() => clearOrder(order.orderId)}
                   >
                     {busy("clear") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                    مسح
+                    {text.clear}
                   </Button>
                 </div>
 
                 {canRate ? (
                   <div className="mt-4 rounded-lg border border-dashed border-border p-3">
-                    <div className="mb-2 text-sm font-medium">تقييم التاجر اختياري</div>
+                    <div className="mb-2 text-sm font-medium">{text.optionalRating}</div>
                     <div className="flex flex-wrap gap-2">
                       {[1, 2, 3, 4, 5].map((value) => (
                         <Button
@@ -481,7 +645,7 @@ export function WebOrderNotifications(props: Props) {
                           [order.orderId]: { ...draft, comment: event.target.value },
                         }))
                       }
-                      placeholder="ملاحظة اختيارية عن التاجر"
+                      placeholder={text.optionalNote}
                     />
                     <Button
                       type="button"
@@ -501,12 +665,12 @@ export function WebOrderNotifications(props: Props) {
                                 comment: draft.comment,
                               },
                             }),
-                          "تم حفظ تقييم التاجر",
+                          text.ratingSuccess,
                         )
                       }
                     >
                       {busy("rate") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
-                      حفظ التقييم
+                      {text.saveRating}
                     </Button>
                   </div>
                 ) : null}
@@ -540,14 +704,14 @@ function toWhatsAppLink(phone: string) {
   return `https://wa.me/${normalized}`;
 }
 
-function statusLabel(order: WebOrderNotification) {
-  if (order.merchantStatus === "Sold" && order.requesterStatus === "Purchased") return "مكتملة";
-  if (order.merchantStatus === "Cancelled" && order.requesterStatus === "Cancelled") return "ملغاة";
-  if (order.merchantStatus === "Available") return "المنتج متوفر";
-  if (order.merchantStatus === "Unavailable") return "المنتج غير متوفر";
-  if (order.merchantStatus === "Sold") return "بانتظار تأكيد الزبون";
-  if (order.requesterStatus === "Purchased") return "بانتظار تأكيد التاجر";
-  return "قيد المتابعة";
+function statusLabel(order: WebOrderNotification, text: (typeof notificationCopy)[Locale]) {
+  if (order.merchantStatus === "Sold" && order.requesterStatus === "Purchased") return text.completed;
+  if (order.merchantStatus === "Cancelled" && order.requesterStatus === "Cancelled") return text.cancelled;
+  if (order.merchantStatus === "Available") return text.productAvailable;
+  if (order.merchantStatus === "Unavailable") return text.productUnavailable;
+  if (order.merchantStatus === "Sold") return text.waitingCustomer;
+  if (order.requesterStatus === "Purchased") return text.waitingMerchant;
+  return text.following;
 }
 
 function playNotificationBell() {
