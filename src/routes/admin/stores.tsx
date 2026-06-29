@@ -46,6 +46,17 @@ import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 const ALL_GOVERNORATES = "all";
 const UNSPECIFIED_GOVERNORATE = "غير محدد";
 
+function formatMerchantCreatedAt(value: string) {
+  if (!value) return "غير محدد";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "غير محدد";
+  return date.toLocaleDateString("ar-IQ", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 export const Route = createFileRoute("/admin/stores")({
   beforeLoad: () => requireAdminClient(),
   component: AdminStoresPage,
@@ -276,6 +287,7 @@ function AdminStoresPage() {
                   <th className="px-4 py-3 text-right font-medium">المتجر</th>
                   <th className="px-4 py-3 text-right font-medium">الواتساب</th>
                   <th className="px-4 py-3 text-right font-medium">المحافظة</th>
+                  <th className="px-4 py-3 text-center font-medium">تاريخ الإضافة</th>
                   <th className="px-4 py-3 text-right font-medium">الاشتراك</th>
                   <th className="px-4 py-3 text-center font-medium">المنتجات</th>
                   <th className="px-4 py-3 text-center font-medium">المبيعات</th>
@@ -287,7 +299,7 @@ function AdminStoresPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">
+                    <td colSpan={10} className="px-6 py-8 text-center text-muted-foreground">
                       لا توجد متاجر بعد
                     </td>
                   </tr>
@@ -314,6 +326,9 @@ function AdminStoresPage() {
                         {m.whatsapp || "—"}
                       </td>
                       <td className="px-4 py-3">{m.governorate}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-center" dir="ltr">
+                        {formatMerchantCreatedAt(m.createdAt)}
+                      </td>
                       <td className="px-4 py-3">
                         <SubscriptionBadge status={m.subscriptionStatus} />
                       </td>
