@@ -146,7 +146,7 @@ export function extractPhoneRegex(text: string): string | null {
 
 export function extractKeywordsRegex(text: string): string[] {
   // Remove URLs, emails, phone numbers
-  let cleaned = text
+  const cleaned = text
     .replace(/https?:\/\/\S+/g, "")
     .replace(/\S+@\S+/g, "")
     .replace(/\+?[0-9]{10,}/g, "");

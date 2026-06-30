@@ -1,7 +1,7 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { BellRing, Car, CheckCircle2, ChevronRight, Loader2, LogOut, MapPin, Package, Search, Send, Settings, Sparkles, UserRound, Wrench } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
@@ -170,8 +170,13 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
   const [view, setView] = useState<"home" | "all-parts" | "smart-search">("home");
   const summaryFn = useServerFn(getFitterSummary);
 
-  const refresh = async () => setSummary(await summaryFn({ data: { token: session.token } }));
-  useEffect(() => { refresh().catch(() => {}); }, []);
+  const refresh = useCallback(
+    async () => setSummary(await summaryFn({ data: { token: session.token } })),
+    [session.token, summaryFn],
+  );
+  useEffect(() => {
+    refresh().catch(() => {});
+  }, [refresh]);
 
   return (
     <div className="min-h-screen bg-secondary/30 pb-10">
@@ -308,7 +313,7 @@ function FitterShop({
       setYears(catalog.years);
       setColors(catalog.colors);
     }).catch(() => {});
-  }, []);
+  }, [catalogFn]);
 
   const search = async () => {
     setLoading(true);

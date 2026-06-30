@@ -11,6 +11,15 @@ import { useEffect, useState } from "react";
 export type PwaApp = "customer" | "merchant" | "fitter";
 export type BrowserFamily = "chrome" | "firefox" | "opera" | "edge" | "samsung" | "ios" | "in-app" | "other";
 
+type BotlyWindow = Window & {
+  __BOTLY_PWA_PROMPT_CAPTURED__?: boolean;
+  __PWA_DEBUG__?: boolean;
+};
+
+function pwaDebugEnabled() {
+  return typeof window !== "undefined" && (window as BotlyWindow).__PWA_DEBUG__ === true;
+}
+
 export const PWA_APPS: Record<
   PwaApp,
   { name: string; manifest: string; startUrl: string; themeColor: string; icon: string }
@@ -68,11 +77,11 @@ export function registerServiceWorker() {
   // Don't specify scope — let the manifest's scope take precedence
   // Register immediately to ensure beforeinstallprompt fires before user interaction
   navigator.serviceWorker.register("/sw.js").then((reg) => {
-    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] Service Worker registered:", reg.scope);
     }
   }).catch((err) => {
-    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.error("[PWA] Service Worker registration failed:", err);
     }
   });
@@ -96,21 +105,21 @@ function publishInstallPrompt(event: BeforeInstallPromptEvent | null) {
 
 function ensureInstallPromptCapture() {
   if (typeof window === "undefined") return;
-  const w = window as typeof window & { __BOTLY_PWA_PROMPT_CAPTURED__?: boolean };
+  const w = window as BotlyWindow;
   if (w.__BOTLY_PWA_PROMPT_CAPTURED__) return;
   w.__BOTLY_PWA_PROMPT_CAPTURED__ = true;
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     publishInstallPrompt(event as BeforeInstallPromptEvent);
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] beforeinstallprompt captured globally");
     }
   });
 
   window.addEventListener("appinstalled", () => {
     publishInstallPrompt(null);
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] app installed successfully");
     }
   });
@@ -145,7 +154,7 @@ export function usePwaInstall() {
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     setIsStandalone(standalone);
 
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] Init:", {
         userAgent: window.navigator.userAgent,
         isIos: isIosDevice,
@@ -169,8 +178,8 @@ export function usePwaInstall() {
 
     // Log when page becomes visible (important for installability)
     const onVisibilityChange = () => {
-      if ((window as any).__PWA_DEBUG__ && document.visibilityState === "visible") {
-        console.log("[PWA] Page became visible, prompt available:", !!deferredPrompt);
+      if (pwaDebugEnabled() && document.visibilityState === "visible") {
+        console.log("[PWA] Page became visible, prompt available:", !!savedInstallPrompt);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);

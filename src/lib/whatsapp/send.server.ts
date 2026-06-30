@@ -5,12 +5,22 @@
 // (broadcasts + individual merchant messages). There is no separate messaging
 // system; everything goes through this one Graph API call.
 
+function cleanCredential(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || /^<.*>$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 function getWhatsAppAccessToken() {
-  return process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN;
+  return cleanCredential(
+    process.env.WHATSAPP_ACCESS_TOKEN ?? process.env.META_WHATSAPP_ACCESS_TOKEN,
+  );
 }
 
 function getWhatsAppPhoneNumberId() {
-  return process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+  return cleanCredential(
+    process.env.WHATSAPP_PHONE_NUMBER_ID ?? process.env.META_WHATSAPP_PHONE_NUMBER_ID,
+  );
 }
 
 export type SendResult = { ok: boolean; status: number; error?: string };
@@ -55,6 +65,16 @@ function sendError(error: unknown): SendResult {
   return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) };
 }
 
+async function failedGraphResponse(response: Response, messageType: string): Promise<SendResult> {
+  const error = await readErrorText(response);
+  console.error("[WhatsApp] Graph API send failed", {
+    messageType,
+    status: response.status,
+    error,
+  });
+  return { ok: false, status: response.status, error };
+}
+
 export async function sendWhatsAppText(
   to: string,
   body: string,
@@ -79,11 +99,7 @@ export async function sendWhatsAppText(
   }
 
   if (response.ok) return { ok: true, status: response.status };
-  return {
-    ok: false,
-    status: response.status,
-    error: await readErrorText(response),
-  };
+  return failedGraphResponse(response, "text");
 }
 
 export async function sendWhatsAppButtons(
@@ -123,11 +139,7 @@ export async function sendWhatsAppButtons(
   }
 
   if (response.ok) return { ok: true, status: response.status };
-  return {
-    ok: false,
-    status: response.status,
-    error: await readErrorText(response),
-  };
+  return failedGraphResponse(response, "buttons");
 }
 
 export function buildAvailabilityButtons() {
@@ -165,9 +177,5 @@ export async function sendWhatsAppImage(
   }
 
   if (response.ok) return { ok: true, status: response.status };
-  return {
-    ok: false,
-    status: response.status,
-    error: await readErrorText(response),
-  };
+  return failedGraphResponse(response, "image");
 }

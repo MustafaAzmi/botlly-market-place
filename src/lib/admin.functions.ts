@@ -177,11 +177,6 @@ const directMessageInput = merchantActionInput.extend({
 // ---------------------------------------------------------------------------
 
 const ADMIN_SESSION_TTL_DAYS = 7;
-const DEFAULT_ADMIN_SEED_VERSION = "owner-admin-2026-06-13";
-
-// Bootstrap credentials. Seeded into the DB on first login if no admin exists,
-// then editable via changeAdminPassword. NOT used for auth after seeding.
-const DEFAULT_ADMIN = { whatsapp: "07836635435", password: "ma@MA769667" };
 
 async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
@@ -191,50 +186,28 @@ function adminIdentity(row: EventRow) {
   return getString(row.payload?.adminId) || row.id;
 }
 
-// Seed/update the owner admin. This intentionally keeps the requested owner
-// login available even when older admin rows already exist in the event store.
+function adminBootstrapCredentials() {
+  const whatsapp = process.env.ADMIN_BOOTSTRAP_WHATSAPP?.trim() ?? "";
+  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD?.trim() ?? "";
+  return whatsapp && password ? { whatsapp, password } : null;
+}
+
+// Existing accounts and changed passwords are never overwritten by bootstrap.
 async function ensureAdminSeed(): Promise<void> {
+  const credentials = adminBootstrapCredentials();
+  if (!credentials) return;
+
   const admins = await listEvents("botly_admin");
-  const normalized = normalizePhone(DEFAULT_ADMIN.whatsapp);
-  const existing = admins.find((row) => getString(row.payload?.whatsappNormalized) === normalized);
-  if (existing) {
-    if (getString(existing.payload?.ownerSeedVersion) === DEFAULT_ADMIN_SEED_VERSION) return;
-
-    const salt = getString(existing.payload?.passwordSalt);
-    const expectedHash = getString(existing.payload?.passwordHash);
-    const defaultHash = salt ? await hashPassword(DEFAULT_ADMIN.password, salt) : "";
-    if (salt && expectedHash === defaultHash) {
-      await appendEvent("botly_admin", {
-        ...(existing.payload ?? {}),
-        adminId: adminIdentity(existing),
-        ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
-        updatedAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    const newSalt = randomToken();
-    await appendEvent("botly_admin", {
-      ...(existing.payload ?? {}),
-      adminId: adminIdentity(existing),
-      whatsapp: DEFAULT_ADMIN.whatsapp,
-      whatsappNormalized: normalized,
-      passwordSalt: newSalt,
-      passwordHash: await hashPassword(DEFAULT_ADMIN.password, newSalt),
-      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
-      updatedAt: new Date().toISOString(),
-    });
-    return;
-  }
+  if (admins.length > 0) return;
 
   const salt = randomToken();
   await appendEvent("botly_admin", {
     adminId: crypto.randomUUID(),
-    whatsapp: DEFAULT_ADMIN.whatsapp,
-    whatsappNormalized: normalizePhone(DEFAULT_ADMIN.whatsapp),
+    whatsapp: credentials.whatsapp,
+    whatsappNormalized: normalizePhone(credentials.whatsapp),
     passwordSalt: salt,
-    passwordHash: await hashPassword(DEFAULT_ADMIN.password, salt),
-    ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
+    passwordHash: await hashPassword(credentials.password, salt),
+    bootstrapSource: "environment",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -296,10 +269,6 @@ export const loginAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => loginInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الأدمن غير صحيح.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -362,10 +331,6 @@ export const requestAdminPasswordReset = createServerFn({ method: "POST" })
   .inputValidator((d) => passwordResetRequestInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الهاتف غير مسجل كأدمن.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -377,14 +342,14 @@ export const requestAdminPasswordReset = createServerFn({ method: "POST" })
     await appendEvent("botly_admin_password_reset", {
       resetId,
       adminId,
-      whatsapp: getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp,
+      whatsapp: getString(row.payload?.whatsapp),
       codeHash: await hashResetCode(resetId, code),
       used: false,
       expiresAt,
       createdAt: new Date().toISOString(),
     });
 
-    const recipient = toWhatsAppRecipient(getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp);
+    const recipient = toWhatsAppRecipient(getString(row.payload?.whatsapp));
     const message = `رمز تغيير كلمة مرور لوحة أدمن Botly هو: ${code}\nينتهي خلال 15 دقيقة.`;
     const result = await sendWhatsAppText(recipient, message);
     if (!result.ok) {
@@ -398,10 +363,6 @@ export const resetAdminPassword = createServerFn({ method: "POST" })
   .inputValidator((d) => passwordResetInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الهاتف غير مسجل كأدمن.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -437,7 +398,6 @@ export const resetAdminPassword = createServerFn({ method: "POST" })
       adminId,
       passwordSalt: newSalt,
       passwordHash: await hashPassword(data.newPassword, newSalt),
-      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
       updatedAt: new Date().toISOString(),
     });
     await appendEvent("botly_admin_password_reset", {

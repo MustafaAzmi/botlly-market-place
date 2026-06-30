@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 const root = process.cwd();
 const checks = [];
+const requireIntegrations = process.argv.includes("--require-integrations");
 
 function add(name, ok, detail) {
   checks.push({ name, ok, detail });
@@ -43,23 +44,28 @@ const requiredEnvGroups = [
 
 for (const group of requiredEnvGroups) {
   const found = group.find((key) => envValue(key));
-  add(`env ${group.join(" or ")}`, Boolean(found), found ? `set as ${found}` : "missing");
+  const required = group[0].startsWith("SUPABASE_") || requireIntegrations;
+  add(
+    `env ${group.join(" or ")}`,
+    Boolean(found) || !required,
+    found ? `set as ${found}` : required ? "missing" : "not set locally (optional)",
+  );
 }
 
 const sender = read("src/lib/whatsapp/send.server.ts");
 const netlifyToml = read("netlify.toml");
-const netlifyFunction = read("netlify/functions/whatsapp-webhook.js");
+const webhook = read("src/routes/api/whatsapp/webhook.ts");
 
 add(
-  "Netlify webhook function exists",
-  netlifyFunction.includes("export default async function handler"),
-  "standalone function can receive Meta webhooks",
+  "Application webhook route exists",
+  webhook.includes('createFileRoute("/api/whatsapp/webhook")'),
+  "TanStack server route can receive Meta webhooks",
 );
 add(
   "Netlify webhook redirect exists",
   netlifyToml.includes('from = "/api/whatsapp/webhook"') &&
-    netlifyToml.includes('to = "/.netlify/functions/whatsapp-webhook"'),
-  "Meta callback path is routed directly to the function",
+    netlifyToml.includes('to = "/.netlify/functions/main"'),
+  "Meta callback path is routed to the application server",
 );
 
 add(
@@ -73,16 +79,15 @@ add(
   "Graph API errors are logged",
 );
 
-const webhook = read("src/routes/api/whatsapp/webhook.ts");
 add(
-  "webhook sends fallback reply",
-  webhook.includes('enhancedResult?.text ?? "أهلاً، شو تدور؟"'),
-  "fallback text exists when AI generation fails",
+  "webhook verifies Meta signatures",
+  webhook.includes("verifyMetaSignature(request, rawBody)"),
+  "unsigned webhook requests are rejected",
 );
 add(
-  "webhook storage is non-fatal",
-  webhook.includes("[Storage] Event insert setup failed"),
-  "Supabase setup failures no longer abort the webhook response",
+  "webhook prevents duplicate processing",
+  webhook.includes("wasWebhookMessageProcessed(summary.waMessageId)"),
+  "the same WhatsApp message is not handled twice",
 );
 add(
   "webhook returns 200 after processing",

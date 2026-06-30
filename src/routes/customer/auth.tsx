@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/translations";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
 import { IRAQI_GOVERNORATES } from "@/lib/governorates";
@@ -31,6 +32,28 @@ export const Route = createFileRoute("/customer/auth")({
 });
 
 type AuthMode = "login" | "signup";
+
+const AUTH_FEATURES: ReadonlyArray<{
+  icon: string;
+  titleKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  {
+    icon: "🚗",
+    titleKey: "customer.auth.features.car_filters.title",
+    descKey: "customer.auth.features.car_filters.desc",
+  },
+  {
+    icon: "🛒",
+    titleKey: "customer.auth.features.quick_order.title",
+    descKey: "customer.auth.features.quick_order.desc",
+  },
+  {
+    icon: "💬",
+    titleKey: "customer.auth.features.support.title",
+    descKey: "customer.auth.features.support.desc",
+  },
+];
 
 function CustomerAuthPage() {
   const { t } = useLanguage();
@@ -250,15 +273,11 @@ function CustomerAuthPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              { icon: "🚗", titleKey: "customer.auth.features.car_filters.title", descKey: "customer.auth.features.car_filters.desc" },
-              { icon: "🛒", titleKey: "customer.auth.features.quick_order.title", descKey: "customer.auth.features.quick_order.desc" },
-              { icon: "💬", titleKey: "customer.auth.features.support.title", descKey: "customer.auth.features.support.desc" },
-            ].map((item) => (
+            {AUTH_FEATURES.map((item) => (
               <div key={item.titleKey} className="rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
                 <div className="text-3xl">{item.icon}</div>
-                <h3 className="mt-2 font-semibold">{t(item.titleKey as any)}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey as any)}</p>
+                <h3 className="mt-2 font-semibold">{t(item.titleKey)}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey)}</p>
               </div>
             ))}
           </div>
