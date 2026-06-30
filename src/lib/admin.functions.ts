@@ -109,6 +109,17 @@ export interface AdminMessageRecord {
   createdAt: string;
 }
 
+export interface PopularSmartSearchProduct {
+  productKey: string;
+  productName: string;
+  requestCount: number;
+  customerCount: number;
+  fitterCount: number;
+  carMakes: string[];
+  governorates: string[];
+  lastRequestedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -1449,6 +1460,123 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
       mediatorContacts: [] as MediatorContact[],
       platformCommissionPercent,
     };
+  });
+
+function normalizeSmartSearchProductName(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ar")
+    .replace(/\u0640|\p{M}/gu, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+async function listSmartSearchRequestEvents(): Promise<EventRow[]> {
+  const pageSize = 1000;
+  const rows: EventRow[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const result = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", "botly_order")
+      .eq("payload->>sourceContext" as never, "missing_product_request")
+      .eq("payload->>eventName" as never, "missing_request_created")
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (result.error) {
+      return listEvents("botly_order", 5000);
+    }
+
+    const page = (result.data ?? []) as unknown as EventRow[];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<PopularSmartSearchProduct[]> => {
+    await authorizeAdmin(data.token);
+
+    const rows = await listSmartSearchRequestEvents();
+    const seenRequests = new Set<string>();
+    const products = new Map<
+      string,
+      PopularSmartSearchProduct & {
+        carMakeSet: Set<string>;
+        governorateSet: Set<string>;
+      }
+    >();
+
+    for (const row of rows) {
+      const payload = row.payload ?? {};
+      if (getString(payload.sourceContext) !== "missing_product_request") continue;
+      if (getString(payload.eventName) !== "missing_request_created") continue;
+
+      const requestId =
+        getString(payload.missingRequestId) || getString(payload.orderId) || row.id;
+      if (seenRequests.has(requestId)) continue;
+      seenRequests.add(requestId);
+
+      const productName = getString(payload.productTitle).trim();
+      const productKey = normalizeSmartSearchProductName(productName);
+      if (!productKey) continue;
+
+      const requestedAt =
+        getString(payload.eventAt) ||
+        getString(payload.createdAt) ||
+        eventTime(row);
+      const requesterType = getString(payload.requesterType);
+      const carMake = getString(payload.carMake).trim();
+      const governorate = normalizeGovernorate(
+        getString(payload.requesterGovernorate) || getString(payload.governorate),
+      );
+      const current = products.get(productKey);
+
+      if (current) {
+        current.requestCount += 1;
+        if (requesterType === "fitter") current.fitterCount += 1;
+        else current.customerCount += 1;
+        if (carMake) current.carMakeSet.add(carMake);
+        if (governorate) current.governorateSet.add(governorate);
+        if (requestedAt > current.lastRequestedAt) {
+          current.productName = productName;
+          current.lastRequestedAt = requestedAt;
+        }
+        continue;
+      }
+
+      products.set(productKey, {
+        productKey,
+        productName,
+        requestCount: 1,
+        customerCount: requesterType === "fitter" ? 0 : 1,
+        fitterCount: requesterType === "fitter" ? 1 : 0,
+        carMakes: [],
+        governorates: [],
+        lastRequestedAt: requestedAt,
+        carMakeSet: new Set(carMake ? [carMake] : []),
+        governorateSet: new Set(governorate ? [governorate] : []),
+      });
+    }
+
+    return [...products.values()]
+      .map(({ carMakeSet, governorateSet, ...product }) => ({
+        ...product,
+        carMakes: [...carMakeSet].sort((a, b) => a.localeCompare(b, "ar")),
+        governorates: [...governorateSet].sort((a, b) => a.localeCompare(b, "ar")),
+      }))
+      .sort(
+        (a, b) =>
+          b.requestCount - a.requestCount ||
+          b.lastRequestedAt.localeCompare(a.lastRequestedAt),
+      );
   });
 
 const mediatorPhoneInput = tokenInput.extend({

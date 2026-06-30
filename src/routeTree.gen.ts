@@ -29,6 +29,7 @@ import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
 import { Route as CustomerAppRouteImport } from './routes/customer/app'
 import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
+import { Route as AdminPopularRequestsRouteImport } from './routes/admin/popular-requests'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminMoreRouteImport } from './routes/admin/more'
 import { Route as AdminMediatorsRouteImport } from './routes/admin/mediators'
@@ -152,6 +153,11 @@ const Customer_layoutRoute = Customer_layoutRouteImport.update({
 const AdminStoresRoute = AdminStoresRouteImport.update({
   id: '/admin/stores',
   path: '/admin/stores',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPopularRequestsRoute = AdminPopularRequestsRouteImport.update({
+  id: '/admin/popular-requests',
+  path: '/admin/popular-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPackagesRoute = AdminPackagesRouteImport.update({
@@ -295,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
@@ -341,6 +348,7 @@ export interface FileRoutesByTo {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer': typeof CustomerIndexRoute
   '/customer/app': typeof CustomerAppRoute
@@ -387,6 +395,7 @@ export interface FileRoutesById {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
   '/customer/__layout': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
@@ -435,6 +444,7 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
     | '/customer'
     | '/customer/app'
@@ -481,6 +491,7 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
     | '/customer'
     | '/customer/app'
@@ -526,6 +537,7 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
     | '/customer/__layout'
     | '/customer/app'
@@ -573,6 +585,7 @@ export interface RootRouteChildren {
   AdminMediatorsRoute: typeof AdminMediatorsRoute
   AdminMoreRoute: typeof AdminMoreRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
+  AdminPopularRequestsRoute: typeof AdminPopularRequestsRoute
   AdminStoresRoute: typeof AdminStoresRoute
   Customer_layoutRoute: typeof Customer_layoutRoute
   CustomerAppRoute: typeof CustomerAppRoute
@@ -741,6 +754,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/stores'
       fullPath: '/admin/stores'
       preLoaderRoute: typeof AdminStoresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/popular-requests': {
+      id: '/admin/popular-requests'
+      path: '/admin/popular-requests'
+      fullPath: '/admin/popular-requests'
+      preLoaderRoute: typeof AdminPopularRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/packages': {
@@ -933,6 +953,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminMediatorsRoute: AdminMediatorsRoute,
   AdminMoreRoute: AdminMoreRoute,
   AdminPackagesRoute: AdminPackagesRoute,
+  AdminPopularRequestsRoute: AdminPopularRequestsRoute,
   AdminStoresRoute: AdminStoresRoute,
   Customer_layoutRoute: Customer_layoutRoute,
   CustomerAppRoute: CustomerAppRoute,

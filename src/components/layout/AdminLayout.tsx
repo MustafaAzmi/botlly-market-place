@@ -7,6 +7,7 @@ import {
   PhoneCall,
   ShieldCheck,
   Store,
+  TrendingUp,
   Wrench,
 } from "lucide-react";
 import type React from "react";
@@ -19,6 +20,7 @@ import { Logo } from "./Logo";
 const items = [
   { to: "/admin", icon: LayoutDashboard, label: "نظرة عامة" },
   { to: "/admin/stores", icon: Store, label: "المتاجر" },
+  { to: "/admin/popular-requests", icon: TrendingUp, label: "الأكثر طلباً" },
   { to: "/admin/fitters", icon: Wrench, label: "فيتر" },
   { to: "/admin/catalog", icon: Car, label: "الكتالوج" },
   { to: "/admin/mediators", icon: PhoneCall, label: "الوسطاء" },
