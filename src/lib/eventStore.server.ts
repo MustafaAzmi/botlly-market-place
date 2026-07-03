@@ -41,6 +41,33 @@ export type EventRow = {
   received_at?: string;
 };
 
+export const DEFAULT_PAGE_LIMIT = 20;
+export const MAX_PAGE_LIMIT = 100;
+
+export type PageRequest = {
+  page?: number;
+  limit?: number;
+  cursor?: string;
+};
+
+export type PageResult<T> = {
+  items: T[];
+  page: number;
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export function normalizePageRequest(input: PageRequest = {}) {
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const limit = Math.min(
+    MAX_PAGE_LIMIT,
+    Math.max(1, Math.floor(input.limit ?? DEFAULT_PAGE_LIMIT)),
+  );
+  const cursor = typeof input.cursor === "string" ? input.cursor.trim() : "";
+  return { page, limit, cursor };
+}
+
 const READ_CACHE_TTL_MS = 5_000;
 const eventReadCache = new Map<
   string,
@@ -118,29 +145,82 @@ export async function appendEvent(
   return fallback.data as unknown as EventRow;
 }
 
-// Read events of a given type (newest first).
-export async function listEvents(eventType: BotlyEventType, limit = 5000): Promise<EventRow[]> {
-  return cacheEventRead(`${eventType}:all:${limit}`, async () => {
-    const primary = await supabaseAdmin
+// Read one bounded page of events (newest first).
+export async function listEventsPage(
+  eventType: BotlyEventType,
+  request: PageRequest = {},
+): Promise<PageResult<EventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const cacheKey = `${eventType}:page:${page}:${limit}:${cursor}`;
+  const items = await cacheEventRead(cacheKey, async () => {
+    const offset = (page - 1) * limit;
+    let primaryQuery = supabaseAdmin
       .from("whatsapp_webhook_events")
       .select("id,payload,created_at")
       .eq("source", "botly")
       .eq("event_type", eventType)
-      .order("created_at", { ascending: false })
-      .limit(limit);
+      .order("created_at", { ascending: false });
+    primaryQuery = cursor
+      ? primaryQuery.lt("created_at", cursor)
+      : primaryQuery.range(offset, offset + limit - 1);
+    if (cursor) primaryQuery = primaryQuery.limit(limit);
+    const primary = await primaryQuery;
 
     if (!primary.error) return (primary.data ?? []) as EventRow[];
 
-    const fallback = await supabaseAdmin
+    let fallbackQuery = supabaseAdmin
       .from("whatsapp_webhook_events")
       .select("id,payload,received_at")
       .eq("provider" as never, eventType)
-      .order("received_at", { ascending: false })
-      .limit(limit);
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    if (cursor) fallbackQuery = fallbackQuery.limit(limit);
+    const fallback = await fallbackQuery;
 
     if (isMissingTableError(fallback.error) || fallback.error) return [];
     return (fallback.data ?? []) as unknown as EventRow[];
   });
+
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+// Compatibility helper for single-page reads. It is intentionally capped at
+// 100 rows; list/page endpoints should use listEventsPage directly.
+export async function listEvents(
+  eventType: BotlyEventType,
+  limit = DEFAULT_PAGE_LIMIT,
+): Promise<EventRow[]> {
+  const page = await listEventsPage(eventType, { limit });
+  return page.items;
+}
+
+// Admin exports may scan multiple bounded pages, but no individual database
+// query exceeds MAX_PAGE_LIMIT.
+export async function listEventsForAdminExport(
+  eventType: BotlyEventType,
+  maxRows = 5_000,
+): Promise<EventRow[]> {
+  const rows: EventRow[] = [];
+  let cursor = "";
+  while (rows.length < maxRows) {
+    const page = await listEventsPage(eventType, {
+      cursor,
+      limit: Math.min(MAX_PAGE_LIMIT, maxRows - rows.length),
+    });
+    rows.push(...page.items);
+    if (!page.hasMore || !page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return rows;
 }
 
 // Read events of a given type filtered by a payload field, server-side
@@ -150,25 +230,49 @@ export async function listEventsByPayloadField(
   eventType: BotlyEventType,
   field: string,
   value: string,
-  limit = 20,
+  limit = DEFAULT_PAGE_LIMIT,
 ): Promise<EventRow[]> {
-  const cacheKey = `${eventType}:field:${field}:${value}:${limit}`;
-  return cacheEventRead(cacheKey, async () => {
-    const primary = await supabaseAdmin
+  return (await listEventsByPayloadFieldPage(eventType, field, value, { limit })).items;
+}
+
+export async function listEventsByPayloadFieldPage(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  request: PageRequest = {},
+): Promise<PageResult<EventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const cacheKey = `${eventType}:field-page:${field}:${value}:${page}:${limit}:${cursor}`;
+  const items = await cacheEventRead(cacheKey, async () => {
+    const offset = (page - 1) * limit;
+    let primaryQuery = supabaseAdmin
       .from("whatsapp_webhook_events")
       .select("id,payload,created_at")
       .eq("source", "botly")
       .eq("event_type", eventType)
       .eq(`payload->>${field}` as never, value)
-      .order("created_at", { ascending: false })
-      .limit(limit);
+      .order("created_at", { ascending: false });
+    primaryQuery = cursor
+      ? primaryQuery.lt("created_at", cursor).limit(limit)
+      : primaryQuery.range(offset, offset + limit - 1);
+    const primary = await primaryQuery;
 
     if (!primary.error) return (primary.data ?? []) as EventRow[];
 
     // Older schema / filter failure: fall back to the in-memory scan.
-    const rows = await listEvents(eventType, 1000);
-    return rows.filter((row) => getString(row.payload?.[field]) === value).slice(0, limit);
+    const rows = await listEvents(eventType, MAX_PAGE_LIMIT);
+    return rows
+      .filter((row) => getString(row.payload?.[field]) === value)
+      .slice(offset, offset + limit);
   });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last) : null,
+    hasMore: items.length === limit,
+  };
 }
 
 // Read the most recent event matching a payload field equality. Useful for
@@ -180,6 +284,31 @@ export async function latestEventWhere(
 ): Promise<EventRow | null> {
   const rows = await listEventsByPayloadField(eventType, field, value, 1);
   return rows[0] ?? null;
+}
+
+export async function getEventById(
+  eventType: BotlyEventType,
+  id: string,
+): Promise<EventRow | null> {
+  if (!id.trim()) return null;
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,created_at")
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq("id", id)
+    .limit(1);
+  if (!primary.error && primary.data?.[0]) return primary.data[0] as EventRow;
+
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,received_at")
+    .eq("provider" as never, eventType)
+    .eq("id", id)
+    .limit(1);
+  return fallback.error || !fallback.data?.[0]
+    ? null
+    : (fallback.data[0] as unknown as EventRow);
 }
 
 // Delete all events of a specific type matching a payload field (hard delete from DB).
@@ -204,14 +333,21 @@ export async function deleteEventsByPayloadField(
 
 async function findMerchantById(id: string): Promise<EventRow | null> {
   if (!id || !id.trim()) return null;
-  const rows = await listEvents("botly_merchant");
-  return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
+  const rows = await listEventsByPayloadField("botly_merchant", "merchantId", id, 1);
+  return rows[0] ?? getEventById("botly_merchant", id);
 }
 
 async function findMerchantByPhone(phone: string): Promise<EventRow | null> {
   const key = phoneKey(phone);
   if (!key) return null;
-  const rows = await listEvents("botly_merchant");
+  const candidates = [...new Set([phone, normalizePhone(phone)])].filter(Boolean);
+  const groups = await Promise.all(
+    candidates.flatMap((candidate) => [
+      listEventsByPayloadField("botly_merchant", "whatsapp", candidate, 1),
+      listEventsByPayloadField("botly_merchant", "whatsappNormalized", candidate, 1),
+    ]),
+  );
+  const rows = groups.flat();
   return (
     rows.find((row) => {
       const payload = row.payload ?? {};
@@ -281,7 +417,7 @@ export function phoneKey(phone: string): string {
 // by SHA-256 token hash with a TTL). Reused by Meta integration server functions.
 export async function authorizeMerchantId(token: string): Promise<string> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_session");
+  const sessions = await listEventsByPayloadField("botly_session", "tokenHash", tokenHash, 1);
   const session = sessions.find((row) => {
     const payload = row.payload ?? {};
     return (

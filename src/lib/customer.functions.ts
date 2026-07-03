@@ -15,12 +15,17 @@ import { z } from "zod";
 import {
   appendEvent,
   listEvents,
+  listEventsByPayloadField,
+  listEventsPage,
+  latestEventWhere,
   getString,
   getNumber,
+  normalizePageRequest,
   eventTime,
   phoneKey,
   normalizePhone,
   type EventRow,
+  type PageResult,
 } from "@/lib/eventStore.server";
 import {
   CAR_COLORS,
@@ -98,7 +103,14 @@ function toCustomer(row: EventRow): CustomerProfile {
 async function findCustomerByPhone(whatsapp: string): Promise<EventRow | null> {
   const key = phoneKey(whatsapp);
   if (!key) return null;
-  const rows = await listEvents(CUSTOMER_PROVIDER);
+  const variants = [...new Set([whatsapp, normalizePhone(whatsapp)])].filter(Boolean);
+  const rows = (
+    await Promise.all(
+      variants.map((variant) =>
+        listEventsByPayloadField(CUSTOMER_PROVIDER, "whatsapp", variant, 1),
+      ),
+    )
+  ).flat();
   return rows.find((row) => phoneKey(getString(row.payload?.whatsapp)) === key) ?? null;
 }
 
@@ -170,6 +182,9 @@ const browseInput = z.object({
   color: z.string().trim().max(60).optional().or(z.literal("")),
   governorate: z.string().trim().max(100).optional().or(z.literal("")),
   searchScope: z.enum(["governorate", "all"]).optional(),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 // Does this product fit the requested manufacture year?
@@ -199,7 +214,7 @@ function liveCatalogueFallback(): CustomerCarCatalogue {
 // as the WhatsApp search path.
 async function loadHiddenMerchants(): Promise<Set<string>> {
   const hidden = new Set<string>();
-  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const rows = await listEvents("botly_merchant", 100).catch(() => [] as EventRow[]);
   const seen = new Set<string>();
   for (const row of rows) {
     const p = row.payload ?? {};
@@ -227,7 +242,7 @@ async function loadHiddenMerchants(): Promise<Set<string>> {
 
 async function loadMerchantGovernorates(): Promise<Map<string, string>> {
   const merchantGovernorates = new Map<string, string>();
-  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const rows = await listEvents("botly_merchant", 100).catch(() => [] as EventRow[]);
   const seen = new Set<string>();
   for (const row of rows) {
     const p = row.payload ?? {};
@@ -246,12 +261,18 @@ function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
 
 export const browseCarProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => browseInput.parse(d))
-  .handler(async ({ data }): Promise<CustomerProduct[]> => {
-    const [rows, hiddenMerchants, merchantGovernorates] = await Promise.all([
-      listEvents("botly_product"),
+  .handler(async ({ data }): Promise<PageResult<CustomerProduct>> => {
+    const pagination = normalizePageRequest(data);
+    const [productPage, hiddenMerchants, merchantGovernorates] = await Promise.all([
+      listEventsPage("botly_product", {
+        page: pagination.page,
+        cursor: pagination.cursor,
+        limit: 100,
+      }),
       loadHiddenMerchants(),
       loadMerchantGovernorates(),
     ]);
+    const rows = productPage.items;
 
     const wantMake = (data.carMake ?? "").trim();
     const wantModel = (data.carModel ?? "").trim();
@@ -261,11 +282,18 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const searchScope = data.searchScope ?? "governorate";
 
     if (!wantMake || (searchScope === "governorate" && !wantGovernorate)) {
-      return [];
+      return {
+        items: [],
+        page: pagination.page,
+        limit: pagination.limit,
+        nextCursor: null,
+        hasMore: false,
+      };
     }
 
     const results: CustomerProduct[] = [];
     const seen = new Set<string>();
+    let resultCursor: string | null = null;
 
     for (const row of rows) {
       const p = row.payload ?? {};
@@ -306,12 +334,12 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         : [];
       const storedImages = extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [];
       const imageUrls = storedImages.map((image, index) =>
-        image.startsWith("data:image/")
+        /^data:image\//i.test(image)
           ? `/api/product-image/${encodeURIComponent(productId)}?index=${index}`
           : image,
       );
 
-      results.push({
+      if (results.length < pagination.limit) results.push({
         id: productId,
         title: getString(p.title) || getString(p.description) || "منتج",
         description: getString(p.description),
@@ -328,9 +356,19 @@ export const browseCarProducts = createServerFn({ method: "POST" })
         deliveryEstimate: estimateDelivery(merchantGovernorate, wantGovernorate),
         quantity,
       });
+      if (results.length === pagination.limit) {
+        resultCursor = eventTime(row);
+        break;
+      }
     }
 
-    return results;
+    return {
+      items: results,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: resultCursor ?? productPage.nextCursor,
+      hasMore: Boolean(resultCursor) || productPage.hasMore,
+    };
   });
 
 // ---------------------------------------------------------------------------
@@ -469,10 +507,9 @@ async function resolveMerchantContact(
   let merchantId = merchantIdHint;
   let city = "";
 
-  const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
-  for (const row of products) {
+  const product = await latestEventWhere("botly_product", "productId", productId);
+  for (const row of product ? [product] : []) {
     const p = row.payload ?? {};
-    if ((getString(p.productId) || row.id) !== productId) continue;
     whatsapp = getString(p.whatsapp);
     merchantId = merchantId || getString(p.merchantId);
     city = getString(p.merchantCity);
@@ -481,7 +518,12 @@ async function resolveMerchantContact(
 
   let storeName = "";
   if (merchantId) {
-    const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+    const merchants = await listEventsByPayloadField(
+      "botly_merchant",
+      "merchantId",
+      merchantId,
+      1,
+    );
     for (const row of merchants) {
       const p = row.payload ?? {};
       if ((getString(p.merchantId) || row.id) !== merchantId) continue;
@@ -506,8 +548,7 @@ async function resolveOrderProduct(productId: string): Promise<{
   merchantId: string;
   merchantGovernorate: string;
 }> {
-  const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
-  const row = products.find((event) => (getString(event.payload?.productId) || event.id) === productId);
+  const row = await latestEventWhere("botly_product", "productId", productId);
   if (!row) throw new Error("المنتج غير موجود حالياً.");
 
   const p = row.payload ?? {};

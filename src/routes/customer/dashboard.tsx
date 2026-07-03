@@ -250,6 +250,10 @@ function ShopTab({
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageCursors, setPageCursors] = useState<Record<number, string>>({ 1: "" });
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [colors, setColors] = useState<string[]>([]);
   const [years, setYears] = useState<string[]>([]);
@@ -268,10 +272,16 @@ function ShopTab({
 
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
-  const search = useCallback(async () => {
+  const search = useCallback(async (nextPage = 1) => {
     setLoading(true);
     setSearched(true);
     try {
+      const cursor =
+        nextPage === 1
+          ? ""
+          : nextPage > page
+            ? nextCursor ?? ""
+            : pageCursors[nextPage] ?? "";
       const results = await browseFn({
         data: {
           carMake,
@@ -280,15 +290,24 @@ function ShopTab({
           color,
           governorate,
           searchScope,
+          page: nextPage,
+          limit: 20,
+          cursor,
         },
       });
-      setProducts(results);
+      setProducts(results.items);
+      setPage(results.page);
+      setHasMore(results.hasMore);
+      setNextCursor(results.nextCursor);
+      setPageCursors((current) =>
+        nextPage === 1 ? { 1: "" } : { ...current, [nextPage]: cursor },
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("common.loading"));
     } finally {
       setLoading(false);
     }
-  }, [browseFn, carMake, carModel, carYear, color, governorate, searchScope, t]);
+  }, [browseFn, carMake, carModel, carYear, color, governorate, nextCursor, page, pageCursors, searchScope, t]);
 
   return (
     <div className="space-y-6">
@@ -408,7 +427,7 @@ function ShopTab({
             البحث في جميع المحافظات
           </Button>
         </div>
-        <Button onClick={search} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
+        <Button onClick={() => search(1)} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           {t("customer.shop.search")}
         </Button>
@@ -436,6 +455,11 @@ function ShopTab({
             <Sparkles className="h-4 w-4" />
             فتح البحث الذكي
           </Button>
+          {hasMore ? (
+            <Button type="button" variant="outline" className="mt-4" onClick={() => search(page + 1)}>
+              البحث في المزيد
+            </Button>
+          ) : null}
         </div>
       ) : (
         <>
@@ -452,6 +476,25 @@ function ShopTab({
                 customerLandmark={customer.landmark}
               />
             ))}
+          </div>
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || page <= 1}
+              onClick={() => search(page - 1)}
+            >
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">الصفحة {page}</span>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || !hasMore}
+              onClick={() => search(page + 1)}
+            >
+              التالي
+            </Button>
           </div>
         </>
       )}

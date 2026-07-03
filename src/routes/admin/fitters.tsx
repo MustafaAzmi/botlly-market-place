@@ -55,12 +55,17 @@ function AdminFittersPage() {
   const resetFn = useServerFn(resetFitterProfitByAdmin);
   const [editing, setEditing] = useState<Record<string, FitterAdminView>>({});
   const [busyId, setBusyId] = useState("");
+  const [page, setPage] = useState(1);
 
-  const { data: fitters = [], isLoading, refetch } = useQuery({
-    queryKey: ["admin-fitters"],
+  const { data: fitterResult, isLoading, refetch } = useQuery({
+    queryKey: ["admin-fitters", page],
     enabled: !!session?.token,
-    queryFn: async () => (session?.token ? listFn({ data: { token: session.token } }) : []),
+    queryFn: async () =>
+      session?.token
+        ? listFn({ data: { token: session.token, page, limit: 20 } })
+        : null,
   });
+  const fitters = fitterResult?.items ?? [];
 
   const rowState = (row: FitterAdminView) => editing[row.fitterId] ?? row;
   const patch = (id: string, base: FitterAdminView, changes: Partial<FitterAdminView>) =>
@@ -183,6 +188,15 @@ function AdminFittersPage() {
           })}
         </div>
       )}
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={!fitterResult?.hasMore} onClick={() => setPage((value) => value + 1)}>
+          التالي
+        </Button>
+      </div>
     </AdminLayout>
   );
 }

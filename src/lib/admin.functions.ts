@@ -3,7 +3,15 @@ import { z } from "zod";
 
 import {
   appendEvent,
+  deleteEventsByPayloadField,
+  getEventById,
   listEvents,
+  listEventsForAdminExport,
+  listEventsByPayloadField,
+  listEventsByPayloadFieldPage,
+  listEventsPage,
+  latestEventWhere,
+  normalizePageRequest,
   getString,
   getNumber,
   eventTime,
@@ -12,6 +20,7 @@ import {
   normalizePhone,
   phoneKey,
   type EventRow,
+  type PageResult,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -130,9 +139,19 @@ const loginInput = z.object({
 });
 
 const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
+const paginatedTokenInput = tokenInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 const merchantActionInput = tokenInput.extend({
   merchantId: z.string().trim().min(1).max(100),
+});
+const paginatedMerchantInput = merchantActionInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 const merchantProductActionInput = merchantActionInput.extend({
@@ -226,19 +245,28 @@ async function latestAdmins(): Promise<EventRow[]> {
 
 async function findAdminByPhone(whatsapp: string): Promise<EventRow | null> {
   const normalized = normalizePhone(whatsapp);
-  const admins = await latestAdmins();
-  return admins.find((row) => getString(row.payload?.whatsappNormalized) === normalized) ?? null;
+  const rows = await listEventsByPayloadField(
+    "botly_admin",
+    "whatsappNormalized",
+    normalized,
+    1,
+  );
+  return rows[0] ?? null;
 }
 
 async function findAdminById(adminId: string): Promise<EventRow | null> {
-  const admins = await latestAdmins();
-  return admins.find((row) => adminIdentity(row) === adminId) ?? null;
+  return latestEventWhere("botly_admin", "adminId", adminId);
 }
 
 // Validate an admin session token -> adminId. Throws if invalid/expired.
 async function authorizeAdmin(token: string): Promise<string> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_admin_session");
+  const sessions = await listEventsByPayloadField(
+    "botly_admin_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const session = sessions.find((row) => {
     const p = row.payload ?? {};
     return (
@@ -434,7 +462,9 @@ function toAdminMerchantProduct(row: EventRow): AdminMerchantProductView {
   return {
     id: productIdentity(row),
     title: getString(p.title) || getString(p.description) || "منتج",
-    imageUrl: primaryImage || extraImages[0] || "",
+    imageUrl: /^data:image\//i.test(primaryImage || extraImages[0] || "")
+      ? `/api/product-image/${encodeURIComponent(productIdentity(row))}?index=0`
+      : primaryImage || extraImages[0] || "",
     currentPrice: getNumber(p.currentPrice) ?? getNumber(p.price) ?? 0,
     discountPrice: getNumber(p.discountPrice),
     currency: getString(p.currency) || "IQD",
@@ -448,8 +478,8 @@ function toAdminMerchantProduct(row: EventRow): AdminMerchantProductView {
 }
 
 // Latest merchant event per merchantId.
-async function latestMerchants(): Promise<EventRow[]> {
-  const rows = await listEvents("botly_merchant");
+async function latestMerchants(sourceRows?: EventRow[]): Promise<EventRow[]> {
+  const rows = sourceRows ?? await listEvents("botly_merchant");
   const seen = new Map<string, EventRow>();
   for (const row of rows) {
     const id = merchantIdentity(row);
@@ -483,7 +513,7 @@ async function loadMerchantMetrics(): Promise<{
   const platformCommissionPercent = await getPlatformCommissionPercent();
 
   // Products: count latest-per-productId, visible in merchant dashboards.
-  const productRows = await listEvents("botly_product");
+  const productRows = await listEvents("botly_product", 100);
   const seenProduct = new Set<string>();
   for (const row of productRows) {
     const pid = productIdentity(row);
@@ -496,7 +526,7 @@ async function loadMerchantMetrics(): Promise<{
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
   }
 
-  const resetRows = await listEvents("botly_merchant_sales_reset");
+  const resetRows = await listEvents("botly_merchant_sales_reset", 100);
   for (const row of resetRows) {
     const merchantId = getString(row.payload?.merchantId);
     if (merchantId && !salesResetAtByMerchant.has(merchantId)) {
@@ -504,7 +534,7 @@ async function loadMerchantMetrics(): Promise<{
     }
   }
 
-  const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
+  const orderRows = latestByPayloadId(await listEvents("botly_order", 100), "orderId");
   for (const row of orderRows) {
     const p = row.payload ?? {};
     if (getString(p.merchantStatus) !== "Sold" || getString(p.requesterStatus) !== "Purchased") continue;
@@ -563,13 +593,15 @@ async function getPlatformCommissionPercent() {
 }
 
 export const listMerchants = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<MerchantAdminView[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<MerchantAdminView>> => {
     await authorizeAdmin(data.token);
-    const merchants = await latestMerchants();
+    const pagination = normalizePageRequest(data);
+    const merchantPage = await listEventsPage("botly_merchant", pagination);
+    const merchants = await latestMerchants(merchantPage.items);
     const { productCounts, salesByMerchant, salesTotalsByMerchant } = await loadMerchantMetrics();
 
-    return merchants
+    const items = merchants
       .map((row) => {
         const p = row.payload ?? {};
         const mId = merchantIdentity(row);
@@ -600,19 +632,35 @@ export const listMerchants = createServerFn({ method: "POST" })
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: merchantPage.nextCursor,
+      hasMore: merchantPage.hasMore,
+    };
   });
 
 export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
-  .inputValidator((d) => merchantActionInput.parse(d))
-  .handler(async ({ data }): Promise<AdminMerchantProductView[]> => {
+  .inputValidator((d) => paginatedMerchantInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<AdminMerchantProductView>> => {
     await authorizeAdmin(data.token);
-    const merchant = (await latestMerchants()).find(
-      (row) => merchantIdentity(row) === data.merchantId || row.id === data.merchantId,
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
     );
     if (!merchant) throw new Error("لم يتم العثور على المتجر.");
 
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents("botly_product");
+    const pagination = normalizePageRequest(data);
+    const productPage = await listEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      pagination,
+    );
+    const rows = productPage.items;
     const seen = new Set<string>();
     const products: AdminMerchantProductView[] = [];
     for (const row of rows) {
@@ -625,27 +673,31 @@ export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
       if (status === "rejected") continue;
       products.push(toAdminMerchantProduct(row));
     }
-    return products;
+    return {
+      items: products.slice(0, pagination.limit),
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: productPage.nextCursor,
+      hasMore: productPage.hasMore,
+    };
   });
 
 export const deleteMerchantProductForAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => merchantProductActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchant = (await latestMerchants()).find(
-      (row) => merchantIdentity(row) === data.merchantId || row.id === data.merchantId,
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
     );
     if (!merchant) throw new Error("لم يتم العثور على المتجر.");
 
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents("botly_product");
-    const row = rows.find(
-      (candidate) =>
-        !isDeletedProduct(candidate) &&
-        getString(candidate.payload?.merchantId) === merchantId &&
-        (productIdentity(candidate) === data.productId || candidate.id === data.productId),
-    );
-    if (!row) throw new Error("لم يتم العثور على المنتج.");
+    const row = await latestEventWhere("botly_product", "productId", data.productId);
+    if (!row || getString(row.payload?.merchantId) !== merchantId) {
+      throw new Error("لم يتم العثور على المنتج.");
+    }
 
     const p = row.payload ?? {};
     const productId = productIdentity(row);
@@ -712,11 +764,92 @@ export const resetMerchantSalesReport = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const getMerchantSalesExport = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const [orderRows, resetRows] = await Promise.all([
+      listEventsForAdminExport("botly_order"),
+      listEventsByPayloadField(
+        "botly_merchant_sales_reset",
+        "merchantId",
+        data.merchantId,
+        1,
+      ),
+    ]);
+    const resetAt = resetRows[0] ? salesReportResetTime(resetRows[0]) : "";
+    const commissionPercent = await getPlatformCommissionPercent();
+    const sales = latestByPayloadId(orderRows, "orderId")
+      .filter((row) => {
+        const payload = row.payload ?? {};
+        const createdAt =
+          getString(payload.updatedAt) ||
+          getString(payload.createdAt) ||
+          eventTime(row);
+        return (
+          getString(payload.merchantId) === data.merchantId &&
+          getString(payload.merchantStatus) === "Sold" &&
+          getString(payload.requesterStatus) === "Purchased" &&
+          (!resetAt || createdAt > resetAt)
+        );
+      })
+      .map((row): MerchantSaleDetail => {
+        const payload = row.payload ?? {};
+        const price =
+          getNumber(payload.price) ?? getNumber(payload.currentPrice) ?? 0;
+        const appliedPercent =
+          getNumber(payload.commissionPercent) ?? commissionPercent;
+        const commissionAmount = Number(
+          ((price * appliedPercent) / 100).toFixed(2),
+        );
+        return {
+          orderId: getString(payload.orderId) || row.id,
+          productTitle: getString(payload.productTitle) || "منتج",
+          price,
+          currency: getString(payload.currency) || "IQD",
+          customerName:
+            getString(payload.customerName) ||
+            getString(payload.requesterName),
+          customerPhone:
+            getString(payload.customerPhone) ||
+            getString(payload.customerNumber) ||
+            getString(payload.requesterPhone),
+          commissionPercent: appliedPercent,
+          commissionAmount,
+          merchantNet: Number((price - commissionAmount).toFixed(2)),
+          operationStatus: "مكتملة",
+          createdAt:
+            getString(payload.updatedAt) ||
+            getString(payload.createdAt) ||
+            eventTime(row),
+        };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const totals = new Map<string, number>();
+    for (const sale of sales) {
+      totals.set(sale.currency, (totals.get(sale.currency) ?? 0) + sale.price);
+    }
+    return {
+      sales,
+      salesCount: sales.length,
+      salesTotals: [...totals.entries()].map(([currency, amount]) => ({
+        currency,
+        amount,
+      })),
+    };
+  });
+
 // Append a merchant event with merged control flags. Preserves credentials and
 // profile fields so merchant login keeps working.
 async function applyMerchantControl(merchantId: string, changes: Record<string, unknown>) {
-  const merchants = await listEvents("botly_merchant");
-  const row = merchants.find((r) => merchantIdentity(r) === merchantId);
+  const row = await latestEventWhere("botly_merchant", "merchantId", merchantId);
   if (!row) throw new Error("لم يتم العثور على المتجر.");
 
   await appendEvent("botly_merchant", {
@@ -768,52 +901,38 @@ export const setMerchantSubscription = createServerFn({ method: "POST" })
 
 // Hard delete a merchant store and all its data (products, orders, sessions).
 //
-// Deletes by row id rather than a payload->>merchantId filter: merchants
-// created before the merchantId payload field existed are identified by their
-// row id (see merchantIdentity), so a JSON-path filter matches nothing for
-// them and the store silently survives. Collecting ids via listEvents also
-// works on both the source/event_type and legacy provider column schemas.
+// Delete by merchantId so the operation remains complete regardless of list
+// pagination. Legacy profiles without merchantId are removed by exact row id.
 export const deleteMerchantStore = createServerFn({ method: "POST" })
   .inputValidator((d) => merchantActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchants = await listEvents("botly_merchant");
-    const target = merchants.find(
-      (r) => merchantIdentity(r) === data.merchantId || r.id === data.merchantId,
-    );
+    const target =
+      await latestEventWhere("botly_merchant", "merchantId", data.merchantId)
+      ?? await getEventById("botly_merchant", data.merchantId);
     if (!target) throw new Error("لم يتم العثور على المتجر.");
 
     const merchantId = merchantIdentity(target);
 
-    const [products, orders, sessions] = await Promise.all([
-      listEvents("botly_product"),
-      listEvents("botly_order"),
-      listEvents("botly_session"),
+    const deleted = await Promise.all([
+      deleteEventsByPayloadField("botly_product", "merchantId", merchantId),
+      deleteEventsByPayloadField("botly_order", "merchantId", merchantId),
+      deleteEventsByPayloadField("botly_session", "merchantId", merchantId),
+      deleteEventsByPayloadField("botly_merchant", "merchantId", merchantId),
     ]);
 
-    const ids = new Set<string>();
-    // Every profile event in the merchant's append-only history.
-    for (const r of merchants) {
-      if (merchantIdentity(r) === merchantId || r.id === data.merchantId) ids.add(r.id);
-    }
-    const belongsToMerchant = (r: EventRow) => getString(r.payload?.merchantId) === merchantId;
-    for (const r of products) if (belongsToMerchant(r)) ids.add(r.id);
-    for (const r of orders) if (belongsToMerchant(r)) ids.add(r.id);
-    for (const r of sessions) if (belongsToMerchant(r)) ids.add(r.id);
-
-    const all = [...ids];
-    for (let i = 0; i < all.length; i += 200) {
-      const chunk = all.slice(i, i + 200);
+    // Legacy merchant rows used their row id as the identity.
+    if (!getString(target.payload?.merchantId)) {
       const result = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
-        .in("id", chunk as never[]);
+        .eq("id", target.id);
       if (result.error) {
         throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
       }
     }
 
-    return { ok: true, deleted: all.length };
+    return { ok: true, deleted: deleted.reduce((sum, count) => sum + count, 0) };
   });
 
 // ---------------------------------------------------------------------------
@@ -843,7 +962,9 @@ export const sendAdminBroadcast = createServerFn({ method: "POST" })
   .inputValidator((d) => broadcastInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchants = await latestMerchants();
+    const merchants = await latestMerchants(
+      await listEventsForAdminExport("botly_merchant"),
+    );
 
     const targets = merchants.filter((row) => {
       const phone = getString(row.payload?.whatsapp);
@@ -889,11 +1010,12 @@ export const sendMerchantMessage = createServerFn({ method: "POST" })
 
 // Recent admin message history (delivery stats).
 export const listAdminMessages = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<AdminMessageRecord[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<AdminMessageRecord>> => {
     await authorizeAdmin(data.token);
-    const rows = await listEvents("botly_admin_message");
-    return rows.slice(0, 50).map((row) => {
+    const pagination = normalizePageRequest(data);
+    const page = await listEventsPage("botly_admin_message", pagination);
+    const items = page.items.map((row) => {
       const p = row.payload ?? {};
       return {
         id: getString(p.messageId) || row.id,
@@ -905,6 +1027,7 @@ export const listAdminMessages = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+    return { ...page, items };
   });
 
 // ---------------------------------------------------------------------------
@@ -1207,11 +1330,12 @@ function customerIdentity(row: EventRow) {
 }
 
 export const listCustomers = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<CustomerAdminView[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<CustomerAdminView>> => {
     await authorizeAdmin(data.token);
-
-    const customerRows = await listEvents("botly_customer");
+    const pagination = normalizePageRequest(data);
+    const customerPage = await listEventsPage("botly_customer", pagination);
+    const customerRows = customerPage.items;
 
     // Latest profile per customer.
     const seen = new Map<string, EventRow>();
@@ -1220,7 +1344,7 @@ export const listCustomers = createServerFn({ method: "POST" })
       if (!seen.has(id)) seen.set(id, row);
     }
 
-    return [...seen.values()].map((row) => {
+    const items = [...seen.values()].map((row) => {
       const p = row.payload ?? {};
       return {
         customerId: customerIdentity(row),
@@ -1231,6 +1355,13 @@ export const listCustomers = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+    return {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: customerPage.nextCursor,
+      hasMore: customerPage.hasMore,
+    };
   });
 
 // ---------------------------------------------------------------------------
@@ -1264,10 +1395,20 @@ function latestFitterRows(rows: EventRow[]) {
 }
 
 async function currentFitterProfit(fitterId: string, fallbackCommissionPercent = 0) {
-  const resetRows = await listEvents("botly_fitter_reset");
+  const resetRows = await listEventsByPayloadField(
+    "botly_fitter_reset",
+    "fitterId",
+    fitterId,
+    100,
+  );
   const reset = resetRows.find((row) => getString(row.payload?.fitterId) === fitterId);
   const resetAt = reset ? new Date(getString(reset.payload?.createdAt) || eventTime(reset)).getTime() : 0;
-  const orderRows = await listEvents("botly_fitter_order");
+  const orderRows = await listEventsByPayloadField(
+    "botly_fitter_order",
+    "fitterId",
+    fitterId,
+    100,
+  );
   const latestOrders = new Map<string, EventRow>();
   for (const row of orderRows) {
     if (getString(row.payload?.fitterId) !== fitterId) continue;
@@ -1278,7 +1419,12 @@ async function currentFitterProfit(fitterId: string, fallbackCommissionPercent =
     if (getString(row.payload?.status) !== "confirmed") return false;
     return new Date(getString(row.payload?.updatedAt) || getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
   });
-  const legacySales = (await listEvents("botly_fitter_sale")).filter((row) => {
+  const legacySales = (await listEventsByPayloadField(
+    "botly_fitter_sale",
+    "fitterId",
+    fitterId,
+    100,
+  )).filter((row) => {
     if (getString(row.payload?.fitterId) !== fitterId) return false;
     if (getString(row.payload?.orderId)) return false;
     return new Date(getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
@@ -1299,11 +1445,13 @@ async function currentFitterProfit(fitterId: string, fallbackCommissionPercent =
 }
 
 export const listFitters = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<FitterAdminView[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<FitterAdminView>> => {
     await authorizeAdmin(data.token);
-    const fitters = latestFitterRows(await listEvents("botly_fitter"));
-    return Promise.all(
+    const pagination = normalizePageRequest(data);
+    const fitterPage = await listEventsPage("botly_fitter", pagination);
+    const fitters = latestFitterRows(fitterPage.items);
+    const items = await Promise.all(
       fitters.map(async (row) => {
         const p = row.payload ?? {};
         const fitterId = fitterIdentity(row);
@@ -1325,14 +1473,20 @@ export const listFitters = createServerFn({ method: "POST" })
         };
       }),
     );
+    return {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: fitterPage.nextCursor,
+      hasMore: fitterPage.hasMore,
+    };
   });
 
 export const updateFitterByAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => fitterAdminUpdateInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const rows = latestFitterRows(await listEvents("botly_fitter"));
-    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
     if (!row) throw new Error("لم يتم العثور على الفيتر.");
     await appendEvent("botly_fitter", {
       ...(row.payload ?? {}),
@@ -1352,8 +1506,7 @@ export const deleteFitterByAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => fitterAdminActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const rows = latestFitterRows(await listEvents("botly_fitter"));
-    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
     if (!row) throw new Error("لم يتم العثور على الفيتر.");
     await appendEvent("botly_fitter", {
       ...(row.payload ?? {}),
@@ -1434,37 +1587,18 @@ function normalizeSmartSearchProductName(value: string) {
     .replace(/\s+/g, " ");
 }
 
-async function listSmartSearchRequestEvents(): Promise<EventRow[]> {
-  const pageSize = 1000;
-  const rows: EventRow[] = [];
-
-  for (let from = 0; ; from += pageSize) {
-    const result = await supabaseAdmin
-      .from("whatsapp_webhook_events")
-      .select("id,payload,created_at")
-      .eq("source", "botly")
-      .eq("event_type", "botly_order")
-      .eq("payload->>sourceContext" as never, "missing_product_request")
-      .eq("payload->>eventName" as never, "missing_request_created")
-      .order("created_at", { ascending: false })
-      .range(from, from + pageSize - 1);
-
-    if (result.error) {
-      return listEvents("botly_order", 5000);
-    }
-
-    const page = (result.data ?? []) as unknown as EventRow[];
-    rows.push(...page);
-    if (page.length < pageSize) return rows;
-  }
-}
-
 export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<PopularSmartSearchProduct[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<PopularSmartSearchProduct>> => {
     await authorizeAdmin(data.token);
-
-    const rows = await listSmartSearchRequestEvents();
+    const pagination = normalizePageRequest(data);
+    const eventPage = await listEventsByPayloadFieldPage(
+      "botly_order",
+      "sourceContext",
+      "missing_product_request",
+      pagination,
+    );
+    const rows = eventPage.items;
     const seenRequests = new Set<string>();
     const products = new Map<
       string,
@@ -1526,7 +1660,7 @@ export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
       });
     }
 
-    return [...products.values()]
+    const items = [...products.values()]
       .map(({ carMakeSet, governorateSet, ...product }) => ({
         ...product,
         carMakes: [...carMakeSet].sort((a, b) => a.localeCompare(b, "ar")),
@@ -1537,6 +1671,7 @@ export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
           b.requestCount - a.requestCount ||
           b.lastRequestedAt.localeCompare(a.lastRequestedAt),
       );
+    return { ...eventPage, items };
   });
 
 const mediatorPhoneInput = tokenInput.extend({

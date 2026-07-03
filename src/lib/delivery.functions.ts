@@ -17,8 +17,13 @@ import {
   appendEvent,
   authorizeMerchantId,
   getString,
-  listEvents,
+  latestEventWhere,
+  listEventsByPayloadField,
+  listEventsPage,
+  normalizePageRequest,
   sha256,
+  type PageRequest,
+  type PageResult,
 } from "@/lib/eventStore.server";
 
 export interface DeliveryCompanyRecord {
@@ -35,6 +40,11 @@ export interface DeliveryCompanyRecord {
 // ---------------------------------------------------------------------------
 
 const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
+const paginatedTokenInput = tokenInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 const addInput = tokenInput.extend({
   name: z.string().trim().min(2).max(120),
@@ -55,7 +65,12 @@ const banInput = companyActionInput.extend({ banned: z.boolean() });
 
 async function authorizeAdmin(token: string): Promise<string> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_admin_session");
+  const sessions = await listEventsByPayloadField(
+    "botly_admin_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const session = sessions.find((row) => {
     const p = row.payload ?? {};
     return (
@@ -78,11 +93,11 @@ function readCities(value: unknown): string[] {
   );
 }
 
-async function loadDeliveryCompanies(): Promise<DeliveryCompanyRecord[]> {
-  // Load events with a reasonable limit (newest-first) to avoid scanning
-  // thousands of rows just to build company snapshot. 500 events is ~50 companies
-  // with 10 revisions each, more than enough for most platforms.
-  const rows = await listEvents("botly_delivery_company", 500);
+async function loadDeliveryCompanies(
+  request: PageRequest = {},
+): Promise<PageResult<DeliveryCompanyRecord>> {
+  const page = await listEventsPage("botly_delivery_company", request);
+  const rows = page.items;
   const byId = new Map<string, DeliveryCompanyRecord | null>();
 
   // listEvents returns newest-first, so the first row per companyId is the
@@ -111,9 +126,10 @@ async function loadDeliveryCompanies(): Promise<DeliveryCompanyRecord[]> {
     });
   }
 
-  return [...byId.values()].filter(
+  const items = [...byId.values()].filter(
     (company): company is DeliveryCompanyRecord => company !== null,
   );
+  return { ...page, items };
 }
 
 // ---------------------------------------------------------------------------
@@ -121,10 +137,10 @@ async function loadDeliveryCompanies(): Promise<DeliveryCompanyRecord[]> {
 // ---------------------------------------------------------------------------
 
 export const listDeliveryCompaniesAdmin = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<DeliveryCompanyRecord[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<DeliveryCompanyRecord>> => {
     await authorizeAdmin(data.token);
-    return loadDeliveryCompanies();
+    return loadDeliveryCompanies(normalizePageRequest(data));
   });
 
 export const addDeliveryCompany = createServerFn({ method: "POST" })
@@ -156,8 +172,22 @@ export const setDeliveryCompanyBan = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
 
-    const companies = await loadDeliveryCompanies();
-    const company = companies.find((c) => c.id === data.companyId);
+    const row = await latestEventWhere(
+      "botly_delivery_company",
+      "companyId",
+      data.companyId,
+    );
+    const payload = row?.payload ?? {};
+    const company = row
+      ? {
+          id: data.companyId,
+          name: getString(payload.name),
+          phone: getString(payload.phone),
+          cities: readCities(payload.cities),
+          bannedFromBot: payload.bannedFromBot === true,
+          createdAt: getString(payload.createdAt) || new Date().toISOString(),
+        }
+      : null;
     if (!company) throw new Error("لم يتم العثور على شركة التوصيل.");
 
     await appendEvent("botly_delivery_company", {
@@ -190,9 +220,12 @@ export const removeDeliveryCompany = createServerFn({ method: "POST" })
 // ---------------------------------------------------------------------------
 
 export const listActiveDeliveryCompanies = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<DeliveryCompanyRecord[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<DeliveryCompanyRecord>> => {
     await authorizeMerchantId(data.token);
-    const companies = await loadDeliveryCompanies();
-    return companies.filter((company) => !company.bannedFromBot);
+    const page = await loadDeliveryCompanies(normalizePageRequest(data));
+    return {
+      ...page,
+      items: page.items.filter((company) => !company.bannedFromBot),
+    };
   });

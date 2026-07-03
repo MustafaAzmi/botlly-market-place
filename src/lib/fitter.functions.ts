@@ -6,7 +6,9 @@ import {
   eventTime,
   getNumber,
   getString,
+  latestEventWhere,
   listEvents,
+  listEventsByPayloadField,
   normalizePhone,
   phoneKey,
   randomToken,
@@ -149,13 +151,19 @@ async function latestFitters(): Promise<EventRow[]> {
 async function findFitterByPhone(whatsapp: string): Promise<EventRow | null> {
   const key = phoneKey(whatsapp);
   if (!key) return null;
-  const fitters = await latestFitters();
+  const variants = [...new Set([whatsapp, normalizePhone(whatsapp)])].filter(Boolean);
+  const fitters = (
+    await Promise.all(
+      variants.map((variant) =>
+        listEventsByPayloadField("botly_fitter", "whatsapp", variant, 1),
+      ),
+    )
+  ).flat();
   return fitters.find((row) => phoneKey(getString(row.payload?.whatsapp)) === key) ?? null;
 }
 
 async function findFitterById(fitterId: string): Promise<EventRow | null> {
-  const fitters = await latestFitters();
-  return fitters.find((row) => fitterIdentity(row) === fitterId) ?? null;
+  return await latestEventWhere("botly_fitter", "fitterId", fitterId);
 }
 
 async function createFitterSession(fitterId: string): Promise<string> {
@@ -171,7 +179,12 @@ async function createFitterSession(fitterId: string): Promise<string> {
 
 async function authorizeFitter(token: string): Promise<EventRow> {
   const tokenHash = await sha256(token);
-  const rows = await listEvents("botly_fitter_session");
+  const rows = await listEventsByPayloadField(
+    "botly_fitter_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const session = rows.find((row) => {
     const p = row.payload ?? {};
     return (
@@ -261,8 +274,7 @@ export const updateFitterProfile = createServerFn({ method: "POST" })
   });
 
 async function resolveProduct(productId: string) {
-  const products = await listEvents("botly_product");
-  const row = products.find((event) => (getString(event.payload?.productId) || event.id) === productId);
+  const row = await latestEventWhere("botly_product", "productId", productId);
   if (!row) throw new Error("المنتج غير متوفر حالياً.");
   const p = row.payload ?? {};
   if (getString(p.status) !== "active" || getString(p.availability) === "out_of_stock") {
@@ -289,8 +301,7 @@ async function resolveMerchantContact(merchantId: string, fallbackWhatsapp = "")
   let address = "";
   let city = "";
   if (!merchantId) return { whatsapp, storeName, address, city };
-  const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
-  const row = merchants.find((event) => (getString(event.payload?.merchantId) || event.id) === merchantId);
+  const row = await latestEventWhere("botly_merchant", "merchantId", merchantId);
   if (row) {
     whatsapp = getString(row.payload?.whatsapp) || getString(row.payload?.whatsappNormalized) || whatsapp;
     storeName = getString(row.payload?.storeName);

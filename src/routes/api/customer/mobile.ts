@@ -13,6 +13,9 @@ import {
   appendEvent,
   getString,
   listEvents,
+  listEventsByPayloadField,
+  listEventsByPayloadFieldPage,
+  normalizePageRequest,
   normalizePhone,
   type EventRow,
 } from "@/lib/eventStore.server";
@@ -72,10 +75,32 @@ function orderTime(row: EventRow) {
 }
 
 async function listCustomerOrders(data: unknown) {
-  const phone = getString((data as Record<string, unknown> | null)?.customerPhone);
+  const input = data as Record<string, unknown> | null;
+  const phone = getString(input?.customerPhone);
   const key = phoneKey(phone);
-  if (!key) return [];
-  const rows = await listEvents("botly_order");
+  const pagination = normalizePageRequest({
+    page: typeof input?.page === "number" ? input.page : undefined,
+    limit: typeof input?.limit === "number" ? input.limit : undefined,
+    cursor: getString(input?.cursor),
+  });
+  if (!key) {
+    return { items: [], ...pagination, nextCursor: null, hasMore: false };
+  }
+  let eventPage = await listEventsByPayloadFieldPage(
+    "botly_order",
+    "requesterPhone",
+    phone,
+    pagination,
+  );
+  if (eventPage.items.length === 0) {
+    eventPage = await listEventsByPayloadFieldPage(
+      "botly_order",
+      "customerPhone",
+      phone,
+      pagination,
+    );
+  }
+  const rows = eventPage.items;
   const latest = new Map<string, Record<string, unknown>>();
   for (const row of rows) {
     const payload = row.payload ?? {};
@@ -109,12 +134,18 @@ async function listCustomerOrders(data: unknown) {
         row.received_at,
     });
   }
-  return [...latest.values()];
+  return {
+    items: [...latest.values()].slice(0, pagination.limit),
+    page: pagination.page,
+    limit: pagination.limit,
+    nextCursor: eventPage.nextCursor,
+    hasMore: eventPage.hasMore,
+  };
 }
 
 async function findCustomerOrder(orderId: string, customerPhone: string) {
   const key = phoneKey(customerPhone);
-  const rows = await listEvents("botly_order");
+  const rows = await listEventsByPayloadField("botly_order", "orderId", orderId, 100);
   const matches = rows.filter((row) => {
     const payload = row.payload ?? {};
     const rowOrderId = getString(payload.orderId) || row.id;

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Loader2, Users } from "lucide-react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { listCustomers, type CustomerAdminView } from "@/lib/admin.functions";
 import { readAdminSession } from "@/lib/adminSession";
@@ -20,14 +21,18 @@ function AdminCustomersPage() {
   const session = readAdminSession();
   const listCustomersFn = useServerFn(listCustomers);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
-  const { data: customers = [], isLoading: loadingCustomers } = useQuery({
-    queryKey: ["admin-customers"],
+  const { data: customerResult, isLoading: loadingCustomers } = useQuery({
+    queryKey: ["admin-customers", page],
     queryFn: async () =>
-      session?.token ? await listCustomersFn({ data: { token: session.token } }) : [],
+      session?.token
+        ? await listCustomersFn({ data: { token: session.token, page, limit: 20 } })
+        : null,
     enabled: !!session?.token,
     retry: 1,
   });
+  const customers = customerResult?.items ?? [];
 
   const filteredCustomers = customers.filter((c: CustomerAdminView) => {
     const q = search.trim().toLowerCase();
@@ -87,6 +92,15 @@ function AdminCustomersPage() {
             </table>
           </div>
         )}
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+            السابق
+          </Button>
+          <span className="text-sm text-muted-foreground">{page}</span>
+          <Button type="button" variant="outline" disabled={!customerResult?.hasMore} onClick={() => setPage((value) => value + 1)}>
+            التالي
+          </Button>
+        </div>
       </section>
     </AdminLayout>
   );

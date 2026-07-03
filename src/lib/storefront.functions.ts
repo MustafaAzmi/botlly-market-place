@@ -8,7 +8,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { getNumber, getString, listEvents, type EventRow } from "@/lib/eventStore.server";
+import {
+  getNumber,
+  getString,
+  latestEventWhere,
+  listEventsByPayloadFieldPage,
+  normalizePageRequest,
+} from "@/lib/eventStore.server";
 
 export type PublicStoreProduct = {
   id: string;
@@ -34,6 +40,10 @@ export type PublicStore = {
   coverUrl?: string;
   whatsapp?: string;
   products: PublicStoreProduct[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 // Same effective-visibility rules the bot search applies (flags may be stored
@@ -49,7 +59,12 @@ function isHiddenMerchant(p: Record<string, unknown>): boolean {
   return false;
 }
 
-const slugInput = z.object({ slug: z.string().trim().min(1).max(80) });
+const slugInput = z.object({
+  slug: z.string().trim().min(1).max(80),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 export const getPublicStore = createServerFn({ method: "POST" })
   .inputValidator((d) => slugInput.parse(d))
@@ -57,18 +72,7 @@ export const getPublicStore = createServerFn({ method: "POST" })
     // Merchants are event-sourced: newest event per merchantId is the current
     // state. Match the CURRENT state's slug only, so renamed slugs don't keep
     // serving the store under an old address.
-    const merchantRows = await listEvents("botly_merchant");
-    const seenMerchant = new Set<string>();
-    let merchant: EventRow | null = null;
-    for (const row of merchantRows) {
-      const id = getString(row.payload?.merchantId) || row.id;
-      if (seenMerchant.has(id)) continue;
-      seenMerchant.add(id);
-      if (getString(row.payload?.storeSlug) === data.slug) {
-        merchant = row;
-        break;
-      }
-    }
+    const merchant = await latestEventWhere("botly_merchant", "storeSlug", data.slug);
     if (!merchant) return null;
 
     const p = merchant.payload ?? {};
@@ -77,7 +81,14 @@ export const getPublicStore = createServerFn({ method: "POST" })
     const merchantId = getString(p.merchantId) || merchant.id;
 
     // Active products, latest event per productId (append-only log).
-    const productRows = await listEvents("botly_product");
+    const pagination = normalizePageRequest(data);
+    const productPage = await listEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      pagination,
+    );
+    const productRows = productPage.items;
     const seenProduct = new Set<string>();
     const products: PublicStoreProduct[] = [];
     for (const row of productRows) {
@@ -91,7 +102,9 @@ export const getPublicStore = createServerFn({ method: "POST" })
         id: pid,
         title: getString(pp.title) || getString(pp.description) || "منتج",
         description: getString(pp.description),
-        imageUrl: getString(pp.imageUrl),
+        imageUrl: /^data:image\//i.test(getString(pp.imageUrl))
+          ? `/api/product-image/${encodeURIComponent(pid)}?index=0`
+          : getString(pp.imageUrl),
         price: getNumber(pp.currentPrice) ?? 0,
         discountPrice: getNumber(pp.discountPrice),
         currency: getString(pp.currency) || "IQD",
@@ -108,9 +121,17 @@ export const getPublicStore = createServerFn({ method: "POST" })
       storeSlug: data.slug,
       bio: getString(p.bio) || undefined,
       address: getString(p.address) || undefined,
-      logoUrl: getString(p.logoUrl) || undefined,
-      coverUrl: getString(p.coverUrl) || undefined,
+      logoUrl: /^data:image\//i.test(getString(p.logoUrl))
+        ? `/api/merchant-image/${encodeURIComponent(merchantId)}?type=logo`
+        : getString(p.logoUrl) || undefined,
+      coverUrl: /^data:image\//i.test(getString(p.coverUrl))
+        ? `/api/merchant-image/${encodeURIComponent(merchantId)}?type=cover`
+        : getString(p.coverUrl) || undefined,
       whatsapp: getString(p.whatsapp) || undefined,
       products,
+      page: pagination.page,
+      limit: pagination.limit,
+      hasMore: productPage.hasMore,
+      nextCursor: productPage.nextCursor,
     };
   });

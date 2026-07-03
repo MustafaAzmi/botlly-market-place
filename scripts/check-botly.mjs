@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -55,6 +55,9 @@ for (const group of requiredEnvGroups) {
 const sender = read("src/lib/whatsapp/send.server.ts");
 const netlifyToml = read("netlify.toml");
 const webhook = read("src/routes/api/whatsapp/webhook.ts");
+const eventStore = read("src/lib/eventStore.server.ts");
+const customerFunctions = read("src/lib/customer.functions.ts");
+const storefrontFunctions = read("src/lib/storefront.functions.ts");
 
 add(
   "Application webhook route exists",
@@ -93,6 +96,42 @@ add(
   "webhook returns 200 after processing",
   webhook.includes('JSON.stringify({ ok: true })'),
   "Meta receives ok after valid payload processing",
+);
+
+function sourceFiles(path) {
+  const absolute = join(root, path);
+  return readdirSync(absolute).flatMap((name) => {
+    const relative = join(path, name);
+    const fullPath = join(root, relative);
+    if (statSync(fullPath).isDirectory()) return sourceFiles(relative);
+    return /\.(?:ts|tsx|js|mjs)$/.test(name) ? [relative] : [];
+  });
+}
+
+const oversizedReadPattern =
+  /\.limit\(\s*(?:10[1-9]|1[1-9]\d|[2-9]\d{2,}|\d{4,})\s*\)|listEvents\([^)\n]*,\s*(?:10[1-9]|1[1-9]\d|[2-9]\d{2,}|\d{4,})\s*\)/;
+const oversizedReads = sourceFiles("src").filter((path) =>
+  oversizedReadPattern.test(read(path)),
+);
+add(
+  "database reads are capped at 100 rows",
+  oversizedReads.length === 0,
+  oversizedReads.length === 0
+    ? "no normal query requests more than 100 rows"
+    : oversizedReads.join(", "),
+);
+add(
+  "pagination defaults are enforced",
+  eventStore.includes("DEFAULT_PAGE_LIMIT = 20") &&
+    eventStore.includes("MAX_PAGE_LIMIT = 100"),
+  "default 20, maximum 100",
+);
+add(
+  "search and catalogue responses use image links",
+  customerFunctions.includes("/api/product-image/") &&
+    storefrontFunctions.includes("/api/product-image/") &&
+    storefrontFunctions.includes("/api/merchant-image/"),
+  "Base64 images are replaced with cached API links in list responses",
 );
 
 const migrationFiles = [

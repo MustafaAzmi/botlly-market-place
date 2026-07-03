@@ -3,12 +3,17 @@ import { z } from "zod";
 
 import {
   appendEvent,
+  listEventsByPayloadFieldPage,
   listEvents,
+  latestEventWhere,
+  normalizePageRequest,
   authorizeMerchantId,
   getString,
   getNumber,
   eventTime,
   type EventRow,
+  type PageRequest,
+  type PageResult,
 } from "@/lib/eventStore.server";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +51,11 @@ export type MerchantLead = {
 };
 
 const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
+const paginatedTokenInput = tokenInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 const productActionInput = tokenInput.extend({
   productId: z.string().trim().min(1).max(100),
@@ -74,26 +84,36 @@ function productId(row: EventRow): string {
 }
 
 // Collapse the product event log to the latest row per productId.
-async function latestProductsByMerchant(merchantId: string): Promise<EventRow[]> {
-  const rows = await listEvents("botly_product"); // newest first
+async function latestProductsByMerchant(merchantId: string, request: PageRequest = {}) {
+  const page = await listEventsByPayloadFieldPage(
+    "botly_product",
+    "merchantId",
+    merchantId,
+    request,
+  );
+  const rows = page.items;
   const seen = new Map<string, EventRow>();
   for (const row of rows) {
     if (getString(row.payload?.merchantId) !== merchantId) continue;
     const pid = productId(row);
     if (!seen.has(pid)) seen.set(pid, row); // first = newest
   }
-  return [...seen.values()];
+  return { rows: [...seen.values()], page };
 }
 
 function toManaged(row: EventRow): ManagedProduct {
   const p = row.payload ?? {};
+  const id = productId(row);
+  const rawImageUrl = getString(p.imageUrl);
   return {
-    id: productId(row),
+    id,
     title: getString(p.title) || getString(p.description) || "منتج",
     description: getString(p.description),
     price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
     currency: getString(p.currency) || "IQD",
-    imageUrl: getString(p.imageUrl),
+    imageUrl: /^data:image\//i.test(rawImageUrl)
+      ? `/api/product-image/${encodeURIComponent(id)}?index=0`
+      : rawImageUrl,
     postUrl: getString(p.postUrl),
     source: getString(p.source) || "manual",
     category: getString(p.category) || null,
@@ -110,11 +130,10 @@ function toManaged(row: EventRow): ManagedProduct {
 
 // Find the latest event for a product owned by the merchant, or throw.
 async function requireOwnedProduct(merchantId: string, pid: string): Promise<EventRow> {
-  const rows = await listEvents("botly_product");
-  const row = rows.find(
-    (r) => productId(r) === pid && getString(r.payload?.merchantId) === merchantId,
-  );
-  if (!row) throw new Error("المنتج غير موجود أو لا يخص متجرك.");
+  const row = await latestEventWhere("botly_product", "productId", pid);
+  if (!row || getString(row.payload?.merchantId) !== merchantId) {
+    throw new Error("المنتج غير موجود أو لا يخص متجرك.");
+  }
   return row;
 }
 
@@ -146,26 +165,28 @@ async function appendProductUpdate(base: EventRow, changes: Record<string, unkno
 
 // Products awaiting merchant confirmation (low-confidence AI extractions).
 export const listReviewProducts = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<ManagedProduct[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<ManagedProduct>> => {
     const merchantId = await authorizeMerchantId(data.token);
-    const rows = await latestProductsByMerchant(merchantId);
-    return rows
+    const result = await latestProductsByMerchant(merchantId, data);
+    const items = result.rows
       .map(toManaged)
       .filter((p) => p.status === "pending_review" || p.requiresReview)
       .sort((a, b) => (a.confidenceScore ?? 0) - (b.confidenceScore ?? 0));
+    return { ...result.page, items };
   });
 
 // Full managed catalogue (manual + imported), latest state per product.
 export const listManagedProducts = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<ManagedProduct[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<ManagedProduct>> => {
     const merchantId = await authorizeMerchantId(data.token);
-    const rows = await latestProductsByMerchant(merchantId);
-    return rows
+    const result = await latestProductsByMerchant(merchantId, data);
+    const items = result.rows
       .map(toManaged)
       .filter((p) => p.status !== "rejected")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return { ...result.page, items };
   });
 
 // Approve a pending product -> active and searchable.
@@ -226,11 +247,17 @@ export const setProductAvailability = createServerFn({ method: "POST" })
 
 // Leads (interested customers) for this merchant, newest first.
 export const listMerchantLeads = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<MerchantLead[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<MerchantLead>> => {
     const merchantId = await authorizeMerchantId(data.token);
-    const rows = await listEvents("botly_lead");
-    return rows
+    const pagination = normalizePageRequest(data);
+    const page = await listEventsByPayloadFieldPage(
+      "botly_lead",
+      "merchantId",
+      merchantId,
+      pagination,
+    );
+    const items = page.items
       .filter((row) => getString(row.payload?.merchantId) === merchantId)
       .map((row) => {
         const p = row.payload ?? {};
@@ -244,4 +271,5 @@ export const listMerchantLeads = createServerFn({ method: "POST" })
           createdAt: getString(p.createdAt) || eventTime(row),
         };
       });
+    return { ...page, items };
   });

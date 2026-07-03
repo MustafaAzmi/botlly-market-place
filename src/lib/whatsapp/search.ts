@@ -324,7 +324,7 @@ async function loadMerchantDirectory(): Promise<MerchantDirectory> {
   const hidden = new Set<string>();
   try {
     // listEvents returns newest-first, so the first row per merchantId wins.
-    const rows = await listEvents("botly_merchant");
+    const rows = await listEvents("botly_merchant", 100);
     for (const row of rows) {
       const p = row.payload ?? {};
       const id = getString(p.merchantId) || row.id;
@@ -476,7 +476,7 @@ async function fallbackDirectSearch(
     // Products and merchants load in parallel (single merchant fetch shared
     // with the RPC path).
     const [rows, { map: merchants, hidden: hiddenMerchants }] = await Promise.all([
-      listEvents("botly_product"),
+      listEvents("botly_product", 100),
       merchantsPromise,
     ]);
 

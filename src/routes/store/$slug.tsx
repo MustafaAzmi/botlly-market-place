@@ -30,14 +30,15 @@ function PublicStorePage() {
   const getPublicStoreFn = useServerFn(getPublicStore);
   const [store, setStore] = useState<PublicStore | null>(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
-    getPublicStoreFn({ data: { slug } })
+    getPublicStoreFn({ data: { slug, page, limit: 20 } })
       .then(setStore)
       .catch(() => setStore(null))
       .finally(() => setLoading(false));
-  }, [getPublicStoreFn, slug]);
+  }, [getPublicStoreFn, page, slug]);
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -151,6 +152,15 @@ function PublicStorePage() {
               })}
             </div>
           )}
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">{page}</span>
+            <Button type="button" variant="outline" disabled={loading || !store.hasMore} onClick={() => setPage((value) => value + 1)}>
+              التالي
+            </Button>
+          </div>
         </main>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getString, listEvents, listEventsByPayloadField } from "@/lib/eventStore.server";
+import { getEventById, getString, listEventsByPayloadField } from "@/lib/eventStore.server";
 
 // Public product image endpoint. Manually uploaded images are stored as
 // base64 data: URLs in the product event — WhatsApp can only deliver public
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/api/product-image/$id")({
         );
         const row =
           matchingRows[0] ??
-          (await listEvents("botly_product", 250)).find((event) => event.id === productId);
+          await getEventById("botly_product", productId);
         if (!row) return new Response("Not found", { status: 404 });
 
         const requestedIndex = Number(new URL(request.url).searchParams.get("index") ?? "0");

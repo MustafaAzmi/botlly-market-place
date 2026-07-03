@@ -433,7 +433,7 @@ function missingOrderFinalStatus(order: Record<string, unknown>) {
 
 async function findLatestMissingOrderByMerchant(phone: string) {
   const key = phoneKey(phone);
-  const rows = await listEvents("botly_order", 500).catch(() => []);
+  const rows = await listEvents("botly_order", 100).catch(() => []);
   return (
     rows.find((row) => {
       const p = row.payload ?? {};
@@ -448,7 +448,7 @@ async function findLatestMissingOrderByMerchant(phone: string) {
 
 async function findLatestMissingOrderByRequester(phone: string) {
   const key = phoneKey(phone);
-  const rows = await listEvents("botly_order", 500).catch(() => []);
+  const rows = await listEvents("botly_order", 100).catch(() => []);
   return (
     rows.find((row) => {
       const p = row.payload ?? {};
@@ -1615,7 +1615,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             // is stored as the merchant typed it (07... / +9647...), so match
             // by format-independent phone key over the recent orders.
             const fromKey = phoneKey(incoming.from);
-            const rows = await listEvents("botly_order", 200).catch(() => []);
+            const rows = await listEvents("botly_order", 100).catch(() => []);
             const respondedOrderIds = new Set<string>();
             let orderRow: (typeof rows)[number] | null = null;
             for (const row of rows) {

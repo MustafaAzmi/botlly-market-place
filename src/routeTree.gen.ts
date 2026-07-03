@@ -51,6 +51,7 @@ import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/we
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
 import { Route as ApiMissingProductImageIdRouteImport } from './routes/api/missing-product-image/$id'
 import { Route as ApiMerchantMobileRouteImport } from './routes/api/merchant/mobile'
+import { Route as ApiMerchantImageIdRouteImport } from './routes/api/merchant-image/$id'
 import { Route as ApiFitterMobileRouteImport } from './routes/api/fitter/mobile'
 import { Route as ApiCustomerMobileRouteImport } from './routes/api/customer/mobile'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
@@ -266,6 +267,11 @@ const ApiMerchantMobileRoute = ApiMerchantMobileRouteImport.update({
   path: '/api/merchant/mobile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMerchantImageIdRoute = ApiMerchantImageIdRouteImport.update({
+  id: '/api/merchant-image/$id',
+  path: '/api/merchant-image/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFitterMobileRoute = ApiFitterMobileRouteImport.update({
   id: '/api/fitter/mobile',
   path: '/api/fitter/mobile',
@@ -317,6 +323,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
@@ -363,6 +370,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardIndexRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
@@ -411,6 +419,7 @@ export interface FileRoutesById {
   '/dashboard/': typeof DashboardIndexRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
   '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
@@ -460,6 +469,7 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
     | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
@@ -506,6 +516,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
     | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
@@ -553,6 +564,7 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
     | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
@@ -601,6 +613,7 @@ export interface RootRouteChildren {
   DashboardIndexRoute: typeof DashboardIndexRoute
   ApiCustomerMobileRoute: typeof ApiCustomerMobileRoute
   ApiFitterMobileRoute: typeof ApiFitterMobileRoute
+  ApiMerchantImageIdRoute: typeof ApiMerchantImageIdRoute
   ApiMerchantMobileRoute: typeof ApiMerchantMobileRoute
   ApiMissingProductImageIdRoute: typeof ApiMissingProductImageIdRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
@@ -910,6 +923,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMerchantMobileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/merchant-image/$id': {
+      id: '/api/merchant-image/$id'
+      path: '/api/merchant-image/$id'
+      fullPath: '/api/merchant-image/$id'
+      preLoaderRoute: typeof ApiMerchantImageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/fitter/mobile': {
       id: '/api/fitter/mobile'
       path: '/api/fitter/mobile'
@@ -969,6 +989,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardIndexRoute: DashboardIndexRoute,
   ApiCustomerMobileRoute: ApiCustomerMobileRoute,
   ApiFitterMobileRoute: ApiFitterMobileRoute,
+  ApiMerchantImageIdRoute: ApiMerchantImageIdRoute,
   ApiMerchantMobileRoute: ApiMerchantMobileRoute,
   ApiMissingProductImageIdRoute: ApiMissingProductImageIdRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,

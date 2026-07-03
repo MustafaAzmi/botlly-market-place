@@ -5,6 +5,7 @@ import { Loader2, Search, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   listPopularSmartSearchProducts,
@@ -32,20 +33,22 @@ function PopularRequestsPage() {
   const session = readAdminSession();
   const listPopularProducts = useServerFn(listPopularSmartSearchProducts);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const {
-    data: products = [],
+    data: productResult,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["admin-popular-smart-search-products"],
+    queryKey: ["admin-popular-smart-search-products", page],
     queryFn: async () =>
       session?.token
-        ? await listPopularProducts({ data: { token: session.token } })
-        : [],
+        ? await listPopularProducts({ data: { token: session.token, page, limit: 20 } })
+        : null,
     enabled: Boolean(session?.token),
     retry: 1,
   });
+  const products = useMemo(() => productResult?.items ?? [], [productResult?.items]);
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("ar");
@@ -138,6 +141,15 @@ function PopularRequestsPage() {
           </div>
         )}
       </section>
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={!productResult?.hasMore} onClick={() => setPage((value) => value + 1)}>
+          التالي
+        </Button>
+      </div>
     </AdminLayout>
   );
 }

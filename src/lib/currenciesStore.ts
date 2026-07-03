@@ -2,7 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { createServerFn, useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { appendEvent, getString, listEvents, sha256 } from "@/lib/eventStore.server";
+import {
+  appendEvent,
+  getString,
+  listEvents,
+  listEventsByPayloadField,
+  sha256,
+} from "@/lib/eventStore.server";
 
 export interface Currency {
   code: string;
@@ -34,7 +40,12 @@ function normalizeCurrency(input: Currency): Currency {
 
 async function authorizeCurrencyAdmin(token: string): Promise<void> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_admin_session");
+  const sessions = await listEventsByPayloadField(
+    "botly_admin_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const activeSession = sessions.find((row) => {
     const payload = row.payload ?? {};
     return (

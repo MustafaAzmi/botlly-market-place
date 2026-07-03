@@ -299,6 +299,10 @@ function FitterShop({
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageCursors, setPageCursors] = useState<Record<number, string>>({ 1: "" });
   const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
   const [busyOrderKey, setBusyOrderKey] = useState("");
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
@@ -315,11 +319,36 @@ function FitterShop({
     }).catch(() => {});
   }, [catalogFn]);
 
-  const search = async () => {
+  const search = async (nextPage = 1) => {
     setLoading(true);
     setSearched(true);
     try {
-      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate, searchScope } }));
+      const cursor =
+        nextPage === 1
+          ? ""
+          : nextPage > page
+            ? nextCursor ?? ""
+            : pageCursors[nextPage] ?? "";
+      const result = await browseFn({
+        data: {
+          carMake,
+          carModel,
+          carYear: carYear === ALL_YEARS ? "" : carYear,
+          color,
+          governorate,
+          searchScope,
+          page: nextPage,
+          limit: 20,
+          cursor,
+        },
+      });
+      setProducts(result.items);
+      setPage(result.page);
+      setHasMore(result.hasMore);
+      setNextCursor(result.nextCursor);
+      setPageCursors((current) =>
+        nextPage === 1 ? { 1: "" } : { ...current, [nextPage]: cursor },
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر البحث");
     } finally {
@@ -447,7 +476,7 @@ function FitterShop({
             <SelectContent><SelectItem value={ALL_YEARS}>{ALL_YEARS}</SelectItem>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <Button onClick={search} className="mt-4 gap-2" disabled={loading}>
+        <Button onClick={() => search(1)} className="mt-4 gap-2" disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           عرض القطع
         </Button>
@@ -461,33 +490,51 @@ function FitterShop({
         </div>
       </div>
       {searched && !loading && products.length === 0 ? (
-        <FitterMissingProductPanel
-          defaultProductName=""
-          carMake={carMake}
-          carModel={carModel}
-          governorate={governorate}
-          requesterName={summary?.fitter.name ?? "فيتر"}
-          requesterPhone={summary?.fitter.whatsapp ?? ""}
-          searchScope={searchScope}
-          onSubmit={(data) => missingRequestFn({ data })}
-        />
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {products.map((product) => {
-            const order = summary?.orders.find((item) => item.productId === product.id);
-            return (
-              <FitterProduct
-                key={product.id}
-                product={product}
-                order={order}
-                busyOrderKey={busyOrderKey}
-                onRequest={requestProduct}
-                onConfirm={confirm}
-                onCancel={cancel}
-              />
-            );
-          })}
+        <div className="space-y-3">
+          {hasMore ? (
+            <Button type="button" variant="outline" onClick={() => search(page + 1)}>
+              البحث في المزيد
+            </Button>
+          ) : null}
+          <FitterMissingProductPanel
+            defaultProductName=""
+            carMake={carMake}
+            carModel={carModel}
+            governorate={governorate}
+            requesterName={summary?.fitter.name ?? "فيتر"}
+            requesterPhone={summary?.fitter.whatsapp ?? ""}
+            searchScope={searchScope}
+            onSubmit={(data) => missingRequestFn({ data })}
+          />
         </div>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {products.map((product) => {
+              const order = summary?.orders.find((item) => item.productId === product.id);
+              return (
+                <FitterProduct
+                  key={product.id}
+                  product={product}
+                  order={order}
+                  busyOrderKey={busyOrderKey}
+                  onRequest={requestProduct}
+                  onConfirm={confirm}
+                  onCancel={cancel}
+                />
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => search(page - 1)}>
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">الصفحة {page}</span>
+            <Button type="button" variant="outline" disabled={loading || !hasMore} onClick={() => search(page + 1)}>
+              التالي
+            </Button>
+          </div>
+        </>
       )}
     </section>
   );

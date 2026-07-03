@@ -62,7 +62,7 @@ function sameText(a: string, b: string) {
 }
 
 async function latestMerchantRows() {
-  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const rows = await listEvents("botly_merchant", 100).catch(() => [] as EventRow[]);
   const latest = new Map<string, EventRow>();
   for (const row of rows) {
     const id = merchantIdentity(row);
@@ -72,7 +72,7 @@ async function latestMerchantRows() {
 }
 
 async function merchantCarMakes() {
-  const rows = await listEvents("botly_product").catch(() => [] as EventRow[]);
+  const rows = await listEvents("botly_product", 100).catch(() => [] as EventRow[]);
   const latest = new Map<string, EventRow>();
   for (const row of rows) {
     const id = productIdentity(row);

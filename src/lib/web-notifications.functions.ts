@@ -9,9 +9,13 @@ import {
   getString,
   listEvents,
   listEventsByPayloadField,
+  listEventsByPayloadFieldPage,
+  listEventsPage,
+  normalizePageRequest,
   normalizePhone,
   phoneKey,
   type EventRow,
+  type PageRequest,
 } from "@/lib/eventStore.server";
 import { normalizeGovernorate } from "@/lib/governorates";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
@@ -54,11 +58,17 @@ export type WebOrderNotification = {
 
 const tokenInput = z.object({
   token: z.string().trim().min(20).max(300),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 const requesterInput = z.object({
   requesterPhone: z.string().trim().min(6).max(40),
   requesterType: z.enum(["customer", "fitter"]),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 const merchantActionInput = tokenInput.extend({
@@ -185,7 +195,7 @@ async function latestMediatorContacts() {
 }
 
 async function latestMerchantPhoneVisibility() {
-  const rows = await listEvents("botly_merchant", 5000);
+  const rows = await listEvents("botly_merchant", 100);
   const visibility = new Map<string, boolean>();
   for (const row of rows) {
     const id = merchantIdentity(row);
@@ -227,6 +237,8 @@ function mergeLatestOrders(rows: EventRow[]) {
 
 function toNotification(order: { payload: Record<string, unknown>; createdAt: string; updatedAt: string }) {
   const p = order.payload;
+  const orderId = getString(p.orderId);
+  const rawImageUrl = getString(p.imageUrl);
   const merchantStatus = normalizeMerchantStatus(getString(p.merchantStatus));
   const requesterStatus = normalizeRequesterStatus(getString(p.requesterStatus));
   const requesterType = resolveRequesterType(p);
@@ -236,13 +248,15 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
       ? getString(p.requesterName) || getString(p.fitterName)
       : getString(p.requesterName) || getString(p.customerName);
   return {
-    orderId: getString(p.orderId),
+    orderId,
     sourceContext: getString(p.sourceContext),
     productTitle: getString(p.productTitle) || getString(p.title) || "منتج",
     requestDetails: getString(p.requestDetails),
     carMake: getString(p.carMake),
     carModel: getString(p.carModel),
-    imageUrl: getString(p.imageUrl),
+    imageUrl: /^data:image\//i.test(rawImageUrl)
+      ? `/api/missing-product-image/${encodeURIComponent(orderId)}`
+      : rawImageUrl,
     price:
       getNumber(p.finalPrice) ??
       getNumber(p.price) ??
@@ -306,7 +320,7 @@ function uniqueEventRows(groups: EventRow[][]) {
 
 async function latestOrders(orderRows?: EventRow[]) {
   const [rows, mediatorContacts, merchantVisibility] = await Promise.all([
-    orderRows ? Promise.resolve(orderRows) : listEvents("botly_order", 5000),
+    orderRows ? Promise.resolve(orderRows) : listEvents("botly_order", 100),
     latestMediatorContacts(),
     latestMerchantPhoneVisibility(),
   ]);
@@ -328,58 +342,68 @@ async function latestOrders(orderRows?: EventRow[]) {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-async function requesterOrderRows(requesterPhone: string, requesterType: RequesterType) {
-  const direct = await listEventsByPayloadField(
+async function requesterOrderRows(
+  requesterPhone: string,
+  requesterType: RequesterType,
+  request: PageRequest,
+) {
+  const direct = await listEventsByPayloadFieldPage(
     "botly_order",
     "requesterPhone",
     requesterPhone,
-    1000,
+    request,
   );
-  if (direct.length > 0) return direct;
+  if (direct.items.length > 0) return direct;
 
   const normalized = normalizePhone(requesterPhone);
   if (normalized && normalized !== requesterPhone) {
-    const normalizedRows = await listEventsByPayloadField(
+    const normalizedRows = await listEventsByPayloadFieldPage(
       "botly_order",
       "requesterPhone",
       normalized,
-      1000,
+      request,
     );
-    if (normalizedRows.length > 0) return normalizedRows;
+    if (normalizedRows.items.length > 0) return normalizedRows;
   }
 
   const legacyFields =
     requesterType === "fitter"
       ? ["fitterWhatsapp"]
       : ["customerPhone", "customerNumber"];
-  const legacyRows = await Promise.all(
+  const legacyPages = await Promise.all(
     legacyFields.map((field) =>
-      listEventsByPayloadField("botly_order", field, requesterPhone, 1000),
+      listEventsByPayloadFieldPage("botly_order", field, requesterPhone, request),
     ),
   );
-  const scoped = uniqueEventRows(legacyRows);
-  return scoped.length > 0 ? scoped : listEvents("botly_order", 5000);
+  const scoped = uniqueEventRows(legacyPages.map((page) => page.items));
+  if (scoped.length > 0) {
+    return { ...legacyPages[0], items: scoped.slice(0, legacyPages[0].limit) };
+  }
+  return listEventsPage("botly_order", request);
 }
 
-async function merchantOrderRows(merchant: { id: string; whatsapp: string }) {
-  const byId = await listEventsByPayloadField(
+async function merchantOrderRows(
+  merchant: { id: string; whatsapp: string },
+  request: PageRequest,
+) {
+  const byId = await listEventsByPayloadFieldPage(
     "botly_order",
     "merchantId",
     merchant.id,
-    1000,
+    request,
   );
-  if (byId.length > 0) return byId;
+  if (byId.items.length > 0) return byId;
 
   if (merchant.whatsapp) {
-    const byPhone = await listEventsByPayloadField(
+    const byPhone = await listEventsByPayloadFieldPage(
       "botly_order",
       "merchantWhatsapp",
       merchant.whatsapp,
-      1000,
+      request,
     );
-    if (byPhone.length > 0) return byPhone;
+    if (byPhone.items.length > 0) return byPhone;
   }
-  return listEvents("botly_order", 5000);
+  return listEventsPage("botly_order", request);
 }
 
 async function merchantProfile(merchantId: string) {
@@ -391,7 +415,7 @@ async function merchantProfile(merchantId: string) {
   );
   const row =
     matchingRows[0] ??
-    (await listEvents("botly_merchant", 5000)).find(
+    (await listEvents("botly_merchant", 100)).find(
       (item) => merchantIdentity(item) === merchantId,
     );
   const p = row?.payload ?? {};
@@ -475,20 +499,27 @@ export const listMerchantWebNotifications = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchantId = await authorizeMerchantId(data.token);
     const merchant = await merchantProfile(merchantId);
-    const rows = await merchantOrderRows(merchant);
-    return (await latestOrders(rows)).filter(
+    const pagination = normalizePageRequest(data);
+    const orderPage = await merchantOrderRows(merchant, pagination);
+    const matches = (await latestOrders(orderPage.items)).filter(
       (order) =>
         matchesMerchant(order, merchant) &&
         !order.webHiddenMerchant &&
         order.finalStatus !== "web_hidden_merchant",
     );
+    return { ...orderPage, items: matches.slice(0, pagination.limit) };
   });
 
 export const listRequesterWebNotifications = createServerFn({ method: "POST" })
   .inputValidator((d) => requesterInput.parse(d))
   .handler(async ({ data }) => {
-    const rows = await requesterOrderRows(data.requesterPhone, data.requesterType);
-    return (await latestOrders(rows)).filter(
+    const pagination = normalizePageRequest(data);
+    const orderPage = await requesterOrderRows(
+      data.requesterPhone,
+      data.requesterType,
+      pagination,
+    );
+    const matches = (await latestOrders(orderPage.items)).filter(
       (order) =>
         matchesRequester(order, data.requesterPhone, data.requesterType) &&
         !(
@@ -499,6 +530,7 @@ export const listRequesterWebNotifications = createServerFn({ method: "POST" })
         !order.webHiddenRequester &&
         order.finalStatus !== "web_hidden_requester",
     );
+    return { ...orderPage, items: matches.slice(0, pagination.limit) };
   });
 
 export const merchantMarkProductAvailable = createServerFn({ method: "POST" })

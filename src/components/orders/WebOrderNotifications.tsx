@@ -1,5 +1,5 @@
 import { useServerFn } from "@tanstack/react-start";
-import { BellRing, CheckCircle2, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -207,6 +207,8 @@ export function WebOrderNotifications(props: Props) {
   const clearBulkFn = useServerFn(clearWebOrderNotificationsBulk);
   const rateFn = useServerFn(rateMerchantFromWeb);
   const [orders, setOrders] = useState<WebOrderNotification[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
@@ -226,19 +228,21 @@ export function WebOrderNotifications(props: Props) {
     [merchantToken, requesterPhone, requesterType, role],
   );
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (silent = false, targetPage = page) => {
     if (!silent) setLoading(true);
     try {
       const next =
         role === "merchant"
-          ? await listMerchantFn({ data: { token: merchantToken } })
+          ? await listMerchantFn({ data: { token: merchantToken, page: targetPage, limit: 20 } })
           : await listRequesterFn({
               data: {
                 requesterPhone,
                 requesterType,
+                page: targetPage,
+                limit: 20,
               },
             });
-      const visibleOrders = next.slice(0, 12);
+      const visibleOrders = next.items;
       const actionableIds = visibleOrders
         .filter((order) => hasUnreadNotification(order, role))
         .map((order) => order.orderId);
@@ -253,12 +257,14 @@ export function WebOrderNotifications(props: Props) {
       saveNotifiedIds(notifiedStorageKey, nextSeenIds);
       setSeenNotificationIds(nextSeenIds);
       setOrders(visibleOrders);
+      setPage(next.page);
+      setHasMore(next.hasMore);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : text.loadError);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, requesterPhone, requesterType, role, rungStorageKey, text.loadError]);
+  }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, page, requesterPhone, requesterType, role, rungStorageKey, text.loadError]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -681,6 +687,29 @@ export function WebOrderNotifications(props: Props) {
           })}
         </div>
       )}
+      <div className="mt-4 flex items-center justify-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={loading || page <= 1}
+          onClick={() => refresh(false, page - 1)}
+          aria-label="Previous page"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          disabled={loading || !hasMore}
+          onClick={() => refresh(false, page + 1)}
+          aria-label="Next page"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+      </div>
     </section>
   );
 }

@@ -47,9 +47,11 @@ export function WebNotificationCountBadge(props: Props) {
     if (role === "requester" && !requesterPhone) return;
     const orders =
       role === "merchant"
-        ? await listMerchantFn({ data: { token } })
-        : await listRequesterFn({ data: { requesterPhone, requesterType } });
-    const unreadOrders = orders.filter((order) => hasBadgeNotification(order, role));
+        ? await listMerchantFn({ data: { token, page: 1, limit: 20 } })
+        : await listRequesterFn({
+            data: { requesterPhone, requesterType, page: 1, limit: 20 },
+          });
+    const unreadOrders = orders.items.filter((order) => hasBadgeNotification(order, role));
     const unreadIds = unreadOrders.map((order) => order.orderId);
     const seenIds = readStoredIds(seenStorageKey);
     const rungIds = readStoredIds(rungStorageKey);

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getString, listEvents, listEventsByPayloadField } from "@/lib/eventStore.server";
+import { getEventById, getString, listEventsByPayloadField } from "@/lib/eventStore.server";
 
 export const Route = createFileRoute("/api/missing-product-image/$id")({
   server: {
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/api/missing-product-image/$id")({
         const row =
           byMissingRequestId[0] ??
           byOrderId[0] ??
-          (await listEvents("botly_order", 250)).find((event) => event.id === missingRequestId);
+          await getEventById("botly_order", missingRequestId);
         if (!row) return new Response("Not found", { status: 404 });
 
         const imageUrl = getString(row.payload?.imageUrl);

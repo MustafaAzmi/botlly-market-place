@@ -34,6 +34,7 @@ import {
   setMerchantVisibility,
   deleteMerchantStore,
   deleteMerchantProductForAdmin,
+  getMerchantSalesExport,
   listMerchantProductsForAdmin,
   resetMerchantSalesReport,
   type AdminMerchantProductView,
@@ -72,8 +73,11 @@ function AdminStoresPage() {
   const deleteProductFn = useServerFn(deleteMerchantProductForAdmin);
   const listMerchantProductsFn = useServerFn(listMerchantProductsForAdmin);
   const resetSalesReportFn = useServerFn(resetMerchantSalesReport);
+  const getSalesExportFn = useServerFn(getMerchantSalesExport);
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [productPage, setProductPage] = useState(1);
   const [governorateFilter, setGovernorateFilter] = useState(ALL_GOVERNORATES);
   const session = readAdminSession();
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -86,38 +90,45 @@ function AdminStoresPage() {
   const [selectedMerchantId, setSelectedMerchantId] = useState("");
 
   const {
-    data: merchants = [],
+    data: merchantResult,
     isLoading,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["admin-merchants"],
+    queryKey: ["admin-merchants", page],
     queryFn: async () => {
-      if (!session?.token) return [];
-      return await listMerchantsFn({ data: { token: session.token } });
+      if (!session?.token) return null;
+      return await listMerchantsFn({ data: { token: session.token, page, limit: 20 } });
     },
     enabled: !!session?.token,
     retry: 1,
   });
+  const merchants = merchantResult?.items ?? [];
 
   const selectedMerchant =
     merchants.find((merchant: MerchantAdminView) => merchant.merchantId === selectedMerchantId) ?? null;
 
   const {
-    data: selectedProducts = [],
+    data: selectedProductResult,
     isFetching: isLoadingProducts,
     refetch: refetchSelectedProducts,
-  } = useQuery<AdminMerchantProductView[]>({
-    queryKey: ["admin-merchant-products", selectedMerchantId],
+  } = useQuery({
+    queryKey: ["admin-merchant-products", selectedMerchantId, productPage],
     queryFn: async () => {
-      if (!session?.token || !selectedMerchantId) return [];
+      if (!session?.token || !selectedMerchantId) return null;
       return await listMerchantProductsFn({
-        data: { token: session.token, merchantId: selectedMerchantId },
+        data: {
+          token: session.token,
+          merchantId: selectedMerchantId,
+          page: productPage,
+          limit: 20,
+        },
       });
     },
     enabled: !!session?.token && !!selectedMerchantId,
     retry: 1,
   });
+  const selectedProducts = selectedProductResult?.items ?? [];
 
   const run = async (fn: () => Promise<unknown>, successMsg: string) => {
     if (!session?.token) return;
@@ -143,7 +154,23 @@ function AdminStoresPage() {
     return matchesSearch && matchesGovernorate;
   });
 
-  const downloadMerchantSalesExcel = (merchant: MerchantAdminView) => {
+  const downloadMerchantSalesExcel = async (merchant: MerchantAdminView) => {
+    if (!session?.token) return;
+    let report;
+    try {
+      report = await getSalesExportFn({
+        data: { token: session.token, merchantId: merchant.merchantId },
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تجهيز ملف المبيعات");
+      return;
+    }
+    merchant = {
+      ...merchant,
+      sales: report.sales,
+      salesCount: report.salesCount,
+      salesTotals: report.salesTotals,
+    };
     const totalProducts = merchant.sales.reduce((sum, sale) => sum + sale.price, 0);
     const totalCommissions = merchant.sales.reduce((sum, sale) => sum + sale.commissionAmount, 0);
     const totalMerchantNet = merchant.sales.reduce((sum, sale) => sum + sale.merchantNet, 0);
@@ -314,9 +341,10 @@ function AdminStoresPage() {
                       <td className="px-4 py-3 font-medium">
                         <button
                           type="button"
-                          onClick={() =>
-                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId))
-                          }
+                          onClick={() => {
+                            setProductPage(1);
+                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId));
+                          }}
                           className="text-right hover:text-primary"
                         >
                           {m.storeName}
@@ -335,9 +363,10 @@ function AdminStoresPage() {
                       <td className="px-4 py-3 text-center">
                         <button
                           type="button"
-                          onClick={() =>
-                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId))
-                          }
+                          onClick={() => {
+                            setProductPage(1);
+                            setSelectedMerchantId((current) => (current === m.merchantId ? "" : m.merchantId));
+                          }}
                           className="inline-flex min-w-10 items-center justify-center rounded border px-2 py-1 text-xs font-medium hover:bg-muted"
                           title="عرض منتجات التاجر"
                         >
@@ -621,11 +650,31 @@ function AdminStoresPage() {
                 })}
               </div>
             )}
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((value) => value - 1)}>
+                السابق
+              </Button>
+              <span className="text-sm text-muted-foreground">{productPage}</span>
+              <Button type="button" variant="outline" size="sm" disabled={!selectedProductResult?.hasMore} onClick={() => setProductPage((value) => value + 1)}>
+                التالي
+              </Button>
+            </div>
           </div>
         )}
 
         {!isLoading && !error && (
-          <p className="text-sm text-muted-foreground">عرض {filtered.length} متجر</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">عرض {filtered.length} متجر</p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+                السابق
+              </Button>
+              <span className="text-sm text-muted-foreground">{page}</span>
+              <Button type="button" variant="outline" size="sm" disabled={!merchantResult?.hasMore} onClick={() => setPage((value) => value + 1)}>
+                التالي
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
