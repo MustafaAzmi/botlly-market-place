@@ -696,7 +696,13 @@ function MissingProductRequestPanel({
         </div>
 
         {imageDataUrl && (
-          <img src={imageDataUrl} alt="صورة القطعة المطلوبة" className="max-h-56 rounded-lg border object-contain" />
+          <img
+            src={imageDataUrl}
+            alt="صورة القطعة المطلوبة"
+            loading="lazy"
+            decoding="async"
+            className="max-h-56 rounded-lg border object-contain"
+          />
         )}
 
         <Button onClick={submit} disabled={submitting || !carMake || !governorate} className="w-full gap-2">
@@ -764,7 +770,13 @@ function ProductCard({
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
       <div className="relative aspect-square bg-secondary">
         {images.length > 0 && (
-          <img src={images[imageIndex]} alt={product.title} className="h-full w-full object-cover" />
+          <img
+            src={images[imageIndex]}
+            alt={product.title}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
         )}
         {images.length > 1 && (
           <>

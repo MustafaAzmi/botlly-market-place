@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getString, listEvents } from "@/lib/eventStore.server";
+import { getString, listEvents, listEventsByPayloadField } from "@/lib/eventStore.server";
 
 export const Route = createFileRoute("/api/missing-product-image/$id")({
   server: {
@@ -9,15 +9,20 @@ export const Route = createFileRoute("/api/missing-product-image/$id")({
         const missingRequestId = getString((params as Record<string, unknown>).id);
         if (!missingRequestId) return new Response("Not found", { status: 404 });
 
-        const rows = await listEvents("botly_order");
-        const row = rows.find((event) => {
-          const p = event.payload ?? {};
-          return (
-            getString(p.missingRequestId) === missingRequestId ||
-            getString(p.orderId) === missingRequestId ||
-            event.id === missingRequestId
-          );
-        });
+        const byMissingRequestId = await listEventsByPayloadField(
+          "botly_order",
+          "missingRequestId",
+          missingRequestId,
+          1,
+        );
+        const byOrderId =
+          byMissingRequestId.length > 0
+            ? []
+            : await listEventsByPayloadField("botly_order", "orderId", missingRequestId, 1);
+        const row =
+          byMissingRequestId[0] ??
+          byOrderId[0] ??
+          (await listEvents("botly_order", 250)).find((event) => event.id === missingRequestId);
         if (!row) return new Response("Not found", { status: 404 });
 
         const imageUrl = getString(row.payload?.imageUrl);
@@ -36,7 +41,7 @@ export const Route = createFileRoute("/api/missing-product-image/$id")({
           return new Response(new Blob([bytes], { type: dataUrl[1] }), {
             headers: {
               "content-type": dataUrl[1],
-              "cache-control": "public, max-age=86400",
+              "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
             },
           });
         } catch {

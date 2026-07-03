@@ -517,7 +517,15 @@ function FitterProduct({
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-      {product.imageUrls[0] && <img src={product.imageUrls[0]} alt={product.title} className="mb-3 aspect-square w-full rounded-xl object-cover" />}
+      {product.imageUrls[0] && (
+        <img
+          src={product.imageUrls[0]}
+          alt={product.title}
+          loading="lazy"
+          decoding="async"
+          className="mb-3 aspect-square w-full rounded-xl object-cover"
+        />
+      )}
       <h3 className="font-semibold">{product.title}</h3>
       <div className="mt-2 text-lg font-bold">{product.price.toLocaleString()} {product.currency}</div>
       {(product.merchantGovernorate || product.deliveryEstimate) && (
@@ -681,7 +689,15 @@ function FitterMissingProductPanel({
           </label>
           <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>إرسال بدون صورة</Button>
         </div>
-        {imageDataUrl && <img src={imageDataUrl} alt="صورة القطعة المطلوبة" className="max-h-56 rounded-lg border object-contain" />}
+        {imageDataUrl && (
+          <img
+            src={imageDataUrl}
+            alt="صورة القطعة المطلوبة"
+            loading="lazy"
+            decoding="async"
+            className="max-h-56 rounded-lg border object-contain"
+          />
+        )}
         <Button onClick={submit} disabled={submitting || !carMake || !governorate} className="w-full gap-2">
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           إرسال الطلب للتجار المختصين

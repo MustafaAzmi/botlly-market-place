@@ -304,12 +304,18 @@ export const browseCarProducts = createServerFn({ method: "POST" })
             (v): v is string => typeof v === "string" && v.length > 0,
           )
         : [];
+      const storedImages = extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [];
+      const imageUrls = storedImages.map((image, index) =>
+        image.startsWith("data:image/")
+          ? `/api/product-image/${encodeURIComponent(productId)}?index=${index}`
+          : image,
+      );
 
       results.push({
         id: productId,
         title: getString(p.title) || getString(p.description) || "منتج",
         description: getString(p.description),
-        imageUrls: extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [],
+        imageUrls,
         price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
         originalPrice: getNumber(p.currentPrice) || undefined,
         currency: getString(p.currency) || "IQD",

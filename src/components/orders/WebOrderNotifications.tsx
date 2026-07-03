@@ -405,6 +405,8 @@ export function WebOrderNotifications(props: Props) {
                     <img
                       src={order.imageUrl}
                       alt={order.productTitle}
+                      loading="lazy"
+                      decoding="async"
                       className="h-20 w-20 rounded-lg border object-cover"
                     />
                   ) : null}

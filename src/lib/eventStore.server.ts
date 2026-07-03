@@ -41,6 +41,31 @@ export type EventRow = {
   received_at?: string;
 };
 
+const READ_CACHE_TTL_MS = 5_000;
+const eventReadCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<EventRow[]> }
+>();
+
+function invalidateEventReadCache(eventType: BotlyEventType) {
+  for (const key of eventReadCache.keys()) {
+    if (key.startsWith(`${eventType}:`)) eventReadCache.delete(key);
+  }
+}
+
+function cacheEventRead(key: string, loader: () => Promise<EventRow[]>) {
+  const now = Date.now();
+  const cached = eventReadCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = loader().catch((error) => {
+    eventReadCache.delete(key);
+    throw error;
+  });
+  eventReadCache.set(key, { expiresAt: now + READ_CACHE_TTL_MS, promise });
+  return promise;
+}
+
 export function getString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -75,7 +100,10 @@ export async function appendEvent(
     .select("id,payload,created_at")
     .single();
 
-  if (!primary.error) return primary.data as unknown as EventRow;
+  if (!primary.error) {
+    invalidateEventReadCache(eventType);
+    return primary.data as unknown as EventRow;
+  }
 
   const fallback = await supabaseAdmin
     .from("whatsapp_webhook_events")
@@ -86,30 +114,33 @@ export async function appendEvent(
   if (fallback.error) {
     throw new Error(`Failed to persist ${eventType}: ${fallback.error.message ?? "unknown error"}`);
   }
+  invalidateEventReadCache(eventType);
   return fallback.data as unknown as EventRow;
 }
 
 // Read events of a given type (newest first).
 export async function listEvents(eventType: BotlyEventType, limit = 5000): Promise<EventRow[]> {
-  const primary = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
-    .eq("source", "botly")
-    .eq("event_type", eventType)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  return cacheEventRead(`${eventType}:all:${limit}`, async () => {
+    const primary = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", eventType)
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) return (primary.data ?? []) as EventRow[];
 
-  const fallback = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,received_at")
-    .eq("provider" as never, eventType)
-    .order("received_at", { ascending: false })
-    .limit(limit);
+    const fallback = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,received_at")
+      .eq("provider" as never, eventType)
+      .order("received_at", { ascending: false })
+      .limit(limit);
 
-  if (isMissingTableError(fallback.error) || fallback.error) return [];
-  return (fallback.data ?? []) as unknown as EventRow[];
+    if (isMissingTableError(fallback.error) || fallback.error) return [];
+    return (fallback.data ?? []) as unknown as EventRow[];
+  });
 }
 
 // Read events of a given type filtered by a payload field, server-side
@@ -121,20 +152,23 @@ export async function listEventsByPayloadField(
   value: string,
   limit = 20,
 ): Promise<EventRow[]> {
-  const primary = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
-    .eq("source", "botly")
-    .eq("event_type", eventType)
-    .eq(`payload->>${field}` as never, value)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const cacheKey = `${eventType}:field:${field}:${value}:${limit}`;
+  return cacheEventRead(cacheKey, async () => {
+    const primary = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", eventType)
+      .eq(`payload->>${field}` as never, value)
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) return (primary.data ?? []) as EventRow[];
 
-  // Older schema / filter failure: fall back to the in-memory scan.
-  const rows = await listEvents(eventType, 1000);
-  return rows.filter((row) => getString(row.payload?.[field]) === value).slice(0, limit);
+    // Older schema / filter failure: fall back to the in-memory scan.
+    const rows = await listEvents(eventType, 1000);
+    return rows.filter((row) => getString(row.payload?.[field]) === value).slice(0, limit);
+  });
 }
 
 // Read the most recent event matching a payload field equality. Useful for
@@ -164,6 +198,7 @@ export async function deleteEventsByPayloadField(
   if (result.error) {
     throw new Error(`Failed to delete ${eventType}: ${result.error.message ?? "unknown error"}`);
   }
+  invalidateEventReadCache(eventType);
   return result.count ?? 0;
 }
 

@@ -8,6 +8,7 @@ import {
   getNumber,
   getString,
   listEvents,
+  listEventsByPayloadField,
   normalizePhone,
   phoneKey,
   type EventRow,
@@ -295,13 +296,21 @@ function resolveRequesterPhone(payload: Record<string, unknown>, requesterType: 
   return getString(payload.customerPhone) || getString(payload.customerNumber);
 }
 
-async function latestOrders() {
-  const [orderRows, mediatorContacts, merchantVisibility] = await Promise.all([
-    listEvents("botly_order", 5000),
+function uniqueEventRows(groups: EventRow[][]) {
+  const rows = new Map<string, EventRow>();
+  for (const group of groups) {
+    for (const row of group) rows.set(row.id, row);
+  }
+  return [...rows.values()];
+}
+
+async function latestOrders(orderRows?: EventRow[]) {
+  const [rows, mediatorContacts, merchantVisibility] = await Promise.all([
+    orderRows ? Promise.resolve(orderRows) : listEvents("botly_order", 5000),
     latestMediatorContacts(),
     latestMerchantPhoneVisibility(),
   ]);
-  return mergeLatestOrders(orderRows)
+  return mergeLatestOrders(rows)
     .map(toNotification)
     .map((order) => ({
       ...order,
@@ -319,9 +328,72 @@ async function latestOrders() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+async function requesterOrderRows(requesterPhone: string, requesterType: RequesterType) {
+  const direct = await listEventsByPayloadField(
+    "botly_order",
+    "requesterPhone",
+    requesterPhone,
+    1000,
+  );
+  if (direct.length > 0) return direct;
+
+  const normalized = normalizePhone(requesterPhone);
+  if (normalized && normalized !== requesterPhone) {
+    const normalizedRows = await listEventsByPayloadField(
+      "botly_order",
+      "requesterPhone",
+      normalized,
+      1000,
+    );
+    if (normalizedRows.length > 0) return normalizedRows;
+  }
+
+  const legacyFields =
+    requesterType === "fitter"
+      ? ["fitterWhatsapp"]
+      : ["customerPhone", "customerNumber"];
+  const legacyRows = await Promise.all(
+    legacyFields.map((field) =>
+      listEventsByPayloadField("botly_order", field, requesterPhone, 1000),
+    ),
+  );
+  const scoped = uniqueEventRows(legacyRows);
+  return scoped.length > 0 ? scoped : listEvents("botly_order", 5000);
+}
+
+async function merchantOrderRows(merchant: { id: string; whatsapp: string }) {
+  const byId = await listEventsByPayloadField(
+    "botly_order",
+    "merchantId",
+    merchant.id,
+    1000,
+  );
+  if (byId.length > 0) return byId;
+
+  if (merchant.whatsapp) {
+    const byPhone = await listEventsByPayloadField(
+      "botly_order",
+      "merchantWhatsapp",
+      merchant.whatsapp,
+      1000,
+    );
+    if (byPhone.length > 0) return byPhone;
+  }
+  return listEvents("botly_order", 5000);
+}
+
 async function merchantProfile(merchantId: string) {
-  const rows = await listEvents("botly_merchant", 5000);
-  const row = rows.find((item) => merchantIdentity(item) === merchantId);
+  const matchingRows = await listEventsByPayloadField(
+    "botly_merchant",
+    "merchantId",
+    merchantId,
+    1,
+  );
+  const row =
+    matchingRows[0] ??
+    (await listEvents("botly_merchant", 5000)).find(
+      (item) => merchantIdentity(item) === merchantId,
+    );
   const p = row?.payload ?? {};
   return {
     id: merchantId,
@@ -344,7 +416,10 @@ function matchesRequester(order: WebOrderNotification, requesterPhone: string, r
 }
 
 async function currentOrder(orderId: string) {
-  const order = (await latestOrders()).find((item) => item.orderId === orderId);
+  const rows = await listEventsByPayloadField("botly_order", "orderId", orderId, 100);
+  const order = (await latestOrders(rows.length > 0 ? rows : undefined)).find(
+    (item) => item.orderId === orderId,
+  );
   if (!order) throw new Error("لم يتم العثور على الطلب.");
   return order;
 }
@@ -400,7 +475,8 @@ export const listMerchantWebNotifications = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchantId = await authorizeMerchantId(data.token);
     const merchant = await merchantProfile(merchantId);
-    return (await latestOrders()).filter(
+    const rows = await merchantOrderRows(merchant);
+    return (await latestOrders(rows)).filter(
       (order) =>
         matchesMerchant(order, merchant) &&
         !order.webHiddenMerchant &&
@@ -411,7 +487,8 @@ export const listMerchantWebNotifications = createServerFn({ method: "POST" })
 export const listRequesterWebNotifications = createServerFn({ method: "POST" })
   .inputValidator((d) => requesterInput.parse(d))
   .handler(async ({ data }) => {
-    return (await latestOrders()).filter(
+    const rows = await requesterOrderRows(data.requesterPhone, data.requesterType);
+    return (await latestOrders(rows)).filter(
       (order) =>
         matchesRequester(order, data.requesterPhone, data.requesterType) &&
         !(
@@ -540,7 +617,7 @@ export const clearWebOrderNotificationsBulk = createServerFn({ method: "POST" })
   .inputValidator((d) => clearBulkInput.parse(d))
   .handler(async ({ data }) => {
     const requestedIds = new Set(data.orderIds);
-    const orders = (await latestOrders()).filter((order) => requestedIds.has(order.orderId));
+    const orders = await Promise.all(data.orderIds.map((orderId) => currentOrder(orderId)));
     if (data.role === "merchant") {
       if (!data.token) throw new Error("انتهت الجلسة. سجل دخول مرة ثانية.");
       const merchantId = await authorizeMerchantId(data.token);
