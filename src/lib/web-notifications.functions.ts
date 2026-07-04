@@ -18,6 +18,11 @@ import {
   type PageRequest,
 } from "@/lib/eventStore.server";
 import { normalizeGovernorate } from "@/lib/governorates";
+import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 type WebRole = "merchant" | "requester";
@@ -507,7 +512,15 @@ export const listMerchantWebNotifications = createServerFn({ method: "POST" })
         !order.webHiddenMerchant &&
         order.finalStatus !== "web_hidden_merchant",
     );
-    return { ...orderPage, items: matches.slice(0, pagination.limit) };
+    return diagnoseServerResult(
+      "api:listMerchantWebNotifications",
+      { ...orderPage, items: matches.slice(0, pagination.limit) },
+      {
+        user: diagnosticIdentity(merchantId),
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
 
 export const listRequesterWebNotifications = createServerFn({ method: "POST" })
@@ -530,7 +543,15 @@ export const listRequesterWebNotifications = createServerFn({ method: "POST" })
         !order.webHiddenRequester &&
         order.finalStatus !== "web_hidden_requester",
     );
-    return { ...orderPage, items: matches.slice(0, pagination.limit) };
+    return diagnoseServerResult(
+      "api:listRequesterWebNotifications",
+      { ...orderPage, items: matches.slice(0, pagination.limit) },
+      {
+        user: diagnosticIdentity(data.requesterPhone),
+        session: data.requesterType,
+        params: pagination,
+      },
+    );
   });
 
 export const merchantMarkProductAvailable = createServerFn({ method: "POST" })

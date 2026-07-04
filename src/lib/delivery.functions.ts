@@ -25,6 +25,10 @@ import {
   type PageRequest,
   type PageResult,
 } from "@/lib/eventStore.server";
+import {
+  diagnoseServerResult,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
 
 export interface DeliveryCompanyRecord {
   id: string;
@@ -140,7 +144,12 @@ export const listDeliveryCompaniesAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => paginatedTokenInput.parse(d))
   .handler(async ({ data }): Promise<PageResult<DeliveryCompanyRecord>> => {
     await authorizeAdmin(data.token);
-    return loadDeliveryCompanies(normalizePageRequest(data));
+    const pagination = normalizePageRequest(data);
+    const result = await loadDeliveryCompanies(pagination);
+    return diagnoseServerResult("api:admin:listDeliveryCompanies", result, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const addDeliveryCompany = createServerFn({ method: "POST" })
@@ -223,9 +232,13 @@ export const listActiveDeliveryCompanies = createServerFn({ method: "POST" })
   .inputValidator((d) => paginatedTokenInput.parse(d))
   .handler(async ({ data }): Promise<PageResult<DeliveryCompanyRecord>> => {
     await authorizeMerchantId(data.token);
-    const page = await loadDeliveryCompanies(normalizePageRequest(data));
-    return {
+    const pagination = normalizePageRequest(data);
+    const page = await loadDeliveryCompanies(pagination);
+    return diagnoseServerResult("api:listActiveDeliveryCompanies", {
       ...page,
       items: page.items.filter((company) => !company.bannedFromBot),
-    };
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });

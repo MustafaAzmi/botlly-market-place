@@ -14,6 +14,12 @@ import {
   updateMerchantProduct,
   updateMerchantProfile,
 } from "@/lib/merchant.functions";
+import {
+  diagnosticIdentity,
+  diagnosticResponse,
+  diagnosticSession,
+  payloadBytes,
+} from "@/lib/egress-diagnostics.server";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -34,10 +40,23 @@ type Action =
   | "listOrders"
   | "catalogue";
 
-function json(data: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(data), {
+function json(route: string, data: unknown, requestData: unknown, init?: ResponseInit) {
+  const body = JSON.stringify(data);
+  const input = (requestData ?? {}) as Record<string, unknown>;
+  const text = (value: unknown) => typeof value === "string" ? value : "";
+  return diagnosticResponse(route, body, {
     ...init,
     headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
+  }, {
+    payload: data,
+    responseBytes: payloadBytes(body),
+    user: diagnosticIdentity(text(input.merchantId) || text(input.whatsapp)),
+    session: diagnosticSession(text(input.token)),
+    params: {
+      limit: typeof input.limit === "number" ? input.limit : undefined,
+      page: typeof input.page === "number" ? input.page : undefined,
+      cursor: text(input.cursor),
+    },
   });
 }
 
@@ -58,49 +77,53 @@ export const Route = createFileRoute("/api/merchant/mobile")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        let action: Action | undefined;
+        let data: unknown;
         try {
-          const { action, data } = await readBody(request);
+          ({ action, data } = await readBody(request));
           if (!action) {
-            return json({ ok: false, error: "Missing action" }, { status: 400 });
+            return json("api:merchantMobile:missingAction", { ok: false, error: "Missing action" }, data, { status: 400 });
           }
 
           switch (action) {
             case "login":
-              return json({ ok: true, result: await callServerFn(loginMerchant, data) });
+              return json("api:merchantMobile:login", { ok: true, result: await callServerFn(loginMerchant, data) }, data);
             case "signup":
-              return json({ ok: true, result: await callServerFn(signupMerchant, data) });
+              return json("api:merchantMobile:signup", { ok: true, result: await callServerFn(signupMerchant, data) }, data);
             case "currentMerchant":
-              return json({ ok: true, result: await callServerFn(getCurrentMerchant, data) });
+              return json("api:merchantMobile:currentMerchant", { ok: true, result: await callServerFn(getCurrentMerchant, data) }, data);
             case "updateProfile":
-              return json({ ok: true, result: await callServerFn(updateMerchantProfile, data) });
+              return json("api:merchantMobile:updateProfile", { ok: true, result: await callServerFn(updateMerchantProfile, data) }, data);
             case "dashboard":
-              return json({ ok: true, result: await callServerFn(getMerchantDashboard, data) });
+              return json("api:merchantMobile:dashboard", { ok: true, result: await callServerFn(getMerchantDashboard, data) }, data);
             case "listProducts":
-              return json({ ok: true, result: await callServerFn(listMerchantProducts, data) });
+              return json("api:merchantMobile:listProducts", { ok: true, result: await callServerFn(listMerchantProducts, data) }, data);
             case "getProduct":
-              return json({ ok: true, result: await callServerFn(getMerchantProduct, data) });
+              return json("api:merchantMobile:getProduct", { ok: true, result: await callServerFn(getMerchantProduct, data) }, data);
             case "createProduct":
-              return json({ ok: true, result: await callServerFn(createMerchantProduct, data) });
+              return json("api:merchantMobile:createProduct", { ok: true, result: await callServerFn(createMerchantProduct, data) }, data);
             case "updateProduct":
-              return json({ ok: true, result: await callServerFn(updateMerchantProduct, data) });
+              return json("api:merchantMobile:updateProduct", { ok: true, result: await callServerFn(updateMerchantProduct, data) }, data);
             case "deleteProduct":
-              return json({ ok: true, result: await callServerFn(deleteMerchantProduct, data) });
+              return json("api:merchantMobile:deleteProduct", { ok: true, result: await callServerFn(deleteMerchantProduct, data) }, data);
             case "listOrders":
-              return json({ ok: true, result: await callServerFn(listMerchantOrders, data) });
+              return json("api:merchantMobile:listOrders", { ok: true, result: await callServerFn(listMerchantOrders, data) }, data);
             case "catalogue":
-              return json({
+              return json("api:merchantMobile:catalogue", {
                 ok: true,
                 result: await callServerFn(getEnabledCarCatalogueForMerchant, data),
-              });
+              }, data);
             default:
-              return json({ ok: false, error: "Unknown action" }, { status: 400 });
+              return json("api:merchantMobile:unknownAction", { ok: false, error: "Unknown action" }, data, { status: 400 });
           }
         } catch (error) {
           return json(
+            `api:merchantMobile:${action ?? "error"}`,
             {
               ok: false,
               error: error instanceof Error ? error.message : "Unexpected server error",
             },
+            data,
             { status: 500 },
           );
         }

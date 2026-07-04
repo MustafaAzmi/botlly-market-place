@@ -27,6 +27,7 @@ import {
   type EventRow,
   type PageResult,
 } from "@/lib/eventStore.server";
+import { diagnoseServerResult } from "@/lib/egress-diagnostics.server";
 import {
   CAR_COLORS,
   CAR_MAKES,
@@ -263,6 +264,10 @@ export const browseCarProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => browseInput.parse(d))
   .handler(async ({ data }): Promise<PageResult<CustomerProduct>> => {
     const pagination = normalizePageRequest(data);
+    const finish = (result: PageResult<CustomerProduct>) =>
+      diagnoseServerResult("api:browseCarProducts", result, {
+        params: pagination,
+      });
     const [productPage, hiddenMerchants, merchantGovernorates] = await Promise.all([
       listEventsPage("botly_product", {
         page: pagination.page,
@@ -282,13 +287,13 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     const searchScope = data.searchScope ?? "governorate";
 
     if (!wantMake || (searchScope === "governorate" && !wantGovernorate)) {
-      return {
+      return finish({
         items: [],
         page: pagination.page,
         limit: pagination.limit,
         nextCursor: null,
         hasMore: false,
-      };
+      });
     }
 
     const results: CustomerProduct[] = [];
@@ -362,13 +367,13 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       }
     }
 
-    return {
+    return finish({
       items: results,
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: resultCursor ?? productPage.nextCursor,
       hasMore: Boolean(resultCursor) || productPage.hasMore,
-    };
+    });
   });
 
 // ---------------------------------------------------------------------------

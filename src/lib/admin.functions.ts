@@ -30,6 +30,11 @@ import {
   type CatalogueConfig,
 } from "@/lib/car-data";
 import { normalizeGovernorate } from "@/lib/governorates";
+import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -632,13 +637,16 @@ export const listMerchants = createServerFn({ method: "POST" })
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return {
+    return diagnoseServerResult("api:admin:listMerchants", {
       items,
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: merchantPage.nextCursor,
       hasMore: merchantPage.hasMore,
-    };
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
@@ -673,13 +681,17 @@ export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
       if (status === "rejected") continue;
       products.push(toAdminMerchantProduct(row));
     }
-    return {
+    return diagnoseServerResult("api:admin:listMerchantProducts", {
       items: products.slice(0, pagination.limit),
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: productPage.nextCursor,
       hasMore: productPage.hasMore,
-    };
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const deleteMerchantProductForAdmin = createServerFn({ method: "POST" })
@@ -1027,7 +1039,14 @@ export const listAdminMessages = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
-    return { ...page, items };
+    return diagnoseServerResult(
+      "api:admin:listAdminMessages",
+      { ...page, items },
+      {
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
 
 // ---------------------------------------------------------------------------
@@ -1355,13 +1374,16 @@ export const listCustomers = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
-    return {
+    return diagnoseServerResult("api:admin:listCustomers", {
       items,
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: customerPage.nextCursor,
       hasMore: customerPage.hasMore,
-    };
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 // ---------------------------------------------------------------------------
@@ -1473,13 +1495,16 @@ export const listFitters = createServerFn({ method: "POST" })
         };
       }),
     );
-    return {
+    return diagnoseServerResult("api:admin:listFitters", {
       items,
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: fitterPage.nextCursor,
       hasMore: fitterPage.hasMore,
-    };
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const updateFitterByAdmin = createServerFn({ method: "POST" })
@@ -1671,7 +1696,14 @@ export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
           b.requestCount - a.requestCount ||
           b.lastRequestedAt.localeCompare(a.lastRequestedAt),
       );
-    return { ...eventPage, items };
+    return diagnoseServerResult(
+      "api:admin:listPopularSmartSearchProducts",
+      { ...eventPage, items },
+      {
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
 
 const mediatorPhoneInput = tokenInput.extend({

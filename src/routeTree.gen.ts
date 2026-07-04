@@ -54,6 +54,7 @@ import { Route as ApiMerchantMobileRouteImport } from './routes/api/merchant/mob
 import { Route as ApiMerchantImageIdRouteImport } from './routes/api/merchant-image/$id'
 import { Route as ApiFitterMobileRouteImport } from './routes/api/fitter/mobile'
 import { Route as ApiCustomerMobileRouteImport } from './routes/api/customer/mobile'
+import { Route as ApiAdminEgressDiagnosticsRouteImport } from './routes/api/admin/egress-diagnostics'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 
 const TermsRoute = TermsRouteImport.update({
@@ -282,6 +283,12 @@ const ApiCustomerMobileRoute = ApiCustomerMobileRouteImport.update({
   path: '/api/customer/mobile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminEgressDiagnosticsRoute =
+  ApiAdminEgressDiagnosticsRouteImport.update({
+    id: '/api/admin/egress-diagnostics',
+    path: '/api/admin/egress-diagnostics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
   id: '/dashboard/products/$id/edit',
   path: '/dashboard/products/$id/edit',
@@ -321,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
@@ -368,6 +376,7 @@ export interface FileRoutesByTo {
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
@@ -417,6 +426,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
   '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
@@ -467,6 +477,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant-image/$id'
@@ -514,6 +525,7 @@ export interface FileRouteTypes {
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant-image/$id'
@@ -562,6 +574,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
     | '/api/merchant-image/$id'
@@ -611,6 +624,7 @@ export interface RootRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   CustomerIndexRoute: typeof CustomerIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  ApiAdminEgressDiagnosticsRoute: typeof ApiAdminEgressDiagnosticsRoute
   ApiCustomerMobileRoute: typeof ApiCustomerMobileRoute
   ApiFitterMobileRoute: typeof ApiFitterMobileRoute
   ApiMerchantImageIdRoute: typeof ApiMerchantImageIdRoute
@@ -944,6 +958,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCustomerMobileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/egress-diagnostics': {
+      id: '/api/admin/egress-diagnostics'
+      path: '/api/admin/egress-diagnostics'
+      fullPath: '/api/admin/egress-diagnostics'
+      preLoaderRoute: typeof ApiAdminEgressDiagnosticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard/products/$id/edit': {
       id: '/dashboard/products/$id/edit'
       path: '/dashboard/products/$id/edit'
@@ -987,6 +1008,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   CustomerIndexRoute: CustomerIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  ApiAdminEgressDiagnosticsRoute: ApiAdminEgressDiagnosticsRoute,
   ApiCustomerMobileRoute: ApiCustomerMobileRoute,
   ApiFitterMobileRoute: ApiFitterMobileRoute,
   ApiMerchantImageIdRoute: ApiMerchantImageIdRoute,

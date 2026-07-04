@@ -8,6 +8,7 @@
 // that file.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { recordEgressDiagnostic } from "@/lib/egress-diagnostics.server";
 
 export type BotlyEventType =
   | "botly_merchant"
@@ -166,7 +167,15 @@ export async function listEventsPage(
     if (cursor) primaryQuery = primaryQuery.limit(limit);
     const primary = await primaryQuery;
 
-    if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:listEventsPage:${eventType}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
 
     let fallbackQuery = supabaseAdmin
       .from("whatsapp_webhook_events")
@@ -180,7 +189,13 @@ export async function listEventsPage(
     const fallback = await fallbackQuery;
 
     if (isMissingTableError(fallback.error) || fallback.error) return [];
-    return (fallback.data ?? []) as unknown as EventRow[];
+    const rows = (fallback.data ?? []) as unknown as EventRow[];
+    recordEgressDiagnostic({
+      route: `db:listEventsPage:${eventType}:legacy`,
+      payload: rows,
+      params: { page, limit, cursor },
+    });
+    return rows;
   });
 
   const last = items.at(-1);
@@ -257,7 +272,15 @@ export async function listEventsByPayloadFieldPage(
       : primaryQuery.range(offset, offset + limit - 1);
     const primary = await primaryQuery;
 
-    if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:listEventsByField:${eventType}:${field}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
 
     // Older schema / filter failure: fall back to the in-memory scan.
     const rows = await listEvents(eventType, MAX_PAGE_LIMIT);
@@ -298,7 +321,15 @@ export async function getEventById(
     .eq("event_type", eventType)
     .eq("id", id)
     .limit(1);
-  if (!primary.error && primary.data?.[0]) return primary.data[0] as EventRow;
+  if (!primary.error && primary.data?.[0]) {
+    const row = primary.data[0] as EventRow;
+    recordEgressDiagnostic({
+      route: `db:getEventById:${eventType}`,
+      payload: [row],
+      params: { limit: 1 },
+    });
+    return row;
+  }
 
   const fallback = await supabaseAdmin
     .from("whatsapp_webhook_events")
@@ -306,9 +337,14 @@ export async function getEventById(
     .eq("provider" as never, eventType)
     .eq("id", id)
     .limit(1);
-  return fallback.error || !fallback.data?.[0]
-    ? null
-    : (fallback.data[0] as unknown as EventRow);
+  if (fallback.error || !fallback.data?.[0]) return null;
+  const row = fallback.data[0] as unknown as EventRow;
+  recordEgressDiagnostic({
+    route: `db:getEventById:${eventType}:legacy`,
+    payload: [row],
+    params: { limit: 1 },
+  });
+  return row;
 }
 
 // Delete all events of a specific type matching a payload field (hard delete from DB).

@@ -12,6 +12,12 @@ import {
 } from "@/lib/car-data";
 import { normalizeGovernorate } from "@/lib/governorates";
 import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+  recordEgressDiagnostic,
+} from "@/lib/egress-diagnostics.server";
+import {
   getEventById as getSharedEventById,
   listEventsByPayloadField as listSharedEventsByPayloadField,
   listEventsByPayloadFieldPage as listSharedEventsByPayloadFieldPage,
@@ -475,7 +481,15 @@ async function listEvents(provider: string, request: PageRequest = {}) {
     : primaryQuery.range(offset, offset + limit - 1);
   const primary = await primaryQuery;
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:merchantListEvents:${provider}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
 
   let fallbackQuery = supabaseAdmin
     .from("whatsapp_webhook_events")
@@ -493,7 +507,13 @@ async function listEvents(provider: string, request: PageRequest = {}) {
   }
   if (fallback.error)
     throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
-  return (fallback.data ?? []) as unknown as EventRow[];
+  const rows = (fallback.data ?? []) as unknown as EventRow[];
+  recordEgressDiagnostic({
+    route: `db:merchantListEvents:${provider}:legacy`,
+    payload: rows,
+    params: { page, limit, cursor },
+  });
+  return rows;
 }
 
 async function findMerchantByPhone(whatsapp: string) {
@@ -855,7 +875,7 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
       const product = toProductSummary(row);
       products.push(product);
     }
-    return {
+    return diagnoseServerResult("api:listMerchantProducts", {
       items: products.slice(0, pagination.limit),
       page: pagination.page,
       limit: pagination.limit,
@@ -864,7 +884,11 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
           ? rows.at(-1)?.created_at ?? rows.at(-1)?.received_at ?? null
           : null,
       hasMore: rows.length === pagination.limit,
-    };
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const getMerchantProduct = createServerFn({ method: "POST" })
@@ -1129,7 +1153,7 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
       products.push(product);
     }
 
-    return {
+    return diagnoseServerResult("api:getMerchantDashboard", {
       profile,
       products,
       stats: {
@@ -1140,7 +1164,10 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
         completion: completionScore(profile, products.length),
       },
       salesReport,
-    } satisfies MerchantDashboard;
+    } satisfies MerchantDashboard, {
+      user: diagnosticIdentity(profile.id),
+      session: diagnosticSession(data.token),
+    });
   });
 
 export type MerchantOrder = {
@@ -1202,13 +1229,17 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
         } satisfies MerchantOrder;
       })
       .slice(0, pagination.limit);
-    return {
+    return diagnoseServerResult("api:listMerchantOrders", {
       items,
       page: pagination.page,
       limit: pagination.limit,
       nextCursor: orderPage.nextCursor,
       hasMore: orderPage.hasMore,
-    };
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 // Merchant-facing car catalogue: only enabled items show in product forms.

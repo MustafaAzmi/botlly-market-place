@@ -20,6 +20,12 @@ import {
   type EventRow,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import {
+  diagnosticIdentity,
+  diagnosticResponse,
+  diagnosticSession,
+  payloadBytes,
+} from "@/lib/egress-diagnostics.server";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -37,11 +43,30 @@ type Action =
   | "listOrders"
   | "updateOrderStatus";
 
-function json(data: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(data), {
-    ...init,
-    headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
-  });
+function json(route: string, data: unknown, requestData: unknown, init?: ResponseInit) {
+  const body = JSON.stringify(data);
+  const input = (requestData ?? {}) as Record<string, unknown>;
+  return diagnosticResponse(
+    route,
+    body,
+    {
+      ...init,
+      headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
+    },
+    {
+      payload: data,
+      responseBytes: payloadBytes(body),
+      user: diagnosticIdentity(
+        getString(input.customerPhone) || getString(input.whatsapp),
+      ),
+      session: diagnosticSession(getString(input.token)),
+      params: {
+        limit: typeof input.limit === "number" ? input.limit : undefined,
+        page: typeof input.page === "number" ? input.page : undefined,
+        cursor: getString(input.cursor),
+      },
+    },
+  );
 }
 
 async function readBody(request: Request): Promise<{ action?: Action; data?: unknown }> {
@@ -284,35 +309,39 @@ export const Route = createFileRoute("/api/customer/mobile")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        let action: Action | undefined;
+        let data: unknown;
         try {
-          const { action, data } = await readBody(request);
-          if (!action) return json({ ok: false, error: "Missing action" }, { status: 400 });
+          ({ action, data } = await readBody(request));
+          if (!action) return json("api:customerMobile:missingAction", { ok: false, error: "Missing action" }, data, { status: 400 });
 
           switch (action) {
             case "login":
-              return json({ ok: true, result: await callServerFn(loginCustomer, data) });
+              return json("api:customerMobile:login", { ok: true, result: await callServerFn(loginCustomer, data) }, data);
             case "signup":
-              return json({ ok: true, result: await callServerFn(signupCustomer, data) });
+              return json("api:customerMobile:signup", { ok: true, result: await callServerFn(signupCustomer, data) }, data);
             case "updateProfile":
-              return json({ ok: true, result: await callServerFn(updateCustomerProfile, data) });
+              return json("api:customerMobile:updateProfile", { ok: true, result: await callServerFn(updateCustomerProfile, data) }, data);
             case "browseProducts":
-              return json({ ok: true, result: await callServerFn(browseCarProducts, data) });
+              return json("api:customerMobile:browseProducts", { ok: true, result: await callServerFn(browseCarProducts, data) }, data);
             case "submitOrder":
-              return json({ ok: true, result: await callServerFn(submitProductOrder, data) });
+              return json("api:customerMobile:submitOrder", { ok: true, result: await callServerFn(submitProductOrder, data) }, data);
             case "catalogue":
-              return json({ ok: true, result: await getEnabledCarCatalogue() });
+              return json("api:customerMobile:catalogue", { ok: true, result: await getEnabledCarCatalogue() }, data);
             case "mediator":
-              return json({ ok: true, result: await getMediatorPhone() });
+              return json("api:customerMobile:mediator", { ok: true, result: await getMediatorPhone() }, data);
             case "listOrders":
-              return json({ ok: true, result: await listCustomerOrders(data) });
+              return json("api:customerMobile:listOrders", { ok: true, result: await listCustomerOrders(data) }, data);
             case "updateOrderStatus":
-              return json({ ok: true, result: await updateCustomerOrderStatus(data) });
+              return json("api:customerMobile:updateOrderStatus", { ok: true, result: await updateCustomerOrderStatus(data) }, data);
             default:
-              return json({ ok: false, error: "Unknown action" }, { status: 400 });
+              return json("api:customerMobile:unknownAction", { ok: false, error: "Unknown action" }, data, { status: 400 });
           }
         } catch (error) {
           return json(
+            `api:customerMobile:${action ?? "error"}`,
             { ok: false, error: error instanceof Error ? error.message : "Unexpected server error" },
+            data,
             { status: 500 },
           );
         }

@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getEventById, getString, listEventsByPayloadField } from "@/lib/eventStore.server";
+import {
+  diagnosticIdentity,
+  diagnosticResponse,
+  payloadBytes,
+} from "@/lib/egress-diagnostics.server";
 
 // Public product image endpoint. Manually uploaded images are stored as
 // base64 data: URLs in the product event — WhatsApp can only deliver public
@@ -12,7 +17,18 @@ export const Route = createFileRoute("/api/product-image/$id")({
     handlers: {
       GET: async ({ params, request }) => {
         const productId = getString((params as Record<string, unknown>).id);
-        if (!productId) return new Response("Not found", { status: 404 });
+        const respond = (
+          body: BodyInit | null,
+          init: ResponseInit,
+          responseBytes = typeof body === "string" ? payloadBytes(body) : 0,
+        ) => diagnosticResponse("api:productImage", body, init, {
+          responseBytes,
+          rows: responseBytes > 0 ? 1 : 0,
+          containsBase64: false,
+          user: diagnosticIdentity(productId),
+          cacheControl: new Headers(init.headers).get("cache-control") ?? undefined,
+        });
+        if (!productId) return respond("Not found", { status: 404 });
 
         // Events are newest-first, so the first row per productId is the
         // latest version of the product (edits append new events).
@@ -25,7 +41,7 @@ export const Route = createFileRoute("/api/product-image/$id")({
         const row =
           matchingRows[0] ??
           await getEventById("botly_product", productId);
-        if (!row) return new Response("Not found", { status: 404 });
+        if (!row) return respond("Not found", { status: 404 });
 
         const requestedIndex = Number(new URL(request.url).searchParams.get("index") ?? "0");
         const index = Number.isInteger(requestedIndex) && requestedIndex >= 0 ? requestedIndex : 0;
@@ -36,7 +52,7 @@ export const Route = createFileRoute("/api/product-image/$id")({
           : [];
         const imageUrl = imageUrls[index] ?? (index === 0 ? getString(row.payload?.imageUrl) : "");
         if (/^https?:\/\//i.test(imageUrl)) {
-          return new Response(null, {
+          return respond(null, {
             status: 302,
             headers: {
               location: imageUrl,
@@ -46,22 +62,22 @@ export const Route = createFileRoute("/api/product-image/$id")({
         }
 
         const dataUrl = imageUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
-        if (!dataUrl) return new Response("Not found", { status: 404 });
+        if (!dataUrl) return respond("Not found", { status: 404 });
 
         let body: Blob;
         try {
           const bytes = Uint8Array.from(atob(dataUrl[2]), (c) => c.charCodeAt(0));
           body = new Blob([bytes], { type: dataUrl[1] });
         } catch {
-          return new Response("Invalid image", { status: 422 });
+          return respond("Invalid image", { status: 422 });
         }
 
-        return new Response(body, {
+        return respond(body, {
           headers: {
             "content-type": dataUrl[1],
             "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
           },
-        });
+        }, body.size);
       },
     },
   },

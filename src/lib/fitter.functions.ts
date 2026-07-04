@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
+import {
   appendEvent,
   eventTime,
   getNumber,
@@ -825,12 +830,15 @@ export const getFitterSummary = createServerFn({ method: "POST" })
     }));
     const sales = [...orderSales, ...legacySales];
     const totalProfit = Number(sales.reduce((sum, sale) => sum + sale.commissionAmount, 0).toFixed(2));
-    return {
+    return diagnoseServerResult("api:getFitterSummary", {
       fitter,
       totalProfit,
       currency: sales[0]?.currency ?? "IQD",
       salesCount: sales.length,
       sales,
       orders,
-    };
+    }, {
+      user: diagnosticIdentity(fitter.id),
+      session: diagnosticSession(data.token),
+    });
   });

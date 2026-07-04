@@ -8,6 +8,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { diagnoseServerResult } from "@/lib/egress-diagnostics.server";
 import {
   getNumber,
   getString,
@@ -69,19 +70,24 @@ const slugInput = z.object({
 export const getPublicStore = createServerFn({ method: "POST" })
   .inputValidator((d) => slugInput.parse(d))
   .handler(async ({ data }): Promise<PublicStore | null> => {
+    const pagination = normalizePageRequest(data);
+    const finish = (result: PublicStore | null) =>
+      diagnoseServerResult("api:getPublicStore", result, {
+        user: data.slug,
+        params: pagination,
+      });
     // Merchants are event-sourced: newest event per merchantId is the current
     // state. Match the CURRENT state's slug only, so renamed slugs don't keep
     // serving the store under an old address.
     const merchant = await latestEventWhere("botly_merchant", "storeSlug", data.slug);
-    if (!merchant) return null;
+    if (!merchant) return finish(null);
 
     const p = merchant.payload ?? {};
-    if (isHiddenMerchant(p)) return null;
+    if (isHiddenMerchant(p)) return finish(null);
 
     const merchantId = getString(p.merchantId) || merchant.id;
 
     // Active products, latest event per productId (append-only log).
-    const pagination = normalizePageRequest(data);
     const productPage = await listEventsByPayloadFieldPage(
       "botly_product",
       "merchantId",
@@ -116,7 +122,7 @@ export const getPublicStore = createServerFn({ method: "POST" })
       });
     }
 
-    return {
+    return finish({
       storeName: getString(p.storeName) || "متجر",
       storeSlug: data.slug,
       bio: getString(p.bio) || undefined,
@@ -133,5 +139,5 @@ export const getPublicStore = createServerFn({ method: "POST" })
       limit: pagination.limit,
       hasMore: productPage.hasMore,
       nextCursor: productPage.nextCursor,
-    };
+    });
   });

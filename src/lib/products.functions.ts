@@ -15,6 +15,11 @@ import {
   type PageRequest,
   type PageResult,
 } from "@/lib/eventStore.server";
+import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
 
 // ---------------------------------------------------------------------------
 // Views
@@ -173,7 +178,15 @@ export const listReviewProducts = createServerFn({ method: "POST" })
       .map(toManaged)
       .filter((p) => p.status === "pending_review" || p.requiresReview)
       .sort((a, b) => (a.confidenceScore ?? 0) - (b.confidenceScore ?? 0));
-    return { ...result.page, items };
+    return diagnoseServerResult(
+      "api:listReviewProducts",
+      { ...result.page, items },
+      {
+        user: diagnosticIdentity(merchantId),
+        session: diagnosticSession(data.token),
+        params: normalizePageRequest(data),
+      },
+    );
   });
 
 // Full managed catalogue (manual + imported), latest state per product.
@@ -186,7 +199,15 @@ export const listManagedProducts = createServerFn({ method: "POST" })
       .map(toManaged)
       .filter((p) => p.status !== "rejected")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return { ...result.page, items };
+    return diagnoseServerResult(
+      "api:listManagedProducts",
+      { ...result.page, items },
+      {
+        user: diagnosticIdentity(merchantId),
+        session: diagnosticSession(data.token),
+        params: normalizePageRequest(data),
+      },
+    );
   });
 
 // Approve a pending product -> active and searchable.
@@ -271,5 +292,13 @@ export const listMerchantLeads = createServerFn({ method: "POST" })
           createdAt: getString(p.createdAt) || eventTime(row),
         };
       });
-    return { ...page, items };
+    return diagnoseServerResult(
+      "api:listMerchantLeads",
+      { ...page, items },
+      {
+        user: diagnosticIdentity(merchantId),
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
