@@ -909,7 +909,10 @@ export const getMerchantProduct = createServerFn({ method: "POST" })
         (getString(row.payload?.productId) === data.productId || row.id === data.productId),
     );
     if (!row) throw new Error("لم يتم العثور على المنتج.");
-    return toProduct(row);
+    return diagnoseServerResult("api:getMerchantProduct", toProduct(row), {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+    });
   });
 
 const updateProductInput = tokenInput.extend({
