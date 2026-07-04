@@ -6,7 +6,10 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
 import { clearMerchantSession, readMerchantSession } from "@/lib/merchantSession";
-import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
+import {
+  useWebNotificationCount,
+  WebNotificationCountValue,
+} from "@/components/orders/WebNotificationCountBadge";
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
@@ -29,6 +32,10 @@ export function DashboardLayout({
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [merchantToken, setMerchantToken] = useState("");
+  const merchantNotificationCount = useWebNotificationCount({
+    role: "merchant",
+    token: merchantToken,
+  });
 
   // Keep the signed-in store's unique identifier visible in the URL
   // (?store=<slug>) on every dashboard page, so each store's pages are
@@ -70,7 +77,7 @@ export function DashboardLayout({
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
                   {item.to === "/dashboard/orders" && merchantToken ? (
-                    <WebNotificationCountBadge role="merchant" token={merchantToken} />
+                    <WebNotificationCountValue count={merchantNotificationCount} />
                   ) : null}
                 </Link>
               );
@@ -121,7 +128,7 @@ export function DashboardLayout({
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
                   {item.to === "/dashboard/orders" && merchantToken ? (
-                    <WebNotificationCountBadge role="merchant" token={merchantToken} />
+                    <WebNotificationCountValue count={merchantNotificationCount} />
                   ) : null}
                 </Link>
               );

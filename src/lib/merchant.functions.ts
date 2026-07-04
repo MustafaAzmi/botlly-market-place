@@ -21,6 +21,7 @@ import {
   getEventById as getSharedEventById,
   listEventsByPayloadField as listSharedEventsByPayloadField,
   listEventsByPayloadFieldPage as listSharedEventsByPayloadFieldPage,
+  listProjectedEventsByPayloadFieldPage,
   normalizePageRequest,
   type PageRequest,
   type PageResult,
@@ -861,7 +862,55 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
     const pagination = normalizePageRequest(data);
-    const rows = await listEvents(PRODUCT_PROVIDER, pagination);
+    const productPage = await listProjectedEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      [
+        "product_id:payload->>productId",
+        "merchant_id:payload->>merchantId",
+        "title:payload->>title",
+        "description:payload->>description",
+        "current_price:payload->currentPrice",
+        "discount_price:payload->discountPrice",
+        "currency:payload->>currency",
+        "size:payload->>size",
+        "color:payload->>color",
+        "quantity:payload->quantity",
+        "car_make:payload->>carMake",
+        "car_model:payload->>carModel",
+        "car_year:payload->>carYear",
+        "status:payload->>status",
+        "deleted_at:payload->>deletedAt",
+        "created_at_value:payload->>createdAt",
+      ].join(","),
+      pagination,
+    );
+    const rows: EventRow[] = productPage.items.map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      received_at: row.received_at,
+      payload: {
+        productId: row.product_id,
+        merchantId: row.merchant_id,
+        title: row.title,
+        description: row.description,
+        imageUrl: `/api/product-image/${encodeURIComponent(getString(row.product_id) || row.id)}?index=0`,
+        imageUrls: [`/api/product-image/${encodeURIComponent(getString(row.product_id) || row.id)}?index=0`],
+        currentPrice: row.current_price,
+        discountPrice: row.discount_price,
+        currency: row.currency,
+        size: row.size,
+        color: row.color,
+        quantity: row.quantity,
+        carMake: row.car_make,
+        carModel: row.car_model,
+        carYear: row.car_year,
+        status: row.status,
+        deletedAt: row.deleted_at,
+        createdAt: row.created_at_value,
+      },
+    }));
     // Append-only store: edits add rows with the same productId, so keep
     // only the newest event per product (rows come newest first).
     const seen = new Set<string>();
@@ -879,11 +928,8 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
       items: products.slice(0, pagination.limit),
       page: pagination.page,
       limit: pagination.limit,
-      nextCursor:
-        rows.length === pagination.limit
-          ? rows.at(-1)?.created_at ?? rows.at(-1)?.received_at ?? null
-          : null,
-      hasMore: rows.length === pagination.limit,
+      nextCursor: productPage.nextCursor,
+      hasMore: productPage.hasMore,
     }, {
       user: diagnosticIdentity(merchantId),
       session: diagnosticSession(data.token),

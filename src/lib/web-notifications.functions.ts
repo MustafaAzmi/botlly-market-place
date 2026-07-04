@@ -6,16 +6,19 @@ import {
   authorizeMerchantId,
   eventTime,
   getNumber,
+  getProjectedEventById,
+  getProjectedEventByPayloadField,
   getString,
   listEvents,
-  listEventsByPayloadField,
-  listEventsByPayloadFieldPage,
-  listEventsPage,
+  listProjectedEventsByPayloadFieldPage,
+  listProjectedEventsPage,
   normalizePageRequest,
   normalizePhone,
   phoneKey,
   type EventRow,
   type PageRequest,
+  type PageResult,
+  type ProjectedEventRow,
 } from "@/lib/eventStore.server";
 import { normalizeGovernorate } from "@/lib/governorates";
 import {
@@ -199,17 +202,62 @@ async function latestMediatorContacts() {
   return [];
 }
 
-async function latestMerchantPhoneVisibility() {
-  const rows = await listEvents("botly_merchant", 100);
+async function merchantPhoneVisibilityForOrders(
+  orders: WebOrderNotification[],
+) {
   const visibility = new Map<string, boolean>();
+  const projection = [
+    "merchant_id:payload->>merchantId",
+    "whatsapp:payload->>whatsapp",
+    "whatsapp_normalized:payload->>whatsappNormalized",
+    "show_phone:payload->>showPhoneToRequesters",
+  ].join(",");
+  const unique = new Map<string, { id: string; phone: string }>();
+  for (const order of orders) {
+    const key = order.merchantId || phoneKey(order.merchantWhatsapp);
+    if (key && !unique.has(key)) {
+      unique.set(key, { id: order.merchantId, phone: order.merchantWhatsapp });
+    }
+  }
+  const rows = await Promise.all(
+    [...unique.values()].map(async ({ id, phone }) => {
+      let row = id
+        ? await getProjectedEventByPayloadField(
+            "botly_merchant",
+            "merchantId",
+            id,
+            projection,
+          )
+        : null;
+      if (!row && id) row = await getProjectedEventById("botly_merchant", id, projection);
+      if (!row && phone) {
+        row = await getProjectedEventByPayloadField(
+          "botly_merchant",
+          "whatsappNormalized",
+          normalizePhone(phone),
+          projection,
+        );
+      }
+      if (!row && phone) {
+        row = await getProjectedEventByPayloadField(
+          "botly_merchant",
+          "whatsapp",
+          phone,
+          projection,
+        );
+      }
+      return row;
+    }),
+  );
   for (const row of rows) {
-    const id = merchantIdentity(row);
+    if (!row) continue;
+    const id = getString(row.merchant_id) || row.id;
     const whatsapp = phoneKey(
-      getString(row.payload?.whatsappNormalized) || getString(row.payload?.whatsapp),
+      getString(row.whatsapp_normalized) || getString(row.whatsapp),
     );
-    const enabled = row.payload?.showPhoneToRequesters === true;
-    if (id && !visibility.has(id)) visibility.set(id, enabled);
-    if (whatsapp && !visibility.has(whatsapp)) visibility.set(whatsapp, enabled);
+    const enabled = getString(row.show_phone) === "true";
+    if (id) visibility.set(id, enabled);
+    if (whatsapp) visibility.set(whatsapp, enabled);
   }
   return visibility;
 }
@@ -315,6 +363,102 @@ function resolveRequesterPhone(payload: Record<string, unknown>, requesterType: 
   return getString(payload.customerPhone) || getString(payload.customerNumber);
 }
 
+const orderProjectionFields = [
+  ["orderId", "order_id", "text"],
+  ["createdAt", "created_at_value", "text"],
+  ["eventAt", "event_at", "text"],
+  ["updatedAt", "updated_at", "text"],
+  ["sourceContext", "source_context", "text"],
+  ["productTitle", "product_title", "text"],
+  ["title", "title", "text"],
+  ["requestDetails", "request_details", "text"],
+  ["carMake", "car_make", "text"],
+  ["carModel", "car_model", "text"],
+  ["finalPrice", "final_price", "json"],
+  ["price", "price", "json"],
+  ["productPrice", "product_price", "json"],
+  ["currentPrice", "current_price", "json"],
+  ["currency", "currency", "text"],
+  ["requesterType", "requester_type", "text"],
+  ["requesterName", "requester_name", "text"],
+  ["fitterName", "fitter_name", "text"],
+  ["customerName", "customer_name", "text"],
+  ["requesterPhone", "requester_phone", "text"],
+  ["fitterWhatsapp", "fitter_whatsapp", "text"],
+  ["fitterOrderId", "fitter_order_id", "text"],
+  ["customerPhone", "customer_phone", "text"],
+  ["customerNumber", "customer_number", "text"],
+  ["merchantId", "merchant_id", "text"],
+  ["merchantStoreName", "merchant_store_name", "text"],
+  ["storeName", "store_name", "text"],
+  ["merchantWhatsapp", "merchant_whatsapp", "text"],
+  ["whatsapp", "whatsapp", "text"],
+  ["merchantGovernorate", "merchant_governorate", "text"],
+  ["merchantCity", "merchant_city", "text"],
+  ["customerGovernorate", "customer_governorate", "text"],
+  ["requesterGovernorate", "requester_governorate", "text"],
+  ["merchantPhoneVisible", "merchant_phone_visible", "json"],
+  ["mediatorPhone", "mediator_phone", "text"],
+  ["merchantStatus", "merchant_status", "text"],
+  ["requesterStatus", "requester_status", "text"],
+  ["finalStatus", "final_status", "text"],
+  ["status", "status", "text"],
+  ["merchantRating", "merchant_rating", "json"],
+  ["merchantRatingComment", "merchant_rating_comment", "text"],
+  ["webHiddenMerchant", "web_hidden_merchant", "json"],
+  ["webHiddenRequester", "web_hidden_requester", "json"],
+] as const;
+
+const orderNotificationProjection = orderProjectionFields
+  .map(([payloadKey, alias, kind]) =>
+    `${alias}:payload->${kind === "text" ? ">" : ""}${payloadKey}`,
+  )
+  .join(",");
+
+function projectedOrderRow(row: ProjectedEventRow): EventRow {
+  const payload: Record<string, unknown> = {};
+  for (const [payloadKey, alias] of orderProjectionFields) {
+    const value = row[alias];
+    if (value !== null && value !== undefined && value !== "") payload[payloadKey] = value;
+  }
+  return {
+    id: row.id,
+    created_at: row.created_at,
+    received_at: row.received_at,
+    payload,
+  };
+}
+
+function projectedOrderPage(page: PageResult<ProjectedEventRow>): PageResult<EventRow> {
+  return { ...page, items: page.items.map(projectedOrderRow) };
+}
+
+async function listProjectedOrderPage(request: PageRequest) {
+  return projectedOrderPage(
+    await listProjectedEventsPage(
+      "botly_order",
+      orderNotificationProjection,
+      request,
+    ),
+  );
+}
+
+async function listProjectedOrderFieldPage(
+  field: string,
+  value: string,
+  request: PageRequest,
+) {
+  return projectedOrderPage(
+    await listProjectedEventsByPayloadFieldPage(
+      "botly_order",
+      field,
+      value,
+      orderNotificationProjection,
+      request,
+    ),
+  );
+}
+
 function uniqueEventRows(groups: EventRow[][]) {
   const rows = new Map<string, EventRow>();
   for (const group of groups) {
@@ -324,13 +468,17 @@ function uniqueEventRows(groups: EventRow[][]) {
 }
 
 async function latestOrders(orderRows?: EventRow[]) {
-  const [rows, mediatorContacts, merchantVisibility] = await Promise.all([
-    orderRows ? Promise.resolve(orderRows) : listEvents("botly_order", 100),
+  const [rows, mediatorContacts] = await Promise.all([
+    orderRows
+      ? Promise.resolve(orderRows)
+      : listProjectedOrderPage({ limit: 100 }).then((page) => page.items),
     latestMediatorContacts(),
-    latestMerchantPhoneVisibility(),
   ]);
-  return mergeLatestOrders(rows)
+  const orders = mergeLatestOrders(rows)
     .map(toNotification)
+    .filter((order) => order.orderId && (order.merchantId || order.merchantWhatsapp || order.requesterPhone));
+  const merchantVisibility = await merchantPhoneVisibilityForOrders(orders);
+  return orders
     .map((order) => ({
       ...order,
       merchantPhoneVisible:
@@ -343,7 +491,6 @@ async function latestOrders(orderRows?: EventRow[]) {
         order.merchantGovernorate,
       ),
     }))
-    .filter((order) => order.orderId && (order.merchantId || order.merchantWhatsapp || order.requesterPhone))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -352,8 +499,7 @@ async function requesterOrderRows(
   requesterType: RequesterType,
   request: PageRequest,
 ) {
-  const direct = await listEventsByPayloadFieldPage(
-    "botly_order",
+  const direct = await listProjectedOrderFieldPage(
     "requesterPhone",
     requesterPhone,
     request,
@@ -362,8 +508,7 @@ async function requesterOrderRows(
 
   const normalized = normalizePhone(requesterPhone);
   if (normalized && normalized !== requesterPhone) {
-    const normalizedRows = await listEventsByPayloadFieldPage(
-      "botly_order",
+    const normalizedRows = await listProjectedOrderFieldPage(
       "requesterPhone",
       normalized,
       request,
@@ -377,22 +522,21 @@ async function requesterOrderRows(
       : ["customerPhone", "customerNumber"];
   const legacyPages = await Promise.all(
     legacyFields.map((field) =>
-      listEventsByPayloadFieldPage("botly_order", field, requesterPhone, request),
+      listProjectedOrderFieldPage(field, requesterPhone, request),
     ),
   );
   const scoped = uniqueEventRows(legacyPages.map((page) => page.items));
   if (scoped.length > 0) {
     return { ...legacyPages[0], items: scoped.slice(0, legacyPages[0].limit) };
   }
-  return listEventsPage("botly_order", request);
+  return listProjectedOrderPage(request);
 }
 
 async function merchantOrderRows(
   merchant: { id: string; whatsapp: string },
   request: PageRequest,
 ) {
-  const byId = await listEventsByPayloadFieldPage(
-    "botly_order",
+  const byId = await listProjectedOrderFieldPage(
     "merchantId",
     merchant.id,
     request,
@@ -400,34 +544,33 @@ async function merchantOrderRows(
   if (byId.items.length > 0) return byId;
 
   if (merchant.whatsapp) {
-    const byPhone = await listEventsByPayloadFieldPage(
-      "botly_order",
+    const byPhone = await listProjectedOrderFieldPage(
       "merchantWhatsapp",
       merchant.whatsapp,
       request,
     );
     if (byPhone.items.length > 0) return byPhone;
   }
-  return listEventsPage("botly_order", request);
+  return listProjectedOrderPage(request);
 }
 
 async function merchantProfile(merchantId: string) {
-  const matchingRows = await listEventsByPayloadField(
+  const projection = [
+    "store_name:payload->>storeName",
+    "whatsapp:payload->>whatsapp",
+    "whatsapp_normalized:payload->>whatsappNormalized",
+  ].join(",");
+  const row =
+    await getProjectedEventByPayloadField(
     "botly_merchant",
     "merchantId",
     merchantId,
-    1,
-  );
-  const row =
-    matchingRows[0] ??
-    (await listEvents("botly_merchant", 100)).find(
-      (item) => merchantIdentity(item) === merchantId,
-    );
-  const p = row?.payload ?? {};
+    projection,
+  ) ?? await getProjectedEventById("botly_merchant", merchantId, projection);
   return {
     id: merchantId,
-    storeName: getString(p.storeName),
-    whatsapp: getString(p.whatsappNormalized) || getString(p.whatsapp),
+    storeName: getString(row?.store_name),
+    whatsapp: getString(row?.whatsapp_normalized) || getString(row?.whatsapp),
   };
 }
 
@@ -445,7 +588,9 @@ function matchesRequester(order: WebOrderNotification, requesterPhone: string, r
 }
 
 async function currentOrder(orderId: string) {
-  const rows = await listEventsByPayloadField("botly_order", "orderId", orderId, 100);
+  const rows = (
+    await listProjectedOrderFieldPage("orderId", orderId, { limit: 100 })
+  ).items;
   const order = (await latestOrders(rows.length > 0 ? rows : undefined)).find(
     (item) => item.orderId === orderId,
   );

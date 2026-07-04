@@ -42,6 +42,12 @@ export type EventRow = {
   received_at?: string;
 };
 
+export type ProjectedEventRow = Record<string, unknown> & {
+  id: string;
+  created_at?: string;
+  received_at?: string;
+};
+
 export const DEFAULT_PAGE_LIMIT = 20;
 export const MAX_PAGE_LIMIT = 100;
 
@@ -216,6 +222,191 @@ export async function listEvents(
 ): Promise<EventRow[]> {
   const page = await listEventsPage(eventType, { limit });
   return page.items;
+}
+
+// Read scalar JSONB fields without transferring the complete payload. The
+// projection uses PostgREST aliases, e.g. "title:payload->>title".
+export async function listProjectedEventsPage(
+  eventType: BotlyEventType,
+  projection: string,
+  request: PageRequest = {},
+): Promise<PageResult<ProjectedEventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const offset = (page - 1) * limit;
+  let primaryQuery = supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .order("created_at", { ascending: false });
+  primaryQuery = cursor
+    ? primaryQuery.lt("created_at", cursor).limit(limit)
+    : primaryQuery.range(offset, offset + limit - 1);
+  const primary = await primaryQuery;
+
+  let items: ProjectedEventRow[];
+  if (!primary.error) {
+    items = (primary.data ?? []) as unknown as ProjectedEventRow[];
+  } else {
+    let fallbackQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select(`id,received_at,${projection}`)
+      .eq("provider" as never, eventType)
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor).limit(limit)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    const fallback = await fallbackQuery;
+    if (fallback.error) throw new Error(`Failed to read projected ${eventType}: ${fallback.error.message}`);
+    items = (fallback.data ?? []) as unknown as ProjectedEventRow[];
+  }
+
+  recordEgressDiagnostic({
+    route: `db:listProjectedEventsPage:${eventType}`,
+    payload: items,
+    params: { page, limit, cursor },
+  });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last as EventRow) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+export async function listProjectedEventsByPayloadFieldPage(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  projection: string,
+  request: PageRequest = {},
+): Promise<PageResult<ProjectedEventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const offset = (page - 1) * limit;
+  let primaryQuery = supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("created_at", { ascending: false });
+  primaryQuery = cursor
+    ? primaryQuery.lt("created_at", cursor).limit(limit)
+    : primaryQuery.range(offset, offset + limit - 1);
+  const primary = await primaryQuery;
+
+  let items: ProjectedEventRow[];
+  if (!primary.error) {
+    items = (primary.data ?? []) as unknown as ProjectedEventRow[];
+  } else {
+    let fallbackQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select(`id,received_at,${projection}`)
+      .eq("provider" as never, eventType)
+      .eq(`payload->>${field}` as never, value)
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor).limit(limit)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    const fallback = await fallbackQuery;
+    if (fallback.error) throw new Error(`Failed to read projected ${eventType}: ${fallback.error.message}`);
+    items = (fallback.data ?? []) as unknown as ProjectedEventRow[];
+  }
+
+  recordEgressDiagnostic({
+    route: `db:listProjectedEventsByField:${eventType}:${field}`,
+    payload: items,
+    params: { page, limit, cursor },
+  });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last as EventRow) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+export async function getProjectedEventByPayloadField(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  projection: string,
+): Promise<ProjectedEventRow | null> {
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (!primary.error) {
+    const row = (primary.data?.[0] ?? null) as unknown as ProjectedEventRow | null;
+    recordEgressDiagnostic({
+      route: `db:getProjectedEvent:${eventType}:${field}`,
+      payload: row ? [row] : [],
+      params: { limit: 1 },
+    });
+    return row;
+  }
+
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,received_at,${projection}`)
+    .eq("provider" as never, eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("received_at", { ascending: false })
+    .limit(1);
+  if (fallback.error) return null;
+  const row = (fallback.data?.[0] ?? null) as unknown as ProjectedEventRow | null;
+  recordEgressDiagnostic({
+    route: `db:getProjectedEvent:${eventType}:${field}:legacy`,
+    payload: row ? [row] : [],
+    params: { limit: 1 },
+  });
+  return row;
+}
+
+export async function getProjectedEventById(
+  eventType: BotlyEventType,
+  id: string,
+  projection: string,
+): Promise<ProjectedEventRow | null> {
+  if (!id.trim()) return null;
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq("id", id)
+    .limit(1);
+  if (!primary.error && primary.data?.[0]) {
+    const row = primary.data[0] as unknown as ProjectedEventRow;
+    recordEgressDiagnostic({
+      route: `db:getProjectedEventById:${eventType}`,
+      payload: [row],
+      params: { limit: 1 },
+    });
+    return row;
+  }
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,received_at,${projection}`)
+    .eq("provider" as never, eventType)
+    .eq("id", id)
+    .limit(1);
+  if (fallback.error || !fallback.data?.[0]) return null;
+  const row = fallback.data[0] as unknown as ProjectedEventRow;
+  recordEgressDiagnostic({
+    route: `db:getProjectedEventById:${eventType}:legacy`,
+    payload: [row],
+    params: { limit: 1 },
+  });
+  return row;
 }
 
 // Admin exports may scan multiple bounded pages, but no individual database

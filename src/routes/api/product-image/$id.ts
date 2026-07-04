@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getEventById, getString, listEventsByPayloadField } from "@/lib/eventStore.server";
+import {
+  getProjectedEventById,
+  getProjectedEventByPayloadField,
+  getString,
+} from "@/lib/eventStore.server";
 import {
   diagnosticIdentity,
   diagnosticResponse,
@@ -30,33 +34,32 @@ export const Route = createFileRoute("/api/product-image/$id")({
         });
         if (!productId) return respond("Not found", { status: 404 });
 
-        // Events are newest-first, so the first row per productId is the
-        // latest version of the product (edits append new events).
-        const matchingRows = await listEventsByPayloadField(
+        const requestedIndex = Number(new URL(request.url).searchParams.get("index") ?? "0");
+        const index = Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex <= 5
+          ? requestedIndex
+          : 0;
+        const projection = [
+          "image_url:payload->>imageUrl",
+          `indexed_image:payload->imageUrls->>${index}`,
+        ].join(",");
+        const row =
+          await getProjectedEventByPayloadField(
           "botly_product",
           "productId",
           productId,
-          1,
-        );
-        const row =
-          matchingRows[0] ??
-          await getEventById("botly_product", productId);
+          projection,
+        ) ?? await getProjectedEventById("botly_product", productId, projection);
         if (!row) return respond("Not found", { status: 404 });
 
-        const requestedIndex = Number(new URL(request.url).searchParams.get("index") ?? "0");
-        const index = Number.isInteger(requestedIndex) && requestedIndex >= 0 ? requestedIndex : 0;
-        const imageUrls = Array.isArray(row.payload?.imageUrls)
-          ? (row.payload.imageUrls as unknown[]).filter(
-              (value): value is string => typeof value === "string" && value.length > 0,
-            )
-          : [];
-        const imageUrl = imageUrls[index] ?? (index === 0 ? getString(row.payload?.imageUrl) : "");
+        const imageUrl =
+          getString(row.indexed_image)
+          || (index === 0 ? getString(row.image_url) : "");
         if (/^https?:\/\//i.test(imageUrl)) {
           return respond(null, {
             status: 302,
             headers: {
               location: imageUrl,
-              "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+              "cache-control": "public, max-age=86400, immutable",
             },
           });
         }
@@ -75,7 +78,7 @@ export const Route = createFileRoute("/api/product-image/$id")({
         return respond(body, {
           headers: {
             "content-type": dataUrl[1],
-            "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+            "cache-control": "public, max-age=86400, immutable",
           },
         }, body.size);
       },

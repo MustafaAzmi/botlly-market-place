@@ -16,7 +16,7 @@ import {
   appendEvent,
   listEvents,
   listEventsByPayloadField,
-  listEventsPage,
+  listProjectedEventsPage,
   latestEventWhere,
   getString,
   getNumber,
@@ -213,46 +213,46 @@ function liveCatalogueFallback(): CustomerCarCatalogue {
 
 // Merchants hidden from customers (banned / suspended / expired) — same rules
 // as the WhatsApp search path.
-async function loadHiddenMerchants(): Promise<Set<string>> {
+async function loadSearchMerchantMetadata(): Promise<{
+  hidden: Set<string>;
+  governorates: Map<string, string>;
+}> {
   const hidden = new Set<string>();
-  const rows = await listEvents("botly_merchant", 100).catch(() => [] as EventRow[]);
+  const governorates = new Map<string, string>();
+  const page = await listProjectedEventsPage(
+    "botly_merchant",
+    [
+      "merchant_id:payload->>merchantId",
+      "city:payload->>city",
+      "governorate:payload->>governorate",
+      "banned:payload->>bannedFromBot",
+      "visibility:payload->>visibilityEnabled",
+      "active:payload->>isActive",
+      "suspended_at:payload->>suspendedAt",
+      "subscription_status:payload->>subscriptionStatus",
+      "package_expiry:payload->>packageExpiry",
+    ].join(","),
+    { limit: 100 },
+  ).catch(() => ({ items: [] }));
   const seen = new Set<string>();
-  for (const row of rows) {
-    const p = row.payload ?? {};
-    const id = getString(p.merchantId) || row.id;
+  for (const row of page.items) {
+    const id = getString(row.merchant_id) || row.id;
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    governorates.set(id, getString(row.city) || getString(row.governorate));
     if (
-      p.bannedFromBot === true ||
-      p.bannedFromBot === "true" ||
-      p.visibilityEnabled === "false" ||
-      p.visibilityEnabled === false ||
-      p.isActive === "false" ||
-      p.isActive === false ||
-      (p.suspendedAt && String(p.suspendedAt).trim() !== "") ||
-      p.subscriptionStatus === "expired" ||
-      (p.packageExpiry &&
-        String(p.packageExpiry).trim() !== "" &&
-        new Date(String(p.packageExpiry)) < new Date())
+      getString(row.banned) === "true" ||
+      getString(row.visibility) === "false" ||
+      getString(row.active) === "false" ||
+      Boolean(getString(row.suspended_at).trim()) ||
+      getString(row.subscription_status) === "expired" ||
+      (getString(row.package_expiry).trim() &&
+        new Date(getString(row.package_expiry)) < new Date())
     ) {
       hidden.add(id);
     }
   }
-  return hidden;
-}
-
-async function loadMerchantGovernorates(): Promise<Map<string, string>> {
-  const merchantGovernorates = new Map<string, string>();
-  const rows = await listEvents("botly_merchant", 100).catch(() => [] as EventRow[]);
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const p = row.payload ?? {};
-    const id = getString(p.merchantId) || row.id;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    merchantGovernorates.set(id, getString(p.city) || getString(p.governorate));
-  }
-  return merchantGovernorates;
+  return { hidden, governorates };
 }
 
 function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
@@ -268,15 +268,33 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       diagnoseServerResult("api:browseCarProducts", result, {
         params: pagination,
       });
-    const [productPage, hiddenMerchants, merchantGovernorates] = await Promise.all([
-      listEventsPage("botly_product", {
+    const [productPage, merchantMetadata] = await Promise.all([
+      listProjectedEventsPage("botly_product", [
+        "product_id:payload->>productId",
+        "title:payload->>title",
+        "description:payload->>description",
+        "discount_price:payload->>discountPrice",
+        "current_price:payload->>currentPrice",
+        "currency:payload->>currency",
+        "merchant_id:payload->>merchantId",
+        "status:payload->>status",
+        "availability:payload->>availability",
+        "quantity:payload->>quantity",
+        "car_make:payload->>carMake",
+        "car_model:payload->>carModel",
+        "car_year:payload->>carYear",
+        "color:payload->>color",
+        "size:payload->>size",
+        "merchant_city:payload->>merchantCity",
+      ].join(","), {
         page: pagination.page,
         cursor: pagination.cursor,
         limit: 100,
       }),
-      loadHiddenMerchants(),
-      loadMerchantGovernorates(),
+      loadSearchMerchantMetadata(),
     ]);
+    const hiddenMerchants = merchantMetadata.hidden;
+    const merchantGovernorates = merchantMetadata.governorates;
     const rows = productPage.items;
 
     const wantMake = (data.carMake ?? "").trim();
@@ -301,22 +319,27 @@ export const browseCarProducts = createServerFn({ method: "POST" })
     let resultCursor: string | null = null;
 
     for (const row of rows) {
-      const p = row.payload ?? {};
-      const productId = getString(p.productId) || row.id;
+      const p: Record<string, unknown> = {
+        title: row.title,
+        description: row.description,
+        carYear: row.car_year,
+      };
+      const productId = getString(row.product_id) || row.id;
       if (seen.has(productId)) continue;
       seen.add(productId); // newest event per product wins
 
-      if (getString(p.status) !== "active") continue;
-      if (getString(p.availability) === "out_of_stock") continue;
-      const quantity = getNumber(p.quantity);
+      if (getString(row.status) !== "active") continue;
+      if (getString(row.availability) === "out_of_stock") continue;
+      const parsedQuantity = Number(getString(row.quantity));
+      const quantity = Number.isFinite(parsedQuantity) ? parsedQuantity : undefined;
       if (quantity !== undefined && quantity <= 0) continue;
-      if (hiddenMerchants.has(getString(p.merchantId))) continue;
+      if (hiddenMerchants.has(getString(row.merchant_id))) continue;
 
-      const carMake = getString(p.carMake);
-      const carModel = getString(p.carModel);
-      const color = getString(p.color);
-      const merchantId = getString(p.merchantId);
-      const merchantGovernorate = getString(p.merchantCity) || merchantGovernorates.get(merchantId) || "";
+      const carMake = getString(row.car_make);
+      const carModel = getString(row.car_model);
+      const color = getString(row.color);
+      const merchantId = getString(row.merchant_id);
+      const merchantGovernorate = getString(row.merchant_city) || merchantGovernorates.get(merchantId) || "";
 
       // Universal parts ("عام") fit every car, so they pass any make filter.
       if (searchScope === "governorate" && wantGovernorate && normalizeGovernorate(merchantGovernorate) !== wantGovernorate) continue;
@@ -331,38 +354,31 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       if (wantColor && wantColor !== "أخرى" && !color.includes(wantColor)) continue;
       if (!matchesYear(p, wantYear)) continue;
 
-      const primaryImage = getString(p.imageUrl);
-      const extraImages = Array.isArray(p.imageUrls)
-        ? (p.imageUrls as unknown[]).filter(
-            (v): v is string => typeof v === "string" && v.length > 0,
-          )
-        : [];
-      const storedImages = extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [];
-      const imageUrls = storedImages.map((image, index) =>
-        /^data:image\//i.test(image)
-          ? `/api/product-image/${encodeURIComponent(productId)}?index=${index}`
-          : image,
-      );
+      const imageUrls = [`/api/product-image/${encodeURIComponent(productId)}?index=0`];
+      const discountPrice = Number(getString(row.discount_price));
+      const currentPrice = Number(getString(row.current_price));
 
       if (results.length < pagination.limit) results.push({
         id: productId,
         title: getString(p.title) || getString(p.description) || "منتج",
-        description: getString(p.description),
+        description: getString(row.description),
         imageUrls,
-        price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
-        originalPrice: getNumber(p.currentPrice) || undefined,
-        currency: getString(p.currency) || "IQD",
+        price: Number.isFinite(discountPrice)
+          ? discountPrice
+          : Number.isFinite(currentPrice) ? currentPrice : 0,
+        originalPrice: Number.isFinite(currentPrice) ? currentPrice : undefined,
+        currency: getString(row.currency) || "IQD",
         color: color || undefined,
-        size: getString(p.size) || undefined,
+        size: getString(row.size) || undefined,
         carMake: carMake || undefined,
         carModel: carModel || undefined,
-        carYear: getString(p.carYear) || undefined,
+        carYear: getString(row.car_year) || undefined,
         merchantGovernorate: merchantGovernorate || undefined,
         deliveryEstimate: estimateDelivery(merchantGovernorate, wantGovernorate),
         quantity,
       });
       if (results.length === pagination.limit) {
-        resultCursor = eventTime(row);
+        resultCursor = eventTime(row as EventRow);
         break;
       }
     }

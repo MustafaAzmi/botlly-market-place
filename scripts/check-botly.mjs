@@ -58,6 +58,12 @@ const webhook = read("src/routes/api/whatsapp/webhook.ts");
 const eventStore = read("src/lib/eventStore.server.ts");
 const customerFunctions = read("src/lib/customer.functions.ts");
 const storefrontFunctions = read("src/lib/storefront.functions.ts");
+const webNotifications = read("src/lib/web-notifications.functions.ts");
+const notificationBadge = read("src/components/orders/WebNotificationCountBadge.tsx");
+const notificationPanel = read("src/components/orders/WebOrderNotifications.tsx");
+const productImageRoute = read("src/routes/api/product-image/$id.ts");
+const missingProductImageRoute = read("src/routes/api/missing-product-image/$id.ts");
+const merchantImageRoute = read("src/routes/api/merchant-image/$id.ts");
 
 add(
   "Application webhook route exists",
@@ -132,6 +138,43 @@ add(
     storefrontFunctions.includes("/api/product-image/") &&
     storefrontFunctions.includes("/api/merchant-image/"),
   "Base64 images are replaced with cached API links in list responses",
+);
+add(
+  "search reads projected product metadata",
+  customerFunctions.includes('listProjectedEventsPage("botly_product"') &&
+    !customerFunctions.includes('listEventsPage("botly_product"'),
+  "product search does not transfer the complete payload",
+);
+add(
+  "image routes read projected image fields",
+  [productImageRoute, missingProductImageRoute, merchantImageRoute].every(
+    (source) =>
+      source.includes("getProjectedEvent") &&
+      !source.includes("getEventById") &&
+      !source.includes("listEventsByPayloadField"),
+  ),
+  "image handlers do not read complete product, order, or merchant payloads",
+);
+add(
+  "static image responses are immutable for one day",
+  [productImageRoute, missingProductImageRoute, merchantImageRoute].every(
+    (source) => source.includes("public, max-age=86400, immutable"),
+  ),
+  "image routes send the requested strong Cache-Control header",
+);
+add(
+  "notification polling is at least two minutes",
+  notificationBadge.includes("180_000") &&
+    notificationPanel.includes("180_000") &&
+    !notificationBadge.includes("30000") &&
+    !notificationPanel.includes("30000"),
+  "notification polling runs every three minutes",
+);
+add(
+  "merchant notification visibility uses direct projections",
+  webNotifications.includes("merchantPhoneVisibilityForOrders") &&
+    !webNotifications.includes('listEvents("botly_merchant", 100)'),
+  "notification checks read only merchants attached to displayed orders",
 );
 
 const migrationFiles = [

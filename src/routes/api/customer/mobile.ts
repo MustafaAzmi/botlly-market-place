@@ -14,7 +14,7 @@ import {
   getString,
   listEvents,
   listEventsByPayloadField,
-  listEventsByPayloadFieldPage,
+  listProjectedEventsByPayloadFieldPage,
   normalizePageRequest,
   normalizePhone,
   type EventRow,
@@ -111,50 +111,65 @@ async function listCustomerOrders(data: unknown) {
   if (!key) {
     return { items: [], ...pagination, nextCursor: null, hasMore: false };
   }
-  let eventPage = await listEventsByPayloadFieldPage(
+  const projection = [
+    "order_id:payload->>orderId",
+    "customer_phone:payload->>customerPhone",
+    "customer_number:payload->>customerNumber",
+    "phone:payload->>phone",
+    "product_title:payload->>productTitle",
+    "price:payload->price",
+    "currency:payload->>currency",
+    "status:payload->>status",
+    "availability_status:payload->>merchantAvailabilityStatus",
+    "merchant_available:payload->merchantAvailable",
+    "created_at_value:payload->>createdAt",
+    "updated_at_value:payload->>updatedAt",
+  ].join(",");
+  let eventPage = await listProjectedEventsByPayloadFieldPage(
     "botly_order",
     "requesterPhone",
     phone,
+    projection,
     pagination,
   );
   if (eventPage.items.length === 0) {
-    eventPage = await listEventsByPayloadFieldPage(
+    eventPage = await listProjectedEventsByPayloadFieldPage(
       "botly_order",
       "customerPhone",
       phone,
+      projection,
       pagination,
     );
   }
   const rows = eventPage.items;
   const latest = new Map<string, Record<string, unknown>>();
   for (const row of rows) {
-    const payload = row.payload ?? {};
     const orderPhone =
-      getString(payload.customerPhone) ||
-      getString(payload.customerNumber) ||
-      getString(payload.phone);
+      getString(row.customer_phone) ||
+      getString(row.customer_number) ||
+      getString(row.phone);
     if (phoneKey(orderPhone) !== key) continue;
-    const orderId = getString(payload.orderId) || row.id;
+    const orderId = getString(row.order_id) || row.id;
     const existing = latest.get(orderId) ?? { id: orderId };
     latest.set(orderId, {
       ...existing,
-      productTitle: getString(existing.productTitle) || getString(payload.productTitle),
-      price: existing.price ?? payload.price,
-      currency: getString(existing.currency) || getString(payload.currency) || "IQD",
+      productTitle: getString(existing.productTitle) || getString(row.product_title),
+      price: existing.price ?? row.price,
+      currency: getString(existing.currency) || getString(row.currency) || "IQD",
       status:
         getString(existing.status) ||
-        getString(payload.status) ||
-        getString(payload.merchantAvailabilityStatus) ||
+        getString(row.status) ||
+        getString(row.availability_status) ||
         "requested",
-      merchantAvailable: existing.merchantAvailable ?? payload.merchantAvailable,
+      merchantAvailable: existing.merchantAvailable ?? row.merchant_available,
       createdAt:
         getString(existing.createdAt) ||
-        getString(payload.createdAt) ||
+        getString(row.created_at_value) ||
         row.created_at ||
         row.received_at,
       updatedAt:
         getString(existing.updatedAt) ||
-        getString(payload.updatedAt) ||
+        getString(row.updated_at_value) ||
         row.created_at ||
         row.received_at,
     });

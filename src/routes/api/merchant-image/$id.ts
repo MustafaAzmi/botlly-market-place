@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getString, latestEventWhere } from "@/lib/eventStore.server";
+import { getProjectedEventByPayloadField, getString } from "@/lib/eventStore.server";
 import {
   diagnosticIdentity,
   diagnosticResponse,
@@ -28,15 +28,20 @@ export const Route = createFileRoute("/api/merchant-image/$id")({
         });
         if (!merchantId) return respond("Not found", { status: 404 });
 
-        const row = await latestEventWhere("botly_merchant", "merchantId", merchantId);
+        const row = await getProjectedEventByPayloadField(
+          "botly_merchant",
+          "merchantId",
+          merchantId,
+          `image_value:payload->>${type}`,
+        );
         if (!row) return respond("Not found", { status: 404 });
-        const value = getString(row.payload?.[type]);
+        const value = getString(row.image_value);
         if (/^https?:\/\//i.test(value)) {
           return respond(null, {
             status: 302,
             headers: {
               location: value,
-              "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+              "cache-control": "public, max-age=86400, immutable",
             },
           });
         }
@@ -48,7 +53,7 @@ export const Route = createFileRoute("/api/merchant-image/$id")({
           return respond(body, {
             headers: {
               "content-type": dataUrl[1],
-              "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+              "cache-control": "public, max-age=86400, immutable",
             },
           }, body.size);
         } catch {

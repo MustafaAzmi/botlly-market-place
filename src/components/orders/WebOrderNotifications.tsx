@@ -270,7 +270,7 @@ export function WebOrderNotifications(props: Props) {
     refresh().catch(() => {});
     const timer = window.setInterval(() => {
       refresh(true).catch(() => {});
-    }, 30000);
+    }, 180_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
 

@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getEventById, getString, listEventsByPayloadField } from "@/lib/eventStore.server";
+import {
+  getProjectedEventById,
+  getProjectedEventByPayloadField,
+  getString,
+} from "@/lib/eventStore.server";
 import {
   diagnosticIdentity,
   diagnosticResponse,
@@ -25,31 +29,40 @@ export const Route = createFileRoute("/api/missing-product-image/$id")({
         });
         if (!missingRequestId) return respond("Not found", { status: 404 });
 
-        const byMissingRequestId = await listEventsByPayloadField(
+        const projection = [
+          "image_url:payload->>imageUrl",
+          "image_data_url:payload->>imageDataUrl",
+        ].join(",");
+        const byMissingRequestId = await getProjectedEventByPayloadField(
           "botly_order",
           "missingRequestId",
           missingRequestId,
-          1,
+          projection,
         );
         const byOrderId =
-          byMissingRequestId.length > 0
-            ? []
-            : await listEventsByPayloadField("botly_order", "orderId", missingRequestId, 1);
+          byMissingRequestId
+            ? null
+            : await getProjectedEventByPayloadField(
+                "botly_order",
+                "orderId",
+                missingRequestId,
+                projection,
+              );
         const row =
-          byMissingRequestId[0] ??
-          byOrderId[0] ??
-          await getEventById("botly_order", missingRequestId);
+          byMissingRequestId ??
+          byOrderId ??
+          await getProjectedEventById("botly_order", missingRequestId, projection);
         if (!row) return respond("Not found", { status: 404 });
 
-        const imageUrl = getString(row.payload?.imageUrl);
+        const imageUrl = getString(row.image_url);
         if (/^https?:\/\//i.test(imageUrl) && !imageUrl.includes("/api/missing-product-image/")) {
           return respond(null, {
             status: 302,
-            headers: { location: imageUrl, "cache-control": "public, max-age=3600" },
+            headers: { location: imageUrl, "cache-control": "public, max-age=86400, immutable" },
           });
         }
 
-        const dataUrl = getString(row.payload?.imageDataUrl).match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+        const dataUrl = getString(row.image_data_url).match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
         if (!dataUrl) return respond("Not found", { status: 404 });
 
         try {
@@ -58,7 +71,7 @@ export const Route = createFileRoute("/api/missing-product-image/$id")({
           return respond(body, {
             headers: {
               "content-type": dataUrl[1],
-              "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+              "cache-control": "public, max-age=86400, immutable",
             },
           }, body.size);
         } catch {

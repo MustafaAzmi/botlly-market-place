@@ -7,7 +7,7 @@ import {
   type WebOrderNotification,
 } from "@/lib/web-notifications.functions";
 
-type Props =
+export type WebNotificationCountProps =
   | {
       role: "merchant";
       token: string;
@@ -18,7 +18,9 @@ type Props =
       requesterPhone: string;
     };
 
-export function WebNotificationCountBadge(props: Props) {
+const NOTIFICATION_POLL_INTERVAL_MS = 180_000;
+
+export function useWebNotificationCount(props: WebNotificationCountProps) {
   const role = props.role;
   const token = props.role === "merchant" ? props.token : "";
   const requesterPhone = props.role === "requester" ? props.requesterPhone : "";
@@ -68,16 +70,24 @@ export function WebNotificationCountBadge(props: Props) {
     refresh().catch(() => {});
     const timer = window.setInterval(() => {
       refresh().catch(() => {});
-    }, 30000);
+    }, NOTIFICATION_POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
 
+  return count;
+}
+
+export function WebNotificationCountValue({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <span className="ms-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold leading-none text-destructive-foreground">
       {count > 99 ? "99+" : count}
     </span>
   );
+}
+
+export function WebNotificationCountBadge(props: WebNotificationCountProps) {
+  return <WebNotificationCountValue count={useWebNotificationCount(props)} />;
 }
 
 function hasBadgeNotification(order: WebOrderNotification, role: "merchant" | "requester") {
