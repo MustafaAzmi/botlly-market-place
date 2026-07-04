@@ -260,6 +260,13 @@ function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
   return fromGovernorate === toGovernorate ? "تقريباً خلال 24-48 ساعة" : "تقريباً خلال 2-4 أيام";
 }
 
+function projectedNumber(value: unknown): number | undefined {
+  const text = getString(value).trim();
+  if (!text) return undefined;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export const browseCarProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => browseInput.parse(d))
   .handler(async ({ data }): Promise<PageResult<CustomerProduct>> => {
@@ -330,8 +337,7 @@ export const browseCarProducts = createServerFn({ method: "POST" })
 
       if (getString(row.status) !== "active") continue;
       if (getString(row.availability) === "out_of_stock") continue;
-      const parsedQuantity = Number(getString(row.quantity));
-      const quantity = Number.isFinite(parsedQuantity) ? parsedQuantity : undefined;
+      const quantity = projectedNumber(row.quantity);
       if (quantity !== undefined && quantity <= 0) continue;
       if (hiddenMerchants.has(getString(row.merchant_id))) continue;
 
@@ -355,18 +361,16 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       if (!matchesYear(p, wantYear)) continue;
 
       const imageUrls = [`/api/product-image/${encodeURIComponent(productId)}?index=0`];
-      const discountPrice = Number(getString(row.discount_price));
-      const currentPrice = Number(getString(row.current_price));
+      const discountPrice = projectedNumber(row.discount_price);
+      const currentPrice = projectedNumber(row.current_price);
 
       if (results.length < pagination.limit) results.push({
         id: productId,
         title: getString(p.title) || getString(p.description) || "منتج",
         description: getString(row.description),
         imageUrls,
-        price: Number.isFinite(discountPrice)
-          ? discountPrice
-          : Number.isFinite(currentPrice) ? currentPrice : 0,
-        originalPrice: Number.isFinite(currentPrice) ? currentPrice : undefined,
+        price: discountPrice ?? currentPrice ?? 0,
+        originalPrice: currentPrice,
         currency: getString(row.currency) || "IQD",
         color: color || undefined,
         size: getString(row.size) || undefined,

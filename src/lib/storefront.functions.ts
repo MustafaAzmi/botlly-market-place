@@ -59,6 +59,13 @@ function isHiddenMerchant(p: Record<string, unknown>): boolean {
   return false;
 }
 
+function projectedNumber(value: unknown): number | undefined {
+  const text = getString(value).trim();
+  if (!text) return undefined;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 const slugInput = z.object({
   slug: z.string().trim().min(1).max(80),
   page: z.number().int().min(1).optional(),
@@ -141,22 +148,22 @@ export const getPublicStore = createServerFn({ method: "POST" })
       seenProduct.add(pid);
       if (getString(row.merchant_id) !== merchantId) continue;
       if ((getString(row.status) || "active") !== "active") continue;
-      const currentPrice = Number(getString(row.current_price));
-      const discountPrice = Number(getString(row.discount_price));
-      const quantity = Number(getString(row.quantity));
+      const currentPrice = projectedNumber(row.current_price);
+      const discountPrice = projectedNumber(row.discount_price);
+      const quantity = projectedNumber(row.quantity);
       products.push({
         id: pid,
         title: getString(row.title) || getString(row.description) || "منتج",
         description: getString(row.description),
         imageUrl: `/api/product-image/${encodeURIComponent(pid)}?index=0`,
-        price: Number.isFinite(currentPrice) ? currentPrice : 0,
-        discountPrice: Number.isFinite(discountPrice) ? discountPrice : undefined,
+        price: currentPrice ?? 0,
+        discountPrice,
         currency: getString(row.currency) || "IQD",
         size: getString(row.size) || undefined,
         color: getString(row.color) || undefined,
         carModel: getString(row.car_model) || undefined,
         carYear: getString(row.car_year) || undefined,
-        quantity: Number.isFinite(quantity) ? quantity : undefined,
+        quantity,
       });
     }
 
