@@ -91,6 +91,7 @@ function AdminStoresPage() {
   const [salesDetails, setSalesDetails] = useState<MerchantAdminView | null>(null);
   const [selectedMerchantId, setSelectedMerchantId] = useState("");
   const [migrationBusy, setMigrationBusy] = useState(false);
+  const [migrationArmed, setMigrationArmed] = useState(false);
 
   const {
     data: merchantResult,
@@ -266,10 +267,12 @@ function AdminStoresPage() {
 
   const migrateLegacyMerchants = async () => {
     if (!session?.token || migrationBusy) return;
-    const confirmed = window.confirm(
-      "سيتم إنشاء فلاتر التجار القدامى من منتجاتهم وحذف جميع صور المنتجات المخزنة من قاعدة البيانات. أسماء المنتجات وأسعارها وباقي بياناتها لن تُحذف. هل تريد المتابعة؟",
-    );
-    if (!confirmed) return;
+    if (!migrationArmed) {
+      setMigrationArmed(true);
+      toast.warning("اضغط الزر مرة ثانية لتأكيد ترحيل الفلاتر وحذف صور المنتجات فقط.");
+      return;
+    }
+    setMigrationArmed(false);
     setMigrationBusy(true);
     try {
       const report = await migrateFiltersFn({ data: { token: session.token } });
@@ -316,7 +319,7 @@ function AdminStoresPage() {
             onClick={migrateLegacyMerchants}
           >
             <RotateCcw className={`me-2 h-4 w-4 ${migrationBusy ? "animate-spin" : ""}`} />
-            ترحيل فلاتر التجار وتنظيف الصور
+            {migrationArmed ? "تأكيد الترحيل وحذف الصور" : "ترحيل فلاتر التجار وتنظيف الصور"}
           </Button>
         </div>
 
