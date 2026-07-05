@@ -39,6 +39,7 @@ export type WebOrderNotification = {
   sourceContext: string;
   productTitle: string;
   requestDetails: string;
+  specialty: string;
   carMake: string;
   carModel: string;
   imageUrl: string;
@@ -58,6 +59,13 @@ export type WebOrderNotification = {
   finalStatus: string;
   createdAt: string;
   updatedAt: string;
+  recipientCreatedAt: string;
+  respondedAt: string;
+  merchantNote?: string;
+  avgResponseSeconds?: number;
+  cancellationRate?: number;
+  averageRating?: number;
+  merchantPerformanceLabel?: string;
   rating?: number;
   ratingComment?: string;
   webHiddenMerchant?: boolean;
@@ -81,6 +89,9 @@ const requesterInput = z.object({
 
 const merchantActionInput = tokenInput.extend({
   orderId: z.string().trim().min(1).max(120),
+  finalPrice: z.number().min(0).max(999_999_999).optional(),
+  currency: z.enum(["IQD", "USD"]).optional(),
+  merchantNote: z.string().trim().max(500).optional().or(z.literal("")),
 });
 
 const merchantSaleInput = merchantActionInput.extend({
@@ -262,6 +273,79 @@ async function merchantPhoneVisibilityForOrders(
   return visibility;
 }
 
+type MerchantPerformance = {
+  avgResponseSeconds?: number;
+  cancellationRate?: number;
+  averageRating?: number;
+  label?: string;
+};
+
+async function merchantPerformanceForOrders(
+  orders: WebOrderNotification[],
+): Promise<Map<string, MerchantPerformance>> {
+  const merchantIds = [...new Set(orders.map((order) => order.merchantId).filter(Boolean))];
+  const results = await Promise.all(
+    merchantIds.map(async (merchantId) => {
+      const page = await listProjectedEventsByPayloadFieldPage(
+        "botly_order",
+        "merchantId",
+        merchantId,
+        [
+          "order_id:payload->>orderId",
+          "recipient_created_at:payload->>recipientCreatedAt",
+          "responded_at:payload->>respondedAt",
+          "merchant_status:payload->>merchantStatus",
+          "requester_status:payload->>requesterStatus",
+          "merchant_rating:payload->merchantRating",
+        ].join(","),
+        { limit: 100 },
+      );
+      const latest = new Map<string, ProjectedEventRow>();
+      for (const row of page.items) {
+        const orderId = getString(row.order_id) || row.id;
+        if (!latest.has(orderId)) latest.set(orderId, row);
+      }
+      const linked = [...latest.values()];
+      const responseSeconds = linked
+        .map((row) => {
+          const startedAt = new Date(getString(row.recipient_created_at)).getTime();
+          const respondedAt = new Date(getString(row.responded_at)).getTime();
+          return Number.isFinite(startedAt) && Number.isFinite(respondedAt) && respondedAt >= startedAt
+            ? (respondedAt - startedAt) / 1_000
+            : null;
+        })
+        .filter((value): value is number => value !== null);
+      const ratings = linked
+        .map((row) => getNumber(row.merchant_rating))
+        .filter((value): value is number => value !== undefined);
+      const cancellations = linked.filter(
+        (row) => getString(row.merchant_status) === "Cancelled",
+      ).length;
+      const performance: MerchantPerformance =
+        responseSeconds.length === 0 && ratings.length === 0
+          ? { label: "تاجر جديد" }
+          : {
+              avgResponseSeconds: responseSeconds.length
+                ? Math.round(
+                    responseSeconds.reduce((sum, value) => sum + value, 0) /
+                      responseSeconds.length,
+                  )
+                : undefined,
+              cancellationRate: linked.length
+                ? Number(((cancellations / linked.length) * 100).toFixed(1))
+                : undefined,
+              averageRating: ratings.length
+                ? Number(
+                    (ratings.reduce((sum, value) => sum + value, 0) / ratings.length).toFixed(1),
+                  )
+                : undefined,
+            };
+      return [merchantId, performance] as const;
+    }),
+  );
+  return new Map(results);
+}
+
 function mediatorPhoneForGovernorate(
   storedPhone: string,
   contacts: MediatorContact[],
@@ -305,6 +389,7 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     sourceContext: getString(p.sourceContext),
     productTitle: getString(p.productTitle) || getString(p.title) || "منتج",
     requestDetails: getString(p.requestDetails),
+    specialty: getString(p.specialty),
     carMake: getString(p.carMake),
     carModel: getString(p.carModel),
     imageUrl: /^data:image\//i.test(rawImageUrl)
@@ -335,6 +420,9 @@ function toNotification(order: { payload: Record<string, unknown>; createdAt: st
     finalStatus: getString(p.finalStatus) || getString(p.status) || statusFor(merchantStatus, requesterStatus),
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    recipientCreatedAt: getString(p.recipientCreatedAt) || order.createdAt,
+    respondedAt: getString(p.respondedAt),
+    merchantNote: getString(p.merchantNote) || undefined,
     rating: getNumber(p.merchantRating),
     ratingComment: getString(p.merchantRatingComment) || undefined,
     webHiddenMerchant: p.webHiddenMerchant === true,
@@ -368,10 +456,13 @@ const orderProjectionFields = [
   ["createdAt", "created_at_value", "text"],
   ["eventAt", "event_at", "text"],
   ["updatedAt", "updated_at", "text"],
+  ["recipientCreatedAt", "recipient_created_at", "text"],
+  ["respondedAt", "responded_at", "text"],
   ["sourceContext", "source_context", "text"],
   ["productTitle", "product_title", "text"],
   ["title", "title", "text"],
   ["requestDetails", "request_details", "text"],
+  ["specialty", "specialty", "text"],
   ["carMake", "car_make", "text"],
   ["carModel", "car_model", "text"],
   ["finalPrice", "final_price", "json"],
@@ -405,6 +496,7 @@ const orderProjectionFields = [
   ["status", "status", "text"],
   ["merchantRating", "merchant_rating", "json"],
   ["merchantRatingComment", "merchant_rating_comment", "text"],
+  ["merchantNote", "merchant_note", "text"],
   ["webHiddenMerchant", "web_hidden_merchant", "json"],
   ["webHiddenRequester", "web_hidden_requester", "json"],
 ] as const;
@@ -477,10 +569,15 @@ async function latestOrders(orderRows?: EventRow[]) {
   const orders = mergeLatestOrders(rows)
     .map(toNotification)
     .filter((order) => order.orderId && (order.merchantId || order.merchantWhatsapp || order.requesterPhone));
-  const merchantVisibility = await merchantPhoneVisibilityForOrders(orders);
+  const [merchantVisibility, merchantPerformance] = await Promise.all([
+    merchantPhoneVisibilityForOrders(orders),
+    merchantPerformanceForOrders(orders),
+  ]);
   return orders
     .map((order) => ({
       ...order,
+      ...merchantPerformance.get(order.merchantId),
+      merchantPerformanceLabel: merchantPerformance.get(order.merchantId)?.label,
       merchantPhoneVisible:
         merchantVisibility.get(order.merchantId) ??
         merchantVisibility.get(phoneKey(order.merchantWhatsapp)) ??
@@ -708,9 +805,18 @@ export const merchantMarkProductAvailable = createServerFn({ method: "POST" })
     if (!matchesMerchant(order, merchant)) throw new Error("لا تملك صلاحية تعديل هذا الطلب.");
     if (order.merchantStatus === "Available") return { ok: true };
     const finalStatus = statusFor("Available", order.requesterStatus);
+    const respondedAt = new Date().toISOString();
     await appendOrderUpdate(
       order,
-      { merchantStatus: "Available", requesterStatus: order.requesterStatus, finalStatus },
+      {
+        merchantStatus: "Available",
+        requesterStatus: order.requesterStatus,
+        finalStatus,
+        finalPrice: data.finalPrice ?? order.price,
+        currency: data.currency ?? order.currency,
+        merchantNote: data.merchantNote ?? "",
+        respondedAt: order.respondedAt || respondedAt,
+      },
       "web_merchant_available",
     );
     await notifyMediator({ ...order, merchantStatus: "Available", finalStatus }, "التاجر أكد توفر المنتج من الموقع");
@@ -728,7 +834,12 @@ export const merchantMarkProductUnavailable = createServerFn({ method: "POST" })
     const finalStatus = statusFor("Unavailable", order.requesterStatus);
     await appendOrderUpdate(
       order,
-      { merchantStatus: "Unavailable", requesterStatus: order.requesterStatus, finalStatus },
+      {
+        merchantStatus: "Unavailable",
+        requesterStatus: order.requesterStatus,
+        finalStatus,
+        respondedAt: order.respondedAt || new Date().toISOString(),
+      },
       "web_merchant_unavailable",
     );
     await notifyMediator(
@@ -857,5 +968,15 @@ export const rateMerchantFromWeb = createServerFn({ method: "POST" })
       },
       "web_merchant_rated",
     );
+    await appendEvent("botly_merchant_review", {
+      reviewId: crypto.randomUUID(),
+      merchantId: order.merchantId,
+      requestId: order.orderId,
+      reviewerType: data.requesterType,
+      reviewerPhone: data.requesterPhone,
+      rating: data.rating,
+      comment: data.comment || "",
+      createdAt: new Date().toISOString(),
+    });
     return { ok: true };
   });

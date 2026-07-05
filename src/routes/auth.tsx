@@ -201,10 +201,19 @@ function AuthPage() {
       bio: result.profile.bio,
       city: result.profile.city,
       deliveryPhone: result.profile.deliveryPhone,
+      accountStatus: result.profile.accountStatus,
+      firstLoginCompleted: result.profile.firstLoginCompleted,
       signedInAt: new Date().toISOString(),
     });
     toast.success(successMessage);
-    navigate({ to: mode === "signup" ? "/dashboard/store" : "/dashboard" });
+    navigate({
+      to:
+        result.profile.accountStatus !== "active"
+          ? "/dashboard/orders"
+          : mode === "signup"
+            ? "/dashboard/store"
+            : "/dashboard",
+    });
   };
 
   const onAuthSubmit = async (e: React.FormEvent) => {

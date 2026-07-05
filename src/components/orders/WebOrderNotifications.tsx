@@ -1,13 +1,16 @@
 import { useServerFn } from "@tanstack/react-start";
-import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, ChevronLeft, ChevronRight, Heart, Loader2, PackageCheck, Star, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import type { Locale } from "@/i18n/translations";
+import { setFitterFavorite } from "@/lib/fitter.functions";
 import {
   clearWebOrderNotification,
   clearWebOrderNotificationsBulk,
@@ -177,6 +180,12 @@ const notificationCopy = {
   },
 } as const satisfies Record<Locale, Record<string, string>>;
 
+function formatResponseTime(seconds: number) {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} ثانية`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} دقيقة`;
+  return `${Number((seconds / 3600).toFixed(1))} ساعة`;
+}
+
 type Props =
   | {
       role: "merchant";
@@ -187,6 +196,7 @@ type Props =
       role: "requester";
       requesterType: "customer" | "fitter";
       requesterPhone: string;
+      requesterToken?: string;
       title?: string;
     };
 
@@ -197,6 +207,7 @@ export function WebOrderNotifications(props: Props) {
   const merchantToken = props.role === "merchant" ? props.token : "";
   const requesterPhone = props.role === "requester" ? props.requesterPhone : "";
   const requesterType = props.role === "requester" ? props.requesterType : "customer";
+  const requesterToken = props.role === "requester" ? props.requesterToken ?? "" : "";
   const listMerchantFn = useServerFn(listMerchantWebNotifications);
   const listRequesterFn = useServerFn(listRequesterWebNotifications);
   const availableFn = useServerFn(merchantMarkProductAvailable);
@@ -206,12 +217,18 @@ export function WebOrderNotifications(props: Props) {
   const clearFn = useServerFn(clearWebOrderNotification);
   const clearBulkFn = useServerFn(clearWebOrderNotificationsBulk);
   const rateFn = useServerFn(rateMerchantFromWeb);
+  const favoriteFn = useServerFn(setFitterFavorite);
   const [orders, setOrders] = useState<WebOrderNotification[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [ratingDrafts, setRatingDrafts] = useState<Record<string, { rating: number; comment: string }>>({});
+  const [offerDrafts, setOfferDrafts] = useState<Record<string, {
+    price: string;
+    currency: "IQD" | "USD";
+    note: string;
+  }>>({});
   const [seenNotificationIds, setSeenNotificationIds] = useState<Set<string>>(new Set());
   const notifiedStorageKey = useMemo(
     () =>
@@ -398,6 +415,11 @@ export function WebOrderNotifications(props: Props) {
           {orders.map((order) => {
             const busy = (suffix: string) => busyKey === `${suffix}:${order.orderId}`;
             const draft = ratingDrafts[order.orderId] ?? { rating: 5, comment: "" };
+            const offerDraft = offerDrafts[order.orderId] ?? {
+              price: order.price > 0 ? String(order.price) : "",
+              currency: order.currency === "USD" ? "USD" as const : "IQD" as const,
+              note: "",
+            };
             const canRate =
               role === "requester" &&
               order.merchantStatus === "Sold" &&
@@ -427,6 +449,7 @@ export function WebOrderNotifications(props: Props) {
                       {order.requestDetails ? (
                         <span className="sm:col-span-2">{text.description}: {order.requestDetails}</span>
                       ) : null}
+                      {order.specialty ? <span>الاختصاص: {order.specialty}</span> : null}
                       {role === "merchant" ? (
                         <span>{text.requester}: {order.requesterType === "fitter" ? text.fitter : text.customer}</span>
                       ) : (
@@ -467,8 +490,76 @@ export function WebOrderNotifications(props: Props) {
                         {text.yourRating}: {order.rating}/5
                       </div>
                     ) : null}
+                    {role === "requester" &&
+                    (order.merchantStatus === "Available" || order.merchantStatus === "Sold") ? (
+                      <div className="mt-3 grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm sm:grid-cols-3">
+                        {order.merchantNote ? <span className="sm:col-span-3">ملاحظة التاجر: {order.merchantNote}</span> : null}
+                        {order.merchantPerformanceLabel ? (
+                          <span className="font-medium text-emerald-800">{order.merchantPerformanceLabel}</span>
+                        ) : (
+                          <>
+                            <span>
+                              {order.avgResponseSeconds !== undefined
+                                ? `متوسط الرد: ${formatResponseTime(order.avgResponseSeconds)}`
+                                : "متوسط الرد: لا توجد بيانات"}
+                            </span>
+                            <span>
+                              {order.averageRating !== undefined
+                                ? `التقييم: ${order.averageRating}/5`
+                                : "لا توجد تقييمات بعد"}
+                            </span>
+                            <span>
+                              {order.cancellationRate !== undefined
+                                ? `نسبة الإلغاء: ${order.cancellationRate}%`
+                                : "نسبة الإلغاء: لا توجد بيانات"}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
+
+                {role === "merchant" && order.merchantStatus === "Pending" ? (
+                  <div className="mt-4 grid gap-3 rounded-lg border border-dashed border-border p-3 sm:grid-cols-[1fr_120px_2fr]">
+                    <Input
+                      inputMode="decimal"
+                      value={offerDraft.price}
+                      onChange={(event) =>
+                        setOfferDrafts((current) => ({
+                          ...current,
+                          [order.orderId]: { ...offerDraft, price: event.target.value },
+                        }))
+                      }
+                      placeholder="السعر النهائي"
+                    />
+                    <Select
+                      value={offerDraft.currency}
+                      onValueChange={(value: "IQD" | "USD") =>
+                        setOfferDrafts((current) => ({
+                          ...current,
+                          [order.orderId]: { ...offerDraft, currency: value },
+                        }))
+                      }
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="IQD">IQD</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={offerDraft.note}
+                      onChange={(event) =>
+                        setOfferDrafts((current) => ({
+                          ...current,
+                          [order.orderId]: { ...offerDraft, note: event.target.value },
+                        }))
+                      }
+                      placeholder="ملاحظة عن القطعة أو العرض"
+                    />
+                  </div>
+                ) : null}
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {role === "merchant" && order.merchantStatus === "Pending" ? (
@@ -481,7 +572,15 @@ export function WebOrderNotifications(props: Props) {
                         onClick={() =>
                           runAction(
                             `available:${order.orderId}`,
-                            () => availableFn({ data: { token: merchantToken, orderId: order.orderId } }),
+                            () => availableFn({
+                              data: {
+                                token: merchantToken,
+                                orderId: order.orderId,
+                                finalPrice: offerDraft.price ? Number(offerDraft.price) : undefined,
+                                currency: offerDraft.currency,
+                                merchantNote: offerDraft.note,
+                              },
+                            }),
                             text.availableSuccess,
                           )
                         }
@@ -620,6 +719,54 @@ export function WebOrderNotifications(props: Props) {
                     {busy("clear") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                     {text.clear}
                   </Button>
+                  {role === "requester" && requesterType === "fitter" && requesterToken && order.merchantId ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          runAction(
+                            `favorite-merchant:${order.orderId}`,
+                            () => favoriteFn({
+                              data: {
+                                token: requesterToken,
+                                kind: "merchant",
+                                targetId: order.merchantId,
+                                favorite: true,
+                              },
+                            }),
+                            "تمت إضافة التاجر إلى المفضلة",
+                          )
+                        }
+                      >
+                        <Heart className="me-2 h-4 w-4" />
+                        حفظ التاجر
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          runAction(
+                            `favorite-offer:${order.orderId}`,
+                            () => favoriteFn({
+                              data: {
+                                token: requesterToken,
+                                kind: "offer",
+                                targetId: order.orderId,
+                                favorite: true,
+                              },
+                            }),
+                            "تمت إضافة العرض إلى المفضلة",
+                          )
+                        }
+                      >
+                        <Heart className="me-2 h-4 w-4" />
+                        حفظ العرض
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
 
                 {canRate ? (

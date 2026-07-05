@@ -13,6 +13,7 @@ import {
   deleteFitterByAdmin,
   listFitters,
   resetFitterProfitByAdmin,
+  setFitterActiveByAdmin,
   updateFitterByAdmin,
   type FitterAdminView,
 } from "@/lib/admin.functions";
@@ -53,6 +54,7 @@ function AdminFittersPage() {
   const updateFn = useServerFn(updateFitterByAdmin);
   const deleteFn = useServerFn(deleteFitterByAdmin);
   const resetFn = useServerFn(resetFitterProfitByAdmin);
+  const activeFn = useServerFn(setFitterActiveByAdmin);
   const [editing, setEditing] = useState<Record<string, FitterAdminView>>({});
   const [busyId, setBusyId] = useState("");
   const [page, setPage] = useState(1);
@@ -131,6 +133,21 @@ function AdminFittersPage() {
     }
   };
 
+  const toggleActive = async (row: FitterAdminView) => {
+    if (!session?.token) return;
+    const active = row.accountStatus !== "active";
+    setBusyId(row.fitterId);
+    try {
+      await activeFn({ data: { token: session.token, fitterId: row.fitterId, active } });
+      toast.success(active ? "تم تفعيل حساب الفيتر" : "تم تعطيل حساب الفيتر");
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تحديث حالة الفيتر");
+    } finally {
+      setBusyId("");
+    }
+  };
+
   return (
     <AdminLayout title="فيتر" subtitle="إدارة حسابات الفيترية، نسب العمولة، الفيزا، وتصفير المستحقات.">
       {isLoading ? (
@@ -156,8 +173,14 @@ function AdminFittersPage() {
                       {row.name}
                     </h2>
                     <p className="text-xs text-muted-foreground" dir="ltr">{row.whatsapp}</p>
+                    <p className="mt-1 text-xs font-medium text-primary">
+                      {row.accountStatus === "active" ? "فعال" : row.accountStatus === "pending" ? "بانتظار التفعيل" : "غير فعال"}
+                    </p>
                   </div>
                   <div className="flex gap-2">
+                    <Button variant="outline" disabled={busy} onClick={() => toggleActive(row)}>
+                      {row.accountStatus === "active" ? "تعطيل" : "تفعيل"}
+                    </Button>
                     <Button className="gap-2" disabled={busy} onClick={() => save(row)}>
                       <Save className="h-4 w-4" />
                       حفظ

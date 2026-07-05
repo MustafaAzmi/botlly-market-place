@@ -36,6 +36,7 @@ import {
   deleteMerchantProductForAdmin,
   getMerchantSalesExport,
   listMerchantProductsForAdmin,
+  migrateMerchantFiltersAndDeleteProductImages,
   resetMerchantSalesReport,
   type AdminMerchantProductView,
   type MerchantAdminView,
@@ -74,6 +75,7 @@ function AdminStoresPage() {
   const listMerchantProductsFn = useServerFn(listMerchantProductsForAdmin);
   const resetSalesReportFn = useServerFn(resetMerchantSalesReport);
   const getSalesExportFn = useServerFn(getMerchantSalesExport);
+  const migrateFiltersFn = useServerFn(migrateMerchantFiltersAndDeleteProductImages);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
@@ -88,6 +90,7 @@ function AdminStoresPage() {
   } | null>(null);
   const [salesDetails, setSalesDetails] = useState<MerchantAdminView | null>(null);
   const [selectedMerchantId, setSelectedMerchantId] = useState("");
+  const [migrationBusy, setMigrationBusy] = useState(false);
 
   const {
     data: merchantResult,
@@ -261,6 +264,27 @@ function AdminStoresPage() {
     }
   };
 
+  const migrateLegacyMerchants = async () => {
+    if (!session?.token || migrationBusy) return;
+    const confirmed = window.confirm(
+      "سيتم إنشاء فلاتر التجار القدامى من منتجاتهم وحذف جميع صور المنتجات المخزنة من قاعدة البيانات. أسماء المنتجات وأسعارها وباقي بياناتها لن تُحذف. هل تريد المتابعة؟",
+    );
+    if (!confirmed) return;
+    setMigrationBusy(true);
+    try {
+      const report = await migrateFiltersFn({ data: { token: session.token } });
+      const removedMb = (report.removedImageBytes / 1024 / 1024).toFixed(2);
+      toast.success(
+        `تم تحديث ${report.merchantsUpdated} تاجر وتنظيف ${report.productEventsCleaned} سجل صور (${removedMb} MB).`,
+      );
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر ترحيل بيانات التجار");
+    } finally {
+      setMigrationBusy(false);
+    }
+  };
+
   return (
     <AdminLayout title="المتاجر" subtitle="تحكّم بظهور المتاجر في البحث والاشتراكات">
       <div className="space-y-6">
@@ -285,6 +309,15 @@ function AdminStoresPage() {
               <SelectItem value={UNSPECIFIED_GOVERNORATE}>غير محدد</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={migrationBusy}
+            onClick={migrateLegacyMerchants}
+          >
+            <RotateCcw className={`me-2 h-4 w-4 ${migrationBusy ? "animate-spin" : ""}`} />
+            ترحيل فلاتر التجار وتنظيف الصور
+          </Button>
         </div>
 
         {isLoading ? (
@@ -385,7 +418,11 @@ function AdminStoresPage() {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {m.visibleInSearch ? (
+                        {m.accountStatus === "pending" ? (
+                          <Badge className="bg-amber-100 text-amber-800">بانتظار التفعيل</Badge>
+                        ) : m.accountStatus === "inactive" ? (
+                          <Badge className="bg-gray-200 text-gray-700">غير فعال</Badge>
+                        ) : m.visibleInSearch ? (
                           <Badge className="bg-green-100 text-green-800">ظاهر</Badge>
                         ) : m.suspended ? (
                           <Badge className="bg-red-100 text-red-800">موقوف</Badge>
@@ -464,7 +501,7 @@ function AdminStoresPage() {
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuLabel>حالة المتجر</DropdownMenuLabel>
-                            {m.suspended ? (
+                            {m.accountStatus !== "active" ? (
                               <DropdownMenuItem
                                 onClick={() =>
                                   run(
@@ -480,7 +517,7 @@ function AdminStoresPage() {
                                   )
                                 }
                               >
-                                إعادة تفعيل
+                                {m.accountStatus === "pending" ? "تفعيل التاجر" : "إعادة تفعيل"}
                               </DropdownMenuItem>
                             ) : (
                               <DropdownMenuItem

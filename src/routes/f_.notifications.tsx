@@ -106,6 +106,7 @@ function FitterNotificationsPage() {
           role="requester"
           requesterType="fitter"
           requesterPhone={session.fitter.whatsapp}
+          requesterToken={session.token}
         />
       </main>
     </div>

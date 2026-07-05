@@ -75,6 +75,7 @@ export interface MerchantAdminView {
   governorate: string;
   email?: string;
   subscriptionStatus: string; // active | expired | trial | none
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
   packageExpiry: string | null;
   isActive: boolean;
   visibilityEnabled: boolean;
@@ -88,6 +89,16 @@ export interface MerchantAdminView {
   salesTotals: MerchantSalesTotal[];
   sales: MerchantSaleDetail[];
   createdAt: string;
+}
+
+export interface MerchantFilterMigrationReport {
+  merchantsScanned: number;
+  merchantsUpdated: number;
+  productEventsScanned: number;
+  productsUsedForFilters: number;
+  productEventsWithImages: number;
+  productEventsCleaned: number;
+  removedImageBytes: number;
 }
 
 export interface AdminMerchantProductView {
@@ -264,7 +275,7 @@ async function findAdminById(adminId: string): Promise<EventRow | null> {
 }
 
 // Validate an admin session token -> adminId. Throws if invalid/expired.
-async function authorizeAdmin(token: string): Promise<string> {
+export async function authorizeAdmin(token: string): Promise<string> {
   const tokenHash = await sha256(token);
   const sessions = await listEventsByPayloadField(
     "botly_admin_session",
@@ -585,6 +596,188 @@ async function loadMerchantMetrics(): Promise<{
   return { productCounts, salesByMerchant, salesTotalsByMerchant };
 }
 
+const PRODUCT_IMAGE_FIELDS = [
+  "imageUrl",
+  "imageUrls",
+  "imageDataUrl",
+  "images",
+  "photo",
+  "photos",
+  "photoUrl",
+  "photoUrls",
+] as const;
+
+function nonEmptyStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => getString(item).trim())
+    .filter(Boolean);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function classifyProductSpecialty(payload: Record<string, unknown>): string {
+  const text = [
+    getString(payload.category),
+    getString(payload.title),
+    getString(payload.description),
+    getString(payload.searchText),
+  ].join(" ").toLowerCase();
+
+  const groups: Array<[string, RegExp]> = [
+    ["كهربائيات", /كهرب|لايت|مصباح|لمب|بطاري|دينمو|سلف|حساس|ضفير|فيوز|سويتش/],
+    ["إكسسوارات", /اكسسوار|إكسسوار|زينة|فرش|شاشة|كفر|مسجل|كاميرا|عدة/],
+    ["فرامل", /فرامل|بريك|دسك|ديسك|سفايف/],
+    ["تبريد وتكييف", /تبريد|مكيف|تكييف|راديتر|رادييت|كمبريسر|ثرموستات/],
+    ["تعليق وتوجيه", /تعليق|توجيه|مساعد|مقص|دركسون|ستيرن|جامبينه|صليب/],
+    ["هيكل وبدن", /هيكل|بدن|صدام|بمبر|باب|رفرف|مراي|مرآ|غطاء|دعامي|شبك/],
+    ["محرك", /محرك|مكين|مكينة|بستم|توربو|كاسكيت|رأس|فلتر|جير|قير/],
+  ];
+  return groups.find(([, pattern]) => pattern.test(text))?.[0] ?? "أخرى";
+}
+
+function imageBytes(payload: Record<string, unknown>): number {
+  return PRODUCT_IMAGE_FIELDS.reduce((total, field) => {
+    const value = payload[field];
+    if (typeof value === "string") return total + Buffer.byteLength(value, "utf8");
+    if (Array.isArray(value)) {
+      return total + value.reduce(
+        (sum, item) => sum + (typeof item === "string" ? Buffer.byteLength(item, "utf8") : 0),
+        0,
+      );
+    }
+    return total;
+  }, 0);
+}
+
+function withoutProductImages(payload: Record<string, unknown>) {
+  const cleaned = { ...payload };
+  for (const field of PRODUCT_IMAGE_FIELDS) delete cleaned[field];
+  return cleaned;
+}
+
+export async function migrateExistingMerchantFiltersAndImages(): Promise<MerchantFilterMigrationReport> {
+  const [merchantRows, productRows] = await Promise.all([
+    listEventsForAdminExport("botly_merchant", 20_000),
+    listEventsForAdminExport("botly_product", 50_000),
+  ]);
+  const merchants = await latestMerchants(merchantRows);
+  const latestProducts = new Map<string, EventRow>();
+  for (const row of productRows) {
+    const id = productIdentity(row);
+    if (!latestProducts.has(id)) latestProducts.set(id, row);
+  }
+
+  const filtersByMerchant = new Map<string, {
+    carMakes: string[];
+    carModels: string[];
+    specialties: string[];
+  }>();
+  let productsUsedForFilters = 0;
+  for (const row of latestProducts.values()) {
+    const payload = row.payload ?? {};
+    const status = getString(payload.status) || "active";
+    if (status === "deleted" || status === "rejected") continue;
+    const merchantId = getString(payload.merchantId);
+    if (!merchantId) continue;
+    productsUsedForFilters += 1;
+    const current = filtersByMerchant.get(merchantId) ?? {
+      carMakes: [],
+      carModels: [],
+      specialties: [],
+    };
+    const category = getString(payload.category);
+    current.carMakes.push(
+      getString(payload.carMake),
+      getString(payload.vehicleMake),
+      getString(payload.brand),
+    );
+    current.carModels.push(
+      getString(payload.carModel),
+      getString(payload.vehicleModel),
+      getString(payload.model),
+    );
+    current.specialties.push(classifyProductSpecialty(payload));
+    if (category) current.specialties.push(category);
+    filtersByMerchant.set(merchantId, current);
+  }
+
+  let merchantsUpdated = 0;
+  for (const merchant of merchants) {
+    const payload = merchant.payload ?? {};
+    const merchantId = merchantIdentity(merchant);
+    const derived = filtersByMerchant.get(merchantId);
+    if (!derived || getNumber(payload.filtersBackfillVersion) === 1) continue;
+    const carMakes = uniqueStrings([
+      ...nonEmptyStrings(payload.carMakes),
+      ...derived.carMakes,
+    ]);
+    const carModels = uniqueStrings([
+      ...nonEmptyStrings(payload.carModels),
+      ...derived.carModels,
+    ]);
+    const specialties = uniqueStrings([
+      ...nonEmptyStrings(payload.specialties),
+      ...derived.specialties,
+    ]);
+    await appendEvent("botly_merchant", {
+      ...payload,
+      merchantId,
+      carMakes,
+      carModels,
+      specialties,
+      status: getString(payload.status) || (payload.isActive === false ? "inactive" : "active"),
+      isActive: payload.isActive !== false,
+      filtersBackfilledAt: new Date().toISOString(),
+      filtersBackfillVersion: 1,
+      updatedAt: new Date().toISOString(),
+    });
+    merchantsUpdated += 1;
+  }
+
+  const rowsWithImages = productRows
+    .map((row) => ({ row, bytes: imageBytes(row.payload ?? {}) }))
+    .filter(({ bytes }) => bytes > 0);
+  let productEventsCleaned = 0;
+  const concurrency = 8;
+  for (let index = 0; index < rowsWithImages.length; index += concurrency) {
+    const batch = rowsWithImages.slice(index, index + concurrency);
+    const results = await Promise.all(
+      batch.map(({ row }) =>
+        supabaseAdmin
+          .from("whatsapp_webhook_events")
+          .update({ payload: withoutProductImages(row.payload ?? {}) as never })
+          .eq("id", row.id)
+          .eq("source", "botly")
+          .eq("event_type", "botly_product"),
+      ),
+    );
+    for (const result of results) {
+      if (result.error) throw new Error(`تعذر حذف صور المنتجات: ${result.error.message}`);
+      productEventsCleaned += 1;
+    }
+  }
+
+  return {
+    merchantsScanned: merchants.length,
+    merchantsUpdated,
+    productEventsScanned: productRows.length,
+    productsUsedForFilters,
+    productEventsWithImages: rowsWithImages.length,
+    productEventsCleaned,
+    removedImageBytes: rowsWithImages.reduce((sum, item) => sum + item.bytes, 0),
+  };
+}
+
+export const migrateMerchantFiltersAndDeleteProductImages = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    return await migrateExistingMerchantFiltersAndImages();
+  });
+
 async function getPlatformCommissionPercent() {
   const rows = await listEvents("botly_settings");
   for (const row of rows) {
@@ -622,6 +815,14 @@ export const listMerchants = createServerFn({ method: "POST" })
             ) || "غير محدد",
           email: getString(p.email) || undefined,
           subscriptionStatus: getString(p.subscriptionStatus) || "none",
+          accountStatus:
+            getString(p.status) === "pending" ||
+            getString(p.status) === "inactive" ||
+            getString(p.status) === "suspended"
+              ? getString(p.status) as "pending" | "inactive" | "suspended"
+              : p.isActive === false
+                ? "inactive"
+                : "active",
           packageExpiry: getString(p.packageExpiry) || null,
           isActive: p.isActive !== false,
           visibilityEnabled: p.visibilityEnabled !== false,
@@ -897,6 +1098,8 @@ export const setMerchantSuspended = createServerFn({ method: "POST" })
     return applyMerchantControl(data.merchantId, {
       suspendedAt: data.suspended ? new Date().toISOString() : "",
       isActive: !data.suspended,
+      status: data.suspended ? "suspended" : "active",
+      visibilityEnabled: data.suspended ? false : true,
     });
   });
 
@@ -1339,6 +1542,7 @@ export interface FitterAdminView {
   longitude?: number;
   visaNumber: string;
   commissionPercent: number;
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
   totalProfit: number;
   salesCount: number;
   createdAt: string;
@@ -1392,6 +1596,10 @@ export const listCustomers = createServerFn({ method: "POST" })
 
 const fitterAdminActionInput = tokenInput.extend({
   fitterId: z.string().trim().min(1),
+});
+
+const fitterStatusInput = fitterAdminActionInput.extend({
+  active: z.boolean(),
 });
 
 const fitterAdminUpdateInput = fitterAdminActionInput.extend({
@@ -1478,6 +1686,13 @@ export const listFitters = createServerFn({ method: "POST" })
         const p = row.payload ?? {};
         const fitterId = fitterIdentity(row);
         const commissionPercent = getNumber(p.commissionPercent) ?? 0;
+        const storedStatus = getString(p.status);
+        const accountStatus: FitterAdminView["accountStatus"] =
+          storedStatus === "pending" ||
+          storedStatus === "inactive" ||
+          storedStatus === "suspended"
+            ? storedStatus
+            : "active";
         const profit = await currentFitterProfit(fitterId, commissionPercent);
         return {
           fitterId,
@@ -1489,6 +1704,7 @@ export const listFitters = createServerFn({ method: "POST" })
           longitude: getNumber(p.longitude),
           visaNumber: getString(p.visaNumber),
           commissionPercent,
+          accountStatus,
           totalProfit: profit.totalProfit,
           salesCount: profit.salesCount,
           createdAt: getString(p.createdAt) || eventTime(row),
@@ -1505,6 +1721,23 @@ export const listFitters = createServerFn({ method: "POST" })
       session: diagnosticSession(data.token),
       params: pagination,
     });
+  });
+
+export const setFitterActiveByAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => fitterStatusInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
+    if (!row) throw new Error("لم يتم العثور على الفيتر.");
+    await appendEvent("botly_fitter", {
+      ...(row.payload ?? {}),
+      fitterId: data.fitterId,
+      status: data.active ? "active" : "inactive",
+      isActive: data.active,
+      activatedAt: data.active ? new Date().toISOString() : getString(row.payload?.activatedAt),
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
   });
 
 export const updateFitterByAdmin = createServerFn({ method: "POST" })

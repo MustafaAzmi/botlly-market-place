@@ -32,6 +32,7 @@ export function DashboardLayout({
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [merchantToken, setMerchantToken] = useState("");
+  const [merchantAccountStatus, setMerchantAccountStatus] = useState("active");
   const merchantNotificationCount = useWebNotificationCount({
     role: "merchant",
     token: merchantToken,
@@ -43,6 +44,7 @@ export function DashboardLayout({
   useEffect(() => {
     const session = readMerchantSession();
     setMerchantToken(session?.token ?? "");
+    setMerchantAccountStatus(session?.accountStatus ?? "active");
     const slug = session?.storeSlug || session?.merchantId?.slice(0, 8);
     if (!slug) return;
     const url = new URL(window.location.href);
@@ -51,6 +53,10 @@ export function DashboardLayout({
       window.history.replaceState({}, "", url.toString());
     }
   }, [pathname]);
+  const visibleItems =
+    merchantAccountStatus === "active"
+      ? items
+      : items.filter((item) => item.to === "/dashboard/orders");
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -61,7 +67,7 @@ export function DashboardLayout({
             <Logo />
           </div>
           <nav className="flex-1 space-y-1 p-3">
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const active =
                 pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (
@@ -114,7 +120,7 @@ export function DashboardLayout({
 
           {/* Mobile nav */}
           <nav className="flex gap-1 overflow-x-auto border-b border-border bg-background px-2 py-2 lg:hidden">
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const active =
                 pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (

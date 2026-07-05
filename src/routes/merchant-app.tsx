@@ -21,6 +21,13 @@ function MerchantAppPage() {
       <Logo />
       <div className="mt-8 w-full max-w-sm">
         <InstallAppCard app="merchant" />
+        <Link
+          to="/auth"
+          search={{ mode: "login" }}
+          className="mt-4 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground"
+        >
+          فتح حساب التاجر
+        </Link>
         <p className="mt-4 text-center text-xs text-muted-foreground">
           نصّب التطبيق على هاتفك أو حاسوبك وأدر متجرك كتطبيق مستقل — يدعم العمل بدون إنترنت
           والإشعارات.

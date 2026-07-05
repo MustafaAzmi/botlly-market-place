@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   BellRing,
   Car,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -60,6 +61,16 @@ export const Route = createFileRoute("/customer/dashboard")({
 });
 
 type CustomerDashboardView = "home" | "all-parts" | "smart-search" | "profile";
+const CAR_PART_SPECIALTIES = [
+  "كهربائيات",
+  "محرك",
+  "هيكل وبدن",
+  "تعليق وتوجيه",
+  "فرامل",
+  "تبريد وتكييف",
+  "إكسسوارات",
+  "أخرى",
+];
 
 function compressImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -102,7 +113,7 @@ function CustomerDashboard() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [session, setSession] = useState<ReturnType<typeof readCustomerSession>>(null);
-  const [view, setView] = useState<CustomerDashboardView>("home");
+  const [view, setView] = useState<CustomerDashboardView>("smart-search");
   const [mediatorPhone, setMediatorPhone] = useState("");
   const getMediatorFn = useServerFn(getMediatorPhone);
 
@@ -169,7 +180,7 @@ function CustomerDashboard() {
           />
         )}
         {view === "smart-search" && (
-          <CustomerSmartSearchTab customer={customer} onBack={() => setView("home")} />
+          <CustomerSmartSearchTab customer={customer} />
         )}
         {view === "profile" && (
           <ProfileTab
@@ -504,15 +515,15 @@ function ShopTab({
 
 function CustomerSmartSearchTab({
   customer,
-  onBack,
 }: {
   customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
-  onBack: () => void;
 }) {
   const missingRequestFn = useServerFn(submitMissingProductRequest);
   const getCatalogFn = useServerFn(getEnabledCarCatalogue);
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [carMake, setCarMake] = useState("");
+  const [carModel, setCarModel] = useState("");
+  const [specialty, setSpecialty] = useState("");
   const [governorate, setGovernorate] = useState(customer.governorate);
   const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
 
@@ -522,21 +533,18 @@ function CustomerSmartSearchTab({
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const selectedMake = makes.find((make) => make.label === carMake || make.key === carMake);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
-          <ChevronRight className="h-4 w-4" />
-          رجوع
-        </Button>
-        <h1 className="text-3xl font-extrabold text-emerald-700">البحث الذكي</h1>
+      <div className="flex items-center justify-end gap-3">
+        <h1 className="text-3xl font-extrabold text-emerald-700">اطلب قطعتك</h1>
       </div>
 
       <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-soft">
         <div className="flex items-center gap-2 text-xl font-extrabold text-emerald-700">
           <Sparkles className="h-6 w-6" />
-          البحث الذكي
+          أنت اطلب... وخلي التجار تتنافس
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -556,7 +564,7 @@ function CustomerSmartSearchTab({
           </div>
           <div className="space-y-2">
             <Label>نوع السيارة</Label>
-            <Select value={carMake} onValueChange={setCarMake}>
+            <Select value={carMake} onValueChange={(value) => { setCarMake(value); setCarModel(""); }}>
               <SelectTrigger className="h-11 bg-background">
                 <SelectValue placeholder="اختر نوع السيارة" />
               </SelectTrigger>
@@ -565,6 +573,32 @@ function CustomerSmartSearchTab({
                   <SelectItem key={make.key} value={make.label}>
                     {make.label}
                   </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>الموديل</Label>
+            <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر الموديل" />
+              </SelectTrigger>
+              <SelectContent>
+                {(selectedMake?.models ?? []).map((model) => (
+                  <SelectItem key={model} value={model}>{model}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>الاختصاص</Label>
+            <Select value={specialty} onValueChange={setSpecialty}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر اختصاص القطعة" />
+              </SelectTrigger>
+              <SelectContent>
+                {CAR_PART_SPECIALTIES.map((item) => (
+                  <SelectItem key={item} value={item}>{item}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -583,12 +617,14 @@ function CustomerSmartSearchTab({
       <MissingProductRequestPanel
         defaultProductName=""
         carMake={carMake}
-        carModel=""
+        carModel={carModel}
+        specialty={specialty}
         governorate={governorate}
         requesterName={customer.name}
         requesterPhone={customer.whatsapp}
         searchScope={searchScope}
         requesterType="customer"
+        simpleRequest
         onSubmit={async (data) => missingRequestFn({ data })}
       />
     </div>
@@ -599,26 +635,31 @@ function MissingProductRequestPanel({
   defaultProductName,
   carMake,
   carModel,
+  specialty,
   governorate,
   requesterName,
   requesterPhone,
   requesterType,
   searchScope,
+  simpleRequest = false,
   onSubmit,
 }: {
   defaultProductName: string;
   carMake: string;
   carModel: string;
+  specialty: string;
   governorate: string;
   requesterName: string;
   requesterPhone: string;
   requesterType: "customer" | "fitter";
   searchScope: "governorate" | "all";
+  simpleRequest?: boolean;
   onSubmit: (data: {
     productName: string;
     requestDetails?: string;
     carMake: string;
     carModel: string;
+    specialty: string;
     governorate: string;
     requesterType: "customer" | "fitter";
     requesterName: string;
@@ -631,6 +672,7 @@ function MissingProductRequestPanel({
   const [requestDetails, setRequestDetails] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submittedCount, setSubmittedCount] = useState<number | null>(null);
 
   const pickImage = async (file?: File) => {
     if (!file) return;
@@ -648,8 +690,8 @@ function MissingProductRequestPanel({
       toast.error("اكتب اسم المنتج المطلوب أولاً");
       return;
     }
-    if (!carMake || !governorate) {
-      toast.error("اختر نوع السيارة والمحافظة قبل إرسال الطلب");
+    if (!carMake || !carModel || !specialty || !governorate) {
+      toast.error("اختر المحافظة ونوع السيارة والموديل والاختصاص");
       return;
     }
     setSubmitting(true);
@@ -659,6 +701,7 @@ function MissingProductRequestPanel({
         requestDetails: requestDetails.trim(),
         carMake,
         carModel: carModel || "غير محدد",
+        specialty,
         governorate,
         requesterType,
         requesterName,
@@ -675,6 +718,7 @@ function MissingProductRequestPanel({
       setProductName("");
       setRequestDetails("");
       setImageDataUrl("");
+      setSubmittedCount(notifiedCount || result.targetMerchantCount);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
     } finally {
@@ -682,17 +726,37 @@ function MissingProductRequestPanel({
     }
   };
 
+  if (submittedCount !== null) {
+    return (
+      <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft">
+        <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+        <h2 className="mt-4 text-2xl font-extrabold text-emerald-800">
+          تم إرسال طلبك للتجار المطابقين
+        </h2>
+        <p className="mt-2 text-emerald-900">
+          راح توصلك العروض أول ما التجار يجاوبون.
+        </p>
+        <p className="mt-1 font-semibold text-emerald-800">
+          أنت اطلب... وخلي التجار تتنافس.
+        </p>
+        <Button type="button" variant="outline" className="mt-5" onClick={() => setSubmittedCount(null)}>
+          إرسال طلب آخر
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
       <div className="text-center text-muted-foreground">
         <Sparkles className="mx-auto h-10 w-10 text-emerald-600" />
         <p className="mx-auto mt-3 max-w-2xl text-sm">
-          لم نعثر على المنتج المطلوب، يمكنك إرسال صورة للقطعة أو كتابة تفاصيل إضافية ليتم إرسال الطلب مباشرة إلى التجار المختصين.
+          اكتب القطعة اللي تحتاجها، وبوتلي يرسل طلبك للتجار المناسبين.
         </p>
       </div>
 
       <div className="mx-auto mt-5 max-w-2xl space-y-4 text-start">
-        <div className="space-y-2">
+        {!simpleRequest ? <div className="space-y-2">
           <Label htmlFor="missing-product-name">اسم المنتج المطلوب</Label>
           <Input
             id="missing-product-name"
@@ -700,20 +764,20 @@ function MissingProductRequestPanel({
             onChange={(event) => setProductName(event.target.value)}
             placeholder="مثال: لايت أمامي، بمبر، مراية..."
           />
-        </div>
+        </div> : null}
 
         <div className="space-y-2">
-          <Label htmlFor="missing-product-details">وصف إضافي للقطعة</Label>
+          <Label htmlFor="missing-product-details">وصف مفصل للمنتج</Label>
           <Textarea
             id="missing-product-details"
             value={requestDetails}
             onChange={(event) => setRequestDetails(event.target.value)}
-            placeholder="اكتب أي تفاصيل تساعد التاجر مثل الجهة، الرقم، الشكل، أو العطل..."
+            placeholder="مثال: لايت كامري أمامي جهة يمين موديل 2022"
             rows={4}
           />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        {!simpleRequest ? <div className="grid gap-3 sm:grid-cols-3">
           <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
             التقاط صورة
             <input
@@ -736,9 +800,9 @@ function MissingProductRequestPanel({
           <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>
             إرسال بدون صورة
           </Button>
-        </div>
+        </div> : null}
 
-        {imageDataUrl && (
+        {!simpleRequest && imageDataUrl && (
           <img
             src={imageDataUrl}
             alt="صورة القطعة المطلوبة"
@@ -748,7 +812,7 @@ function MissingProductRequestPanel({
           />
         )}
 
-        <Button onClick={submit} disabled={submitting || !carMake || !governorate} className="w-full gap-2">
+        <Button onClick={submit} disabled={submitting || !carMake || !carModel || !specialty || !governorate} className="w-full gap-2">
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           إرسال الطلب للتجار المختصين
         </Button>

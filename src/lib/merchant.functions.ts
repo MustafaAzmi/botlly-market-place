@@ -59,6 +59,8 @@ export type MerchantProfile = {
   logoUrl?: string;
   coverUrl?: string;
   bannedFromBot: boolean;
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
+  firstLoginCompleted: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -362,6 +364,13 @@ function toProfile(row: EventRow): MerchantProfile {
     logoUrl: getString(payload.logoUrl) || undefined,
     coverUrl: getString(payload.coverUrl) || undefined,
     bannedFromBot: payload.bannedFromBot === true,
+    accountStatus:
+      getString(payload.status) === "pending" ||
+      getString(payload.status) === "inactive" ||
+      getString(payload.status) === "suspended"
+        ? getString(payload.status) as "pending" | "inactive" | "suspended"
+        : "active",
+    firstLoginCompleted: payload.firstLoginCompleted !== false,
     createdAt: getString(payload.createdAt) || eventTime(row),
     updatedAt: getString(payload.updatedAt) || eventTime(row),
   };
@@ -709,6 +718,10 @@ export const signupMerchant = createServerFn({ method: "POST" })
       logoUrl: "",
       coverUrl: "",
       bannedFromBot: false,
+      status: "pending",
+      isActive: false,
+      visibilityEnabled: false,
+      firstLoginCompleted: true,
       createdAt: now,
       updatedAt: now,
     });

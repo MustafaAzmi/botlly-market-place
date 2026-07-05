@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SupervisorRouteImport } from './routes/supervisor'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MerchantAppRouteImport } from './routes/merchant-app'
 import { Route as FRouteImport } from './routes/f'
@@ -28,6 +29,7 @@ import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboa
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
 import { Route as CustomerAppRouteImport } from './routes/customer/app'
 import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
+import { Route as AdminSupervisorsRouteImport } from './routes/admin/supervisors'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
 import { Route as AdminPopularRequestsRouteImport } from './routes/admin/popular-requests'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
@@ -60,6 +62,11 @@ import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupervisorRoute = SupervisorRouteImport.update({
+  id: '/supervisor',
+  path: '/supervisor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -150,6 +157,11 @@ const CustomerAppRoute = CustomerAppRouteImport.update({
 const Customer_layoutRoute = Customer_layoutRouteImport.update({
   id: '/customer/__layout',
   path: '/customer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSupervisorsRoute = AdminSupervisorsRouteImport.update({
+  id: '/admin/supervisors',
+  path: '/admin/supervisors',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminStoresRoute = AdminStoresRouteImport.update({
@@ -302,6 +314,7 @@ export interface FileRoutesByFullPath {
   '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -316,6 +329,7 @@ export interface FileRoutesByFullPath {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
@@ -351,6 +365,7 @@ export interface FileRoutesByTo {
   '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -365,6 +380,7 @@ export interface FileRoutesByTo {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer': typeof CustomerIndexRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
@@ -400,6 +416,7 @@ export interface FileRoutesById {
   '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -414,6 +431,7 @@ export interface FileRoutesById {
   '/admin/packages': typeof AdminPackagesRoute
   '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer/__layout': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
@@ -451,6 +469,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -465,6 +484,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer'
     | '/customer/app'
     | '/customer/auth'
@@ -500,6 +520,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -514,6 +535,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer'
     | '/customer/app'
     | '/customer/auth'
@@ -548,6 +570,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -562,6 +585,7 @@ export interface FileRouteTypes {
     | '/admin/packages'
     | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer/__layout'
     | '/customer/app'
     | '/customer/auth'
@@ -598,6 +622,7 @@ export interface RootRouteChildren {
   FRoute: typeof FRoute
   MerchantAppRoute: typeof MerchantAppRoute
   PrivacyRoute: typeof PrivacyRoute
+  SupervisorRoute: typeof SupervisorRoute
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
   AdminBroadcastsRoute: typeof AdminBroadcastsRoute
@@ -612,6 +637,7 @@ export interface RootRouteChildren {
   AdminPackagesRoute: typeof AdminPackagesRoute
   AdminPopularRequestsRoute: typeof AdminPopularRequestsRoute
   AdminStoresRoute: typeof AdminStoresRoute
+  AdminSupervisorsRoute: typeof AdminSupervisorsRoute
   Customer_layoutRoute: typeof Customer_layoutRoute
   CustomerAppRoute: typeof CustomerAppRoute
   CustomerAuthRoute: typeof CustomerAuthRoute
@@ -648,6 +674,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/supervisor': {
+      id: '/supervisor'
+      path: '/supervisor'
+      fullPath: '/supervisor'
+      preLoaderRoute: typeof SupervisorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -774,6 +807,13 @@ declare module '@tanstack/react-router' {
       path: '/customer'
       fullPath: '/customer'
       preLoaderRoute: typeof Customer_layoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/supervisors': {
+      id: '/admin/supervisors'
+      path: '/admin/supervisors'
+      fullPath: '/admin/supervisors'
+      preLoaderRoute: typeof AdminSupervisorsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/stores': {
@@ -982,6 +1022,7 @@ const rootRouteChildren: RootRouteChildren = {
   FRoute: FRoute,
   MerchantAppRoute: MerchantAppRoute,
   PrivacyRoute: PrivacyRoute,
+  SupervisorRoute: SupervisorRoute,
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
   AdminBroadcastsRoute: AdminBroadcastsRoute,
@@ -996,6 +1037,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPackagesRoute: AdminPackagesRoute,
   AdminPopularRequestsRoute: AdminPopularRequestsRoute,
   AdminStoresRoute: AdminStoresRoute,
+  AdminSupervisorsRoute: AdminSupervisorsRoute,
   Customer_layoutRoute: Customer_layoutRoute,
   CustomerAppRoute: CustomerAppRoute,
   CustomerAuthRoute: CustomerAuthRoute,
