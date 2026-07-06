@@ -72,6 +72,7 @@ const merchantAuth = read("src/routes/auth.tsx");
 const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
 const adminLayout = read("src/components/layout/AdminLayout.tsx");
 const adminSession = read("src/lib/adminSession.ts");
+const adminFunctions = read("src/lib/admin.functions.ts");
 
 add(
   "Application webhook route exists",
@@ -235,6 +236,13 @@ add(
       read(path).includes("const session = readAdminSession()"),
     ),
   "admin pages defer sessionStorage reads until after client hydration",
+);
+add(
+  "product image cleanup verifies database writes",
+  adminFunctions.includes(".update({ payload: withoutProductImages") &&
+    adminFunctions.includes('.select("id")') &&
+    adminFunctions.includes("بقيت صور في"),
+  "legacy product images are only reported as removed after a direct database verification",
 );
 
 const migrationFiles = [

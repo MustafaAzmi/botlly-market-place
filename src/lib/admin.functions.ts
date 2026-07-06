@@ -750,13 +750,32 @@ export async function migrateExistingMerchantFiltersAndImages(): Promise<Merchan
           .from("whatsapp_webhook_events")
           .update({ payload: withoutProductImages(row.payload ?? {}) as never })
           .eq("id", row.id)
-          .eq("source", "botly")
-          .eq("event_type", "botly_product"),
+          .select("id"),
       ),
     );
     for (const result of results) {
       if (result.error) throw new Error(`تعذر حذف صور المنتجات: ${result.error.message}`);
-      productEventsCleaned += 1;
+      if (!result.data?.length) {
+        throw new Error("تعذر التحقق من حذف صورة أحد سجلات المنتجات.");
+      }
+      productEventsCleaned += result.data.length;
+    }
+  }
+
+  for (let index = 0; index < rowsWithImages.length; index += 100) {
+    const ids = rowsWithImages.slice(index, index + 100).map(({ row }) => row.id);
+    const verification = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload")
+      .in("id", ids);
+    if (verification.error) {
+      throw new Error(`تعذر التحقق من حذف صور المنتجات: ${verification.error.message}`);
+    }
+    const remaining = (verification.data ?? []).filter((row) =>
+      imageBytes(((row as { payload?: Record<string, unknown> }).payload ?? {})) > 0,
+    );
+    if (remaining.length > 0) {
+      throw new Error(`بقيت صور في ${remaining.length} من سجلات المنتجات بعد محاولة الحذف.`);
     }
   }
 
