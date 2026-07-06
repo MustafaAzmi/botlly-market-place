@@ -190,10 +190,11 @@ add(
 );
 add(
   "customer smart requests enforce the rolling daily limit",
-  missingProductFunctions.includes("requests.size >= 2") &&
+  missingProductFunctions.includes("CUSTOMER_DAILY_REQUEST_LIMIT = 5") &&
+    missingProductFunctions.includes("requests.size >= CUSTOMER_DAILY_REQUEST_LIMIT") &&
     missingProductFunctions.includes("24 * 60 * 60 * 1_000") &&
     missingProductFunctions.includes('data.requesterType !== "customer"'),
-  "customers are limited to two requests per rolling 24 hours while fitters are excluded",
+  "customers are limited to five requests per rolling 24 hours while fitters are excluded",
 );
 add(
   "smart request matching excludes non-active merchants",

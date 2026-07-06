@@ -222,8 +222,9 @@ async function findMatchingMerchants(args: {
   return targets;
 }
 
+const CUSTOMER_DAILY_REQUEST_LIMIT = 5;
 const CUSTOMER_LIMIT_MESSAGE =
-  "وصلت للحد اليومي. تگدر ترسل طلبين فقط خلال 24 ساعة حتى نحافظ على جودة الخدمة وعدم إزعاج التجار.";
+  "وصلت للحد اليومي. تگدر ترسل 5 طلبات فقط خلال 24 ساعة حتى نحافظ على جودة الخدمة وعدم إزعاج التجار.";
 
 async function assertCustomerRequestLimit(data: z.infer<typeof missingProductInput>) {
   if (data.requesterType !== "customer") return;
@@ -257,7 +258,9 @@ async function assertCustomerRequestLimit(data: z.infer<typeof missingProductInp
     if (new Date(createdAt).getTime() < cutoff) continue;
     requests.add(getString(row.missing_request_id) || row.id);
   }
-  if (requests.size >= 2) throw new Error(CUSTOMER_LIMIT_MESSAGE);
+  if (requests.size >= CUSTOMER_DAILY_REQUEST_LIMIT) {
+    throw new Error(CUSTOMER_LIMIT_MESSAGE);
+  }
 }
 
 export const submitMissingProductRequest = createServerFn({ method: "POST" })
