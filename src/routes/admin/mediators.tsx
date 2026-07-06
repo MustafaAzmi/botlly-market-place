@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPlatformSettings, setMediatorPhone } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 
 export const Route = createFileRoute("/admin/mediators")({
@@ -50,7 +50,7 @@ const IRAQI_GOVERNORATES = [
 const MEDIATOR_GOVERNORATE_OPTIONS = [ALL_GOVERNORATES_MEDIATOR, ...IRAQI_GOVERNORATES];
 
 function AdminMediatorsPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const getSettingsFn = useServerFn(getPlatformSettings);
   const setMediatorFn = useServerFn(setMediatorPhone);
 

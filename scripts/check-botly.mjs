@@ -71,6 +71,7 @@ const supervisorFunctions = read("src/lib/supervisor.functions.ts");
 const merchantAuth = read("src/routes/auth.tsx");
 const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
 const adminLayout = read("src/components/layout/AdminLayout.tsx");
+const adminSession = read("src/lib/adminSession.ts");
 
 add(
   "Application webhook route exists",
@@ -224,6 +225,15 @@ add(
     adminLayout.includes("getCurrentAdmin") &&
     adminLayout.includes("clearAdminSession"),
   "admin navigation exposes supervisors and rejects expired sessions",
+);
+add(
+  "admin session hydration is consistent",
+  adminSession.includes("export function useAdminSession()") &&
+    adminSession.includes("useEffect(() =>") &&
+    !sourceFiles("src/routes/admin").some((path) =>
+      read(path).includes("const session = readAdminSession()"),
+    ),
+  "admin pages defer sessionStorage reads until after client hydration",
 );
 
 const migrationFiles = [

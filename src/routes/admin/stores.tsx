@@ -41,7 +41,7 @@ import {
   type AdminMerchantProductView,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 
@@ -81,7 +81,7 @@ function AdminStoresPage() {
   const [page, setPage] = useState(1);
   const [productPage, setProductPage] = useState(1);
   const [governorateFilter, setGovernorateFilter] = useState(ALL_GOVERNORATES);
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleteProductConfirm, setDeleteProductConfirm] = useState<{
     merchantId: string;

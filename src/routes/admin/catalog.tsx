@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Calendar, Car, Palette, Plus, Save, Trash2 } from "lucide-react";
 import { getCarCatalogueConfig, saveCarCatalogueConfig } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 import type { CatalogueConfig, CatalogueItem, CatalogueMakeConfig } from "@/lib/car-data";
 
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/admin/catalog")({
 // open → check the ones to show. Everything (makes, models, years, colors)
 // is editable: the admin can add new entries or delete existing ones.
 function AdminCatalogPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const getConfigFn = useServerFn(getCarCatalogueConfig);
   const saveConfigFn = useServerFn(saveCarCatalogueConfig);
 

@@ -8,7 +8,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { listCustomers, type CustomerAdminView } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 
 export const Route = createFileRoute("/admin/customers")({
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/admin/customers")({
 });
 
 function AdminCustomersPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listCustomersFn = useServerFn(listCustomers);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);

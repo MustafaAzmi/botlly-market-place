@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { requireAdminClient } from "@/lib/adminGuard";
 import { iraqiCities } from "@/lib/adminMockData";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import {
   addDeliveryCompany,
   listDeliveryCompaniesAdmin,
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/admin/delivery")({
 });
 
 function AdminDeliveryPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listFn = useServerFn(listDeliveryCompaniesAdmin);
   const addFn = useServerFn(addDeliveryCompany);
   const banFn = useServerFn(setDeliveryCompanyBan);

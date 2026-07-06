@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import { getAdminOverview, getSalesConfirmationSummary, resetAdminOrderCounter } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/")({
@@ -53,7 +53,7 @@ function excelCell(value: string | number) {
 }
 
 function AdminDashboard() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const overviewFn = useServerFn(getAdminOverview);
   const confirmationSummaryFn = useServerFn(getSalesConfirmationSummary);
   const resetOrderCounterFn = useServerFn(resetAdminOrderCounter);

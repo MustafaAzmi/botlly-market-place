@@ -18,7 +18,7 @@ import {
   type FitterAdminView,
 } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/fitters")({
   beforeLoad: () => requireAdminClient(),
@@ -49,7 +49,7 @@ const IRAQI_GOVERNORATES = [
 ];
 
 function AdminFittersPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listFn = useServerFn(listFitters);
   const updateFn = useServerFn(updateFitterByAdmin);
   const deleteFn = useServerFn(deleteFitterByAdmin);

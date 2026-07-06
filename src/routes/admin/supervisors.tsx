@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { ADMIN_SESSION_KEY } from "@/lib/adminMockData";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 import {
   createSupervisor,
@@ -36,9 +36,8 @@ function AdminSupervisorsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const token = typeof window === "undefined"
-    ? ""
-    : sessionStorage.getItem(ADMIN_SESSION_KEY) ?? "";
+  const { session } = useAdminSession();
+  const token = session?.token ?? "";
 
   const load = async () => {
     setLoading(true);

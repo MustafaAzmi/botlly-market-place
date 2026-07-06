@@ -1,5 +1,6 @@
 // Admin Session Management
 // Stores admin authentication state in sessionStorage
+import { useEffect, useState } from "react";
 
 export interface AdminSession {
   token: string;
@@ -39,4 +40,16 @@ export function isAdminAuthenticated(): boolean {
 export function getAdminToken(): string | null {
   const session = readAdminSession();
   return session?.token ?? null;
+}
+
+export function useAdminSession() {
+  const [session, setSession] = useState<AdminSession | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setSession(readAdminSession());
+    setReady(true);
+  }, []);
+
+  return { session, ready };
 }

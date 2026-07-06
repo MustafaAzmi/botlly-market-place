@@ -19,7 +19,7 @@ import {
   type AdminMessageRecord,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/broadcasts")({
   beforeLoad: () => requireAdminClient(),
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/admin/broadcasts")({
 type Audience = "all" | "selection";
 
 function AdminBroadcastsPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listMerchantsFn = useServerFn(listMerchants);
   const sendBroadcastFn = useServerFn(sendAdminBroadcast);
   const listMessagesFn = useServerFn(listAdminMessages);

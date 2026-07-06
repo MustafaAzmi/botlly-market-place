@@ -18,7 +18,7 @@ import {
   useCurrencies,
 } from "@/lib/currenciesStore";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/currencies")({
   beforeLoad: () => requireAdminClient(),
@@ -31,7 +31,7 @@ function AdminCurrenciesPage() {
   const queryClient = useQueryClient();
   const saveCurrencyFn = useServerFn(savePlatformCurrency);
   const deleteCurrencyFn = useServerFn(deletePlatformCurrency);
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [savingCode, setSavingCode] = useState<string | null>(null);

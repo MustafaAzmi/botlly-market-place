@@ -12,7 +12,7 @@ import {
   type PopularSmartSearchProduct,
 } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/popular-requests")({
   beforeLoad: () => requireAdminClient(),
@@ -30,7 +30,7 @@ function formatDate(value: string) {
 }
 
 function PopularRequestsPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listPopularProducts = useServerFn(listPopularSmartSearchProducts);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
