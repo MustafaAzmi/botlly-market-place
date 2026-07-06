@@ -68,6 +68,7 @@ const merchantFunctions = read("src/lib/merchant.functions.ts");
 const fitterFunctions = read("src/lib/fitter.functions.ts");
 const missingProductFunctions = read("src/lib/missing-product.functions.ts");
 const supervisorFunctions = read("src/lib/supervisor.functions.ts");
+const supervisorRoute = read("src/routes/supervisor.tsx");
 const merchantAuth = read("src/routes/auth.tsx");
 const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
 const merchantDashboard = read("src/routes/dashboard/index.tsx");
@@ -207,6 +208,15 @@ add(
     supervisorFunctions.includes("createPendingMerchantBySupervisor") &&
     supervisorFunctions.includes("createPendingFitterBySupervisor"),
   "both merchants and fitters require admin activation",
+);
+add(
+  "supervisor merchant filters use dependent checkboxes",
+  supervisorRoute.includes("CAR_MAKES.map") &&
+    supervisorRoute.includes("MultiCheckboxGroup") &&
+    supervisorRoute.includes("تظهر موديلات أنواع السيارات المحددة فقط") &&
+    supervisorRoute.includes("CAR_PART_SPECIALTIES") &&
+    !supervisorRoute.includes("مفصولة بفاصلة"),
+  "car makes, dependent models and specialties support one or more selections",
 );
 add(
   "direct merchant and fitter signup is disabled",
