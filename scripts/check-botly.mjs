@@ -71,6 +71,7 @@ const supervisorFunctions = read("src/lib/supervisor.functions.ts");
 const merchantAuth = read("src/routes/auth.tsx");
 const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
 const merchantDashboard = read("src/routes/dashboard/index.tsx");
+const landingPage = read("src/routes/index.tsx");
 const adminLayout = read("src/components/layout/AdminLayout.tsx");
 const adminSession = read("src/lib/adminSession.ts");
 const adminFunctions = read("src/lib/admin.functions.ts");
@@ -230,6 +231,13 @@ add(
     !merchantLayout.includes('"nav.products"') &&
     !merchantLayout.includes('"nav.store"'),
   "merchant navigation hides dashboard, products and store tabs",
+);
+add(
+  "supervisor login is visible on the public landing page",
+  landingPage.includes('to="/supervisor"') &&
+    landingPage.includes("تسجيل دخول المشرف") &&
+    !landingPage.includes('search={{ mode: "signup" }}'),
+  "the obsolete direct merchant signup button is replaced by supervisor sign-in",
 );
 add(
   "supervisors are visible in the primary admin navigation",

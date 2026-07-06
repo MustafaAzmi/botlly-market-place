@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Download, Store, User, Wrench } from "lucide-react";
+import { ArrowRight, Download, ShieldCheck, User, Wrench } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
@@ -31,7 +31,7 @@ const copy = {
     tagline: "خلي راسك مرتاح واستخدم بوتلي.",
     customer: "دخول الزبون",
     merchantLogin: "تسجيل الدخول للتاجر",
-    createStore: "أنشئ متجر جديد",
+    supervisorLogin: "تسجيل دخول المشرف",
     customerApp: "حمّل تطبيق بوتلي زبون",
     merchantApp: "حمّل تطبيق بوتلي تاجر",
     rights: "جميع الحقوق محفوظة",
@@ -42,7 +42,7 @@ const copy = {
     tagline: "Sit back, relax, and use Botly.",
     customer: "Customer entrance",
     merchantLogin: "Merchant sign in",
-    createStore: "Create a new store",
+    supervisorLogin: "Supervisor sign in",
     customerApp: "Get the Botly Customer app",
     merchantApp: "Get the Botly Merchant app",
     rights: "All rights reserved",
@@ -53,7 +53,7 @@ const copy = {
     tagline: "ئارام بە و Botly بەکاربهێنە.",
     customer: "چوونەژوورەوەی کڕیار",
     merchantLogin: "چوونەژوورەوەی فرۆشیار",
-    createStore: "دروستکردنی فرۆشگای نوێ",
+    supervisorLogin: "چوونەژوورەوەی سەرپەرشتیار",
     customerApp: "داگرتنی ئەپی Botly بۆ کڕیار",
     merchantApp: "داگرتنی ئەپی Botly بۆ فرۆشیار",
     rights: "هەموو مافەکان پارێزراون",
@@ -108,9 +108,9 @@ function LandingPage() {
                 </Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="gap-2">
-                <Link to="/auth" search={{ mode: "signup" }}>
-                  <Store className="h-4 w-4" />
-                  {text.createStore}
+                <Link to="/supervisor">
+                  <ShieldCheck className="h-4 w-4" />
+                  {text.supervisorLogin}
                 </Link>
               </Button>
             </div>
