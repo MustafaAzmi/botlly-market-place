@@ -64,6 +64,13 @@ const notificationPanel = read("src/components/orders/WebOrderNotifications.tsx"
 const productImageRoute = read("src/routes/api/product-image/$id.ts");
 const missingProductImageRoute = read("src/routes/api/missing-product-image/$id.ts");
 const merchantImageRoute = read("src/routes/api/merchant-image/$id.ts");
+const merchantFunctions = read("src/lib/merchant.functions.ts");
+const fitterFunctions = read("src/lib/fitter.functions.ts");
+const missingProductFunctions = read("src/lib/missing-product.functions.ts");
+const supervisorFunctions = read("src/lib/supervisor.functions.ts");
+const merchantAuth = read("src/routes/auth.tsx");
+const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
+const adminLayout = read("src/components/layout/AdminLayout.tsx");
 
 add(
   "Application webhook route exists",
@@ -175,6 +182,48 @@ add(
   webNotifications.includes("merchantPhoneVisibilityForOrders") &&
     !webNotifications.includes('listEvents("botly_merchant", 100)'),
   "notification checks read only merchants attached to displayed orders",
+);
+add(
+  "customer smart requests enforce the rolling daily limit",
+  missingProductFunctions.includes("requests.size >= 2") &&
+    missingProductFunctions.includes("24 * 60 * 60 * 1_000") &&
+    missingProductFunctions.includes('data.requesterType !== "customer"'),
+  "customers are limited to two requests per rolling 24 hours while fitters are excluded",
+);
+add(
+  "smart request matching excludes non-active merchants",
+  missingProductFunctions.includes('(status.length > 0 && status !== "active")') &&
+    missingProductFunctions.includes("row.is_active === false"),
+  "pending, inactive and suspended merchants cannot receive matched requests",
+);
+add(
+  "supervisor-created accounts start pending",
+  supervisorFunctions.includes('status: "pending"') &&
+    supervisorFunctions.includes("isActive: false") &&
+    supervisorFunctions.includes("createPendingMerchantBySupervisor") &&
+    supervisorFunctions.includes("createPendingFitterBySupervisor"),
+  "both merchants and fitters require admin activation",
+);
+add(
+  "direct merchant and fitter signup is disabled",
+  merchantFunctions.includes("إنشاء حساب التاجر يتم عن طريق المشرف") &&
+    fitterFunctions.includes("إنشاء حساب الفيتر يتم عن طريق المشرف") &&
+    !merchantAuth.includes("signupMerchant"),
+  "new professional accounts can only be created by a supervisor",
+);
+add(
+  "merchant status refreshes after admin activation",
+  merchantLayout.includes("getCurrentMerchant") &&
+    merchantLayout.includes("setMerchantAccountStatus(profile.accountStatus)") &&
+    merchantLayout.includes("writeMerchantSession"),
+  "a pending merchant session updates without requiring a new login",
+);
+add(
+  "supervisors are visible in the primary admin navigation",
+  adminLayout.includes('to: "/admin/supervisors"') &&
+    adminLayout.includes("getCurrentAdmin") &&
+    adminLayout.includes("clearAdminSession"),
+  "admin navigation exposes supervisors and rejects expired sessions",
 );
 
 const migrationFiles = [

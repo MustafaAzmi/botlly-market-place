@@ -10,10 +10,13 @@ import {
   TrendingUp,
   Wrench,
 } from "lucide-react";
-import type React from "react";
+import { useEffect, type ReactNode } from "react";
+import { useServerFn } from "@tanstack/react-start";
 
 import { Button } from "@/components/ui/button";
 import { ADMIN_SESSION_KEY } from "@/lib/adminMockData";
+import { getCurrentAdmin } from "@/lib/admin.functions";
+import { clearAdminSession, readAdminSession } from "@/lib/adminSession";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Logo } from "./Logo";
 
@@ -22,6 +25,7 @@ const items = [
   { to: "/admin/stores", icon: Store, label: "المتاجر" },
   { to: "/admin/popular-requests", icon: TrendingUp, label: "الأكثر طلباً" },
   { to: "/admin/fitters", icon: Wrench, label: "فيتر" },
+  { to: "/admin/supervisors", icon: ShieldCheck, label: "المشرفون" },
   { to: "/admin/catalog", icon: Car, label: "الكتالوج" },
   { to: "/admin/mediators", icon: PhoneCall, label: "الوسطاء" },
   { to: "/admin/more", icon: MoreHorizontal, label: "المزيد" },
@@ -33,13 +37,26 @@ export function AdminLayout({
   subtitle,
   actions,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   title?: string;
   subtitle?: string;
-  actions?: React.ReactNode;
+  actions?: ReactNode;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
+  const currentAdminFn = useServerFn(getCurrentAdmin);
+
+  useEffect(() => {
+    const session = readAdminSession();
+    if (!session?.token) {
+      navigate({ to: "/admin/login" });
+      return;
+    }
+    currentAdminFn({ data: { token: session.token } }).catch(() => {
+      clearAdminSession();
+      navigate({ to: "/admin/login" });
+    });
+  }, [currentAdminFn, navigate, pathname]);
 
   const logout = () => {
     if (typeof window !== "undefined") {

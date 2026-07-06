@@ -32,6 +32,10 @@ function StoreProfilePage() {
   const [longitude, setLongitude] = useState("");
   const [deliveryPhone, setDeliveryPhone] = useState("");
   const [storeSlug, setStoreSlug] = useState("");
+  const [carMakes, setCarMakes] = useState<string[]>([]);
+  const [carModels, setCarModels] = useState<string[]>([]);
+  const [specialties, setSpecialties] = useState<string[]>([]);
+  const [servesAllGovernorates, setServesAllGovernorates] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +80,10 @@ function StoreProfilePage() {
         setLatitude(typeof profile.latitude === "number" ? String(profile.latitude) : "");
         setLongitude(typeof profile.longitude === "number" ? String(profile.longitude) : "");
         setDeliveryPhone(profile.deliveryPhone ?? "");
+        setCarMakes(profile.carMakes);
+        setCarModels(profile.carModels);
+        setSpecialties(profile.specialties);
+        setServesAllGovernorates(profile.servesAllGovernorates);
         if (profile.storeSlug) setStoreSlug(profile.storeSlug);
         setLogoPreview(profile.logoUrl ?? null);
         setCoverPreview(profile.coverUrl ?? null);
@@ -226,6 +234,20 @@ function StoreProfilePage() {
         </div>
       ) : (
         <form onSubmit={onSubmit} className="space-y-6">
+          <section className="rounded-lg border border-primary/20 bg-primary-soft/30 p-5 shadow-soft">
+            <h2 className="font-semibold">فلاتر استقبال الطلبات</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              يرسل Botly الطلبات المطابقة لهذه الفلاتر فقط. تعديلها يكون من الإدارة أو المشرف عند إنشاء الحساب.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <FilterSummary label="أنواع السيارات" values={carMakes} />
+              <FilterSummary label="الموديلات" values={carModels} />
+              <FilterSummary label="الاختصاصات" values={specialties} />
+            </div>
+            <p className="mt-3 text-xs font-medium text-primary">
+              نطاق المحافظة: {servesAllGovernorates ? "جميع المحافظات" : city || "غير محدد"}
+            </p>
+          </section>
           <section className="overflow-hidden rounded-lg border border-border bg-card shadow-soft">
             <div className="relative h-52 bg-secondary">
               {coverPreview ? (
@@ -397,6 +419,21 @@ function StoreProfilePage() {
         </form>
       )}
     </DashboardLayout>
+  );
+}
+
+function FilterSummary({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {values.length > 0 ? values.map((value) => (
+          <span key={value} className="rounded-full border border-primary/20 bg-background px-2.5 py-1 text-xs">
+            {value}
+          </span>
+        )) : <span className="text-sm text-muted-foreground">غير محدد</span>}
+      </div>
+    </div>
   );
 }
 

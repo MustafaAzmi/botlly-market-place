@@ -3,7 +3,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import {
   ArrowRight,
-  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -21,19 +20,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { IRAQI_GOVERNORATES } from "@/lib/governorates";
-import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
+import { loginMerchant } from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
 import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/auth")({
-  // ?mode=signup opens the create-store form directly; anything else → login.
-  validateSearch: (search: Record<string, unknown>): { mode?: AuthMode } => ({
-    mode: search.mode === "signup" ? "signup" : undefined,
-  }),
   head: () => ({
     meta: [
       { title: "تسجيل دخول التاجر - Botly" },
@@ -45,13 +38,12 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-type AuthMode = "login" | "signup";
 type ResetMethod = "whatsapp" | "email";
 
 const copy = {
   ar: {
     title: "دخول التجار",
-    subtitle: "ادخل برقم واتساب وكلمة المرور، أو أنشئ حساب متجر جديد.",
+    subtitle: "ادخل برقم واتساب وكلمة المرور. إنشاء الحسابات الجديدة يتم عن طريق المشرف.",
     login: "تسجيل الدخول",
     signup: "إنشاء حساب",
     whatsapp: "رقم الهاتف / واتساب",
@@ -89,7 +81,7 @@ const copy = {
   },
   en: {
     title: "Merchant Access",
-    subtitle: "Sign in with your WhatsApp number and password, or create a new store account.",
+    subtitle: "Sign in with your WhatsApp number and password. New accounts are created by a supervisor.",
     login: "Sign in",
     signup: "Create account",
     whatsapp: "Phone / WhatsApp number",
@@ -170,12 +162,7 @@ function AuthPage() {
   const text = copy[locale];
   const navigate = useNavigate();
   const loginMerchantFn = useServerFn(loginMerchant);
-  const signupMerchantFn = useServerFn(signupMerchant);
-  const { mode: requestedMode } = Route.useSearch();
-  const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : "login");
   const [showReset, setShowReset] = useState(false);
-  const [storeName, setStoreName] = useState("");
-  const [city, setCity] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -210,16 +197,14 @@ function AuthPage() {
       to:
         result.profile.accountStatus !== "active"
           ? "/dashboard/orders"
-          : mode === "signup"
-            ? "/dashboard/store"
-            : "/dashboard",
+          : "/dashboard",
     });
   };
 
   const onAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!whatsapp.trim() || !password.trim() || (mode === "signup" && (!storeName.trim() || !city))) {
+    if (!whatsapp.trim() || !password.trim()) {
       toast.error(text.required);
       return;
     }
@@ -232,24 +217,14 @@ function AuthPage() {
     setLoading(true);
     try {
       const result = await withNetworkRetry(() =>
-        mode === "signup"
-          ? signupMerchantFn({
-              data: {
-                storeName: storeName.trim(),
-                city,
-                whatsapp: whatsapp.trim(),
-                email: email.trim(),
-                password,
-              },
-            })
-          : loginMerchantFn({
-              data: {
-                whatsapp: whatsapp.trim(),
-                password,
-              },
-            }),
+        loginMerchantFn({
+          data: {
+            whatsapp: whatsapp.trim(),
+            password,
+          },
+        }),
       );
-      saveAuthSession(mode === "signup" ? text.signupSuccess : text.loginSuccess, result);
+      saveAuthSession(text.loginSuccess, result);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : text.required);
     } finally {
@@ -271,7 +246,6 @@ function AuthPage() {
       setLoading(false);
       toast.success(resetMethod === "email" ? text.resetSentEmail : text.resetSentWhatsapp);
       setShowReset(false);
-      setMode("login");
     }, 450);
   };
 
@@ -384,7 +358,6 @@ function AuthPage() {
                     className="w-full"
                     onClick={() => {
                       setShowReset(false);
-                      setMode("login");
                     }}
                   >
                     {text.backToLogin}
@@ -393,23 +366,14 @@ function AuthPage() {
               </form>
             ) : (
               <form onSubmit={onAuthSubmit} className="space-y-5">
-                {mode === "login" && (
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {locale === "ar" ? "ادخل برقم واتساب وكلمة المرور" : "Sign in with WhatsApp number and password"}
-                    </p>
-                  </div>
-                )}
-
-                {mode === "signup" && (
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-normal">{text.signup}</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {locale === "ar" ? "أنشئ متجر جديد" : "Create your store"}
-                    </p>
-                  </div>
-                )}
+                <div>
+                  <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {locale === "ar"
+                      ? "ادخل برقم واتساب وكلمة المرور. الحساب الجديد ينشئه المشرف."
+                      : "Sign in with your WhatsApp number and password. A supervisor creates new accounts."}
+                  </p>
+                </div>
 
                 <Field
                   icon={Phone}
@@ -422,38 +386,6 @@ function AuthPage() {
                   dir="ltr"
                 />
 
-                {mode === "signup" && (
-                  <>
-                    <div>
-                      <Field
-                        icon={Building2}
-                        id="storeName"
-                        label={text.storeName}
-                        value={storeName}
-                        onChange={setStoreName}
-                        placeholder={text.storeNamePlaceholder}
-                      />
-                      <StoreSlugHint storeName={storeName} locale={locale} />
-                    </div>
-                    <CitySelect
-                      label={text.city}
-                      placeholder={text.cityPlaceholder}
-                      value={city}
-                      onChange={setCity}
-                    />
-                    <Field
-                      icon={Mail}
-                      id="email"
-                      label={text.emailOptional}
-                      value={email}
-                      onChange={setEmail}
-                      placeholder={text.emailPlaceholder}
-                      type="email"
-                      dir="ltr"
-                    />
-                  </>
-                )}
-
                 <PasswordField
                   id="password"
                   label={text.password}
@@ -462,18 +394,16 @@ function AuthPage() {
                   placeholder={text.passwordPlaceholder}
                 />
 
-                {mode === "login" && (
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="h-auto px-0"
-                      onClick={() => setShowReset(true)}
-                    >
-                      {text.forgotPassword}
-                    </Button>
-                  </div>
-                )}
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto px-0"
+                    onClick={() => setShowReset(true)}
+                  >
+                    {text.forgotPassword}
+                  </Button>
+                </div>
 
                 <Button
                   type="submit"
@@ -481,7 +411,7 @@ function AuthPage() {
                   className="w-full gap-2 rounded-xl shadow-soft"
                   disabled={loading}
                 >
-                  {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
+                  {loading ? "..." : text.loginSubmit}
                   <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                 </Button>
 
@@ -499,36 +429,6 @@ function AuthPage() {
           </div>
         </section>
       </main>
-    </div>
-  );
-}
-
-function CitySelect({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-12 rounded-xl bg-white">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {IRAQI_GOVERNORATES.map((governorate) => (
-            <SelectItem key={governorate} value={governorate}>
-              {governorate}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }
@@ -611,51 +511,6 @@ function PasswordField({
         </button>
       </div>
     </div>
-  );
-}
-
-// Client-side mirror of the server slug rules (merchant.functions
-// generateStoreSlug): English names become a readable URL slug; Arabic names
-// get a unique number so URLs never contain Arabic text.
-function previewStoreSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-}
-
-// Live hint under the store-name field showing the store's URL identifier.
-function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" | "ku" }) {
-  if (!storeName.trim()) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {locale === "ar"
-          ? "يفضّل كتابة اسم المتجر بالإنكليزي حتى يظهر برابط متجرك."
-          : "Prefer an English store name — it becomes your store URL."}
-      </p>
-    );
-  }
-  const slug = previewStoreSlug(storeName);
-  if (slug.length >= 2) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {locale === "ar" ? "رابط متجرك: " : "Your store URL: "}
-        <span dir="ltr" className="font-medium text-primary">
-          bot-lly.tech/dashboard?store={slug}
-        </span>
-      </p>
-    );
-  }
-  return (
-    <p className="mt-1.5 text-xs text-amber-600">
-      {locale === "ar"
-        ? "الاسم بالعربي — راح ينعطي متجرك رقم مميز بالرابط بدل الاسم حتى ما يصير خلل بالاستدعاء."
-        : "Arabic name detected — a unique store number will be used in the URL instead."}
-    </p>
   );
 }
 

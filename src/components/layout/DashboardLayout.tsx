@@ -1,11 +1,17 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { LayoutDashboard, Package, Store, ShoppingBag, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
-import { clearMerchantSession, readMerchantSession } from "@/lib/merchantSession";
+import { getCurrentMerchant } from "@/lib/merchant.functions";
+import {
+  clearMerchantSession,
+  readMerchantSession,
+  writeMerchantSession,
+} from "@/lib/merchantSession";
 import {
   useWebNotificationCount,
   WebNotificationCountValue,
@@ -31,6 +37,7 @@ export function DashboardLayout({
 }) {
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const currentMerchantFn = useServerFn(getCurrentMerchant);
   const [merchantToken, setMerchantToken] = useState("");
   const [merchantAccountStatus, setMerchantAccountStatus] = useState("active");
   const merchantNotificationCount = useWebNotificationCount({
@@ -45,6 +52,28 @@ export function DashboardLayout({
     const session = readMerchantSession();
     setMerchantToken(session?.token ?? "");
     setMerchantAccountStatus(session?.accountStatus ?? "active");
+    if (session?.token) {
+      currentMerchantFn({ data: { token: session.token } })
+        .then((profile) => {
+          setMerchantAccountStatus(profile.accountStatus);
+          writeMerchantSession({
+            merchantId: profile.id,
+            storeName: profile.storeName,
+            storeSlug: profile.storeSlug,
+            whatsapp: profile.whatsapp,
+            email: profile.email,
+            bio: profile.bio,
+            city: profile.city,
+            address: profile.address,
+            latitude: profile.latitude,
+            longitude: profile.longitude,
+            deliveryPhone: profile.deliveryPhone,
+            accountStatus: profile.accountStatus,
+            firstLoginCompleted: profile.firstLoginCompleted,
+          });
+        })
+        .catch(() => {});
+    }
     const slug = session?.storeSlug || session?.merchantId?.slice(0, 8);
     if (!slug) return;
     const url = new URL(window.location.href);
@@ -52,7 +81,7 @@ export function DashboardLayout({
       url.searchParams.set("store", slug);
       window.history.replaceState({}, "", url.toString());
     }
-  }, [pathname]);
+  }, [currentMerchantFn, pathname]);
   const visibleItems =
     merchantAccountStatus === "active"
       ? items

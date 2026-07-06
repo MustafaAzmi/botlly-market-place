@@ -59,6 +59,10 @@ export type MerchantProfile = {
   logoUrl?: string;
   coverUrl?: string;
   bannedFromBot: boolean;
+  carMakes: string[];
+  carModels: string[];
+  specialties: string[];
+  servesAllGovernorates: boolean;
   accountStatus: "active" | "pending" | "inactive" | "suspended";
   firstLoginCompleted: boolean;
   createdAt: string;
@@ -349,6 +353,10 @@ async function generateStoreSlug(storeName: string): Promise<string> {
 
 function toProfile(row: EventRow): MerchantProfile {
   const payload = row.payload ?? {};
+  const stringList = (value: unknown) =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
   return {
     id: merchantIdentity(row),
     storeName: getString(payload.storeName),
@@ -364,6 +372,10 @@ function toProfile(row: EventRow): MerchantProfile {
     logoUrl: getString(payload.logoUrl) || undefined,
     coverUrl: getString(payload.coverUrl) || undefined,
     bannedFromBot: payload.bannedFromBot === true,
+    carMakes: stringList(payload.carMakes),
+    carModels: stringList(payload.carModels),
+    specialties: stringList(payload.specialties),
+    servesAllGovernorates: payload.servesAllGovernorates === true,
     accountStatus:
       getString(payload.status) === "pending" ||
       getString(payload.status) === "inactive" ||
@@ -687,48 +699,8 @@ function buildManualProductKeywords(data: {
 
 export const signupMerchant = createServerFn({ method: "POST" })
   .inputValidator((d) => signupInput.parse(d))
-  .handler(async ({ data }) => {
-    const existing = await findMerchantByPhone(data.whatsapp);
-    if (existing) throw new Error("هذا الرقم مسجل مسبقاً. سجل دخول بدل إنشاء حساب جديد.");
-
-    const salt = randomToken();
-    const now = new Date().toISOString();
-    const passwordHash = await hashPassword(data.password, salt);
-    const whatsappNormalized = normalizePhone(data.whatsapp);
-    const merchantId = crypto.randomUUID();
-    const city = normalizeGovernorate(data.city);
-
-    const storeSlug = await generateStoreSlug(data.storeName);
-
-    const row = await insertEvent(MERCHANT_PROVIDER, {
-      merchantId,
-      storeName: data.storeName,
-      storeSlug,
-      whatsapp: data.whatsapp,
-      whatsappNormalized,
-      email: data.email || "",
-      passwordSalt: salt,
-      passwordHash,
-      bio: "",
-      city,
-      address: "",
-      latitude: undefined,
-      longitude: undefined,
-      deliveryPhone: "",
-      logoUrl: "",
-      coverUrl: "",
-      bannedFromBot: false,
-      status: "pending",
-      isActive: false,
-      visibilityEnabled: false,
-      firstLoginCompleted: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const profile = toProfile(row);
-    const token = await createSession(row);
-    return { token, profile };
+  .handler(async () => {
+    throw new Error("إنشاء حساب التاجر يتم عن طريق المشرف، ثم تفعّله الإدارة.");
   });
 
 export const loginMerchant = createServerFn({ method: "POST" })
