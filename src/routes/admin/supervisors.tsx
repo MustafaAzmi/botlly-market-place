@@ -36,7 +36,7 @@ function AdminSupervisorsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const { session } = useAdminSession();
+  const { session, ready } = useAdminSession();
   const token = session?.token ?? "";
 
   const load = async () => {
@@ -51,9 +51,10 @@ function AdminSupervisorsPage() {
   };
 
   useEffect(() => {
+    if (!ready || !token) return;
     load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ready, token]);
 
   const create = async () => {
     setSaving(true);

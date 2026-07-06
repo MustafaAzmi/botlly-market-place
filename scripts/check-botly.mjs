@@ -230,6 +230,7 @@ add(
   "admin session hydration is consistent",
   adminSession.includes("export function useAdminSession()") &&
     adminSession.includes("useEffect(() =>") &&
+    read("src/routes/admin/supervisors.tsx").includes("if (!ready || !token) return") &&
     !sourceFiles("src/routes/admin").some((path) =>
       read(path).includes("const session = readAdminSession()"),
     ),
