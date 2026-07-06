@@ -193,12 +193,7 @@ function AuthPage() {
       signedInAt: new Date().toISOString(),
     });
     toast.success(successMessage);
-    navigate({
-      to:
-        result.profile.accountStatus !== "active"
-          ? "/dashboard/orders"
-          : "/dashboard",
-    });
+    navigate({ to: "/dashboard/orders" });
   };
 
   const onAuthSubmit = async (e: React.FormEvent) => {

@@ -70,6 +70,7 @@ const missingProductFunctions = read("src/lib/missing-product.functions.ts");
 const supervisorFunctions = read("src/lib/supervisor.functions.ts");
 const merchantAuth = read("src/routes/auth.tsx");
 const merchantLayout = read("src/components/layout/DashboardLayout.tsx");
+const merchantDashboard = read("src/routes/dashboard/index.tsx");
 const adminLayout = read("src/components/layout/AdminLayout.tsx");
 const adminSession = read("src/lib/adminSession.ts");
 const adminFunctions = read("src/lib/admin.functions.ts");
@@ -216,9 +217,19 @@ add(
 add(
   "merchant status refreshes after admin activation",
   merchantLayout.includes("getCurrentMerchant") &&
-    merchantLayout.includes("setMerchantAccountStatus(profile.accountStatus)") &&
+    merchantLayout.includes("accountStatus: profile.accountStatus") &&
     merchantLayout.includes("writeMerchantSession"),
   "a pending merchant session updates without requiring a new login",
+);
+add(
+  "merchant opens directly on orders only",
+  merchantAuth.includes('navigate({ to: "/dashboard/orders" })') &&
+    merchantDashboard.includes('redirect({ to: "/dashboard/orders" })') &&
+    merchantLayout.includes('to: "/dashboard/orders"') &&
+    !merchantLayout.includes('"nav.dashboard"') &&
+    !merchantLayout.includes('"nav.products"') &&
+    !merchantLayout.includes('"nav.store"'),
+  "merchant navigation hides dashboard, products and store tabs",
 );
 add(
   "supervisors are visible in the primary admin navigation",

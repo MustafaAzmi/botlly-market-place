@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { LayoutDashboard, Package, Store, ShoppingBag, LogOut } from "lucide-react";
+import { ShoppingBag, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -18,10 +18,7 @@ import {
 } from "@/components/orders/WebNotificationCountBadge";
 
 const items = [
-  { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
-  { to: "/dashboard/products", icon: Package, key: "nav.products" as const },
   { to: "/dashboard/orders", icon: ShoppingBag, key: "nav.orders" as const },
-  { to: "/dashboard/store", icon: Store, key: "nav.store" as const },
 ];
 
 export function DashboardLayout({
@@ -39,7 +36,6 @@ export function DashboardLayout({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const currentMerchantFn = useServerFn(getCurrentMerchant);
   const [merchantToken, setMerchantToken] = useState("");
-  const [merchantAccountStatus, setMerchantAccountStatus] = useState("active");
   const merchantNotificationCount = useWebNotificationCount({
     role: "merchant",
     token: merchantToken,
@@ -51,11 +47,9 @@ export function DashboardLayout({
   useEffect(() => {
     const session = readMerchantSession();
     setMerchantToken(session?.token ?? "");
-    setMerchantAccountStatus(session?.accountStatus ?? "active");
     if (session?.token) {
       currentMerchantFn({ data: { token: session.token } })
         .then((profile) => {
-          setMerchantAccountStatus(profile.accountStatus);
           writeMerchantSession({
             merchantId: profile.id,
             storeName: profile.storeName,
@@ -82,10 +76,6 @@ export function DashboardLayout({
       window.history.replaceState({}, "", url.toString());
     }
   }, [currentMerchantFn, pathname]);
-  const visibleItems =
-    merchantAccountStatus === "active"
-      ? items
-      : items.filter((item) => item.to === "/dashboard/orders");
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -96,7 +86,7 @@ export function DashboardLayout({
             <Logo />
           </div>
           <nav className="flex-1 space-y-1 p-3">
-            {visibleItems.map((item) => {
+            {items.map((item) => {
               const active =
                 pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (
@@ -149,7 +139,7 @@ export function DashboardLayout({
 
           {/* Mobile nav */}
           <nav className="flex gap-1 overflow-x-auto border-b border-border bg-background px-2 py-2 lg:hidden">
-            {visibleItems.map((item) => {
+            {items.map((item) => {
               const active =
                 pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
               return (
