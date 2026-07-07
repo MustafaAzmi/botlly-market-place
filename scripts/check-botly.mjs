@@ -189,12 +189,11 @@ add(
   "notification checks read only merchants attached to displayed orders",
 );
 add(
-  "customer smart requests enforce the rolling daily limit",
-  missingProductFunctions.includes("CUSTOMER_DAILY_REQUEST_LIMIT = 5") &&
-    missingProductFunctions.includes("requests.size >= CUSTOMER_DAILY_REQUEST_LIMIT") &&
-    missingProductFunctions.includes("24 * 60 * 60 * 1_000") &&
-    missingProductFunctions.includes('data.requesterType !== "customer"'),
-  "customers are limited to five requests per rolling 24 hours while fitters are excluded",
+  "customer smart requests are unlimited",
+  !missingProductFunctions.includes("CUSTOMER_DAILY_REQUEST_LIMIT") &&
+    !missingProductFunctions.includes("assertCustomerRequestLimit") &&
+    missingProductFunctions.includes("requestCountLimitChecked: false"),
+  "customers and fitters can send smart requests without a daily cap",
 );
 add(
   "smart request matching excludes non-active merchants",

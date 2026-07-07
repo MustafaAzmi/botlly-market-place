@@ -3,13 +3,9 @@ import { z } from "zod";
 
 import {
   appendEvent,
-  eventTime,
   getString,
-  listProjectedEventsByPayloadFieldPage,
   listProjectedEventsPage,
-  normalizePhone,
   phoneKey,
-  type EventRow,
   type ProjectedEventRow,
 } from "@/lib/eventStore.server";
 import { normalizeGovernorate } from "@/lib/governorates";
@@ -281,51 +277,9 @@ async function findMatchingMerchants(args: {
   return targets;
 }
 
-const CUSTOMER_DAILY_REQUEST_LIMIT = 5;
-const CUSTOMER_LIMIT_MESSAGE =
-  "وصلت للحد اليومي. تگدر ترسل 5 طلبات فقط خلال 24 ساعة حتى نحافظ على جودة الخدمة وعدم إزعاج التجار.";
-
-async function assertCustomerRequestLimit(data: z.infer<typeof missingProductInput>) {
-  if (data.requesterType !== "customer") return;
-  const variants = [...new Set([data.requesterPhone, normalizePhone(data.requesterPhone)])]
-    .filter(Boolean);
-  const pages = await Promise.all(
-    variants.map((phone) =>
-      listProjectedEventsByPayloadFieldPage(
-        "botly_order",
-        "requesterPhone",
-        phone,
-        [
-          "missing_request_id:payload->>missingRequestId",
-          "source_context:payload->>sourceContext",
-          "event_name:payload->>eventName",
-          "requester_type:payload->>requesterType",
-          "created_at_value:payload->>createdAt",
-        ].join(","),
-        { limit: 100 },
-      ),
-    ),
-  );
-  const cutoff = Date.now() - 24 * 60 * 60 * 1_000;
-  const requests = new Set<string>();
-  for (const row of pages.flatMap((page) => page.items)) {
-    if (getString(row.source_context) !== "missing_product_request") continue;
-    if (getString(row.event_name) !== "missing_request_created") continue;
-    if (getString(row.requester_type) !== "customer") continue;
-    const createdAt =
-      getString(row.created_at_value) || row.created_at || row.received_at || eventTime(row as EventRow);
-    if (new Date(createdAt).getTime() < cutoff) continue;
-    requests.add(getString(row.missing_request_id) || row.id);
-  }
-  if (requests.size >= CUSTOMER_DAILY_REQUEST_LIMIT) {
-    throw new Error(CUSTOMER_LIMIT_MESSAGE);
-  }
-}
-
 export const submitMissingProductRequest = createServerFn({ method: "POST" })
   .inputValidator((d) => missingProductInput.parse(d))
   .handler(async ({ data }) => {
-    await assertCustomerRequestLimit(data);
     const missingRequestId = crypto.randomUUID();
     const now = new Date().toISOString();
     const publicBase = (process.env.PUBLIC_SITE_URL ?? "https://www.bot-lly.tech").replace(/\/$/, "");
@@ -362,7 +316,7 @@ export const submitMissingProductRequest = createServerFn({ method: "POST" })
       imageUrl: deliverableImageUrl,
       imageDataUrl: data.imageDataUrl ?? "",
       targetMerchantCount: targets.length,
-      requestCountLimitChecked: data.requesterType === "customer",
+      requestCountLimitChecked: false,
       customerName: data.requesterType === "customer" ? data.requesterName : "",
       customerPhone: data.requesterType === "customer" ? data.requesterPhone : "",
       status: "missing_request_sent",
