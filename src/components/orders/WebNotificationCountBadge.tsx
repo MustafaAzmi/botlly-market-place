@@ -6,6 +6,11 @@ import {
   listRequesterWebNotifications,
   type WebOrderNotification,
 } from "@/lib/web-notifications.functions";
+import {
+  readNotificationIds,
+  ringUnseenNotificationIds,
+  updateInstalledAppBadge,
+} from "@/lib/web-notification-client";
 
 export type WebNotificationCountProps =
   | {
@@ -55,14 +60,10 @@ export function useWebNotificationCount(props: WebNotificationCountProps) {
           });
     const unreadOrders = orders.items.filter((order) => hasBadgeNotification(order, role));
     const unreadIds = unreadOrders.map((order) => order.orderId);
-    const seenIds = readStoredIds(seenStorageKey);
-    const rungIds = readStoredIds(rungStorageKey);
+    const seenIds = readNotificationIds(seenStorageKey);
     const unseenIds = unreadIds.filter((orderId) => !seenIds.has(orderId));
-    const unrungIds = unseenIds.filter((orderId) => !rungIds.has(orderId));
-    if (unrungIds.length > 0) {
-      playNotificationBell();
-      saveStoredIds(rungStorageKey, new Set([...rungIds, ...unrungIds]));
-    }
+    ringUnseenNotificationIds(rungStorageKey, unseenIds);
+    updateInstalledAppBadge(unseenIds.length);
     setCount(unseenIds.length);
   }, [listMerchantFn, listRequesterFn, requesterPhone, requesterType, role, rungStorageKey, seenStorageKey, token]);
 
@@ -103,52 +104,4 @@ function hasBadgeNotification(order: WebOrderNotification, role: "merchant" | "r
       order.merchantStatus === "Sold") &&
     order.requesterStatus === "Pending"
   );
-}
-
-function readStoredIds(key: string) {
-  if (typeof window === "undefined") return new Set<string>();
-  try {
-    const raw = window.localStorage.getItem(key);
-    const values = raw ? (JSON.parse(raw) as unknown[]) : [];
-    return new Set(values.filter((value): value is string => typeof value === "string"));
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function saveStoredIds(key: string, ids: Set<string>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify([...ids].slice(-200)));
-  } catch {
-    // The badge still works even when localStorage is unavailable.
-  }
-}
-
-function playNotificationBell() {
-  if (typeof window === "undefined") return;
-  const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextClass) return;
-  try {
-    const context = new AudioContextClass();
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
-    gain.connect(context.destination);
-
-    [880, 1175].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      const start = context.currentTime + index * 0.16;
-      oscillator.start(start);
-      oscillator.stop(start + 0.18);
-    });
-
-    window.setTimeout(() => context.close().catch(() => {}), 800);
-  } catch {
-    // Browsers can block audio until the user interacts with the page.
-  }
 }

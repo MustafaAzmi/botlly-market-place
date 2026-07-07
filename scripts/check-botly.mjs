@@ -203,6 +203,23 @@ add(
   "pending, inactive and suspended merchants cannot receive matched requests",
 );
 add(
+  "smart request matching supports legacy merchants and products",
+  missingProductFunctions.includes("MATCHING_SCAN_LIMIT = 1_000") &&
+    missingProductFunctions.includes('const status = getString(row.status) || "active"') &&
+    missingProductFunctions.includes("classifyProductSpecialty") &&
+    missingProductFunctions.includes("vehicle_make:payload->>vehicleMake") &&
+    missingProductFunctions.includes("vehicle_model:payload->>vehicleModel"),
+  "legacy products without status and legacy filter fields still route requests to the correct merchant",
+);
+add(
+  "web notification badges and bell are deduplicated",
+  notificationBadge.includes("updateInstalledAppBadge(unseenIds.length)") &&
+    notificationBadge.includes("ringUnseenNotificationIds") &&
+    notificationPanel.includes("ringUnseenNotificationIds") &&
+    notificationPanel.includes("updateInstalledAppBadge(0)"),
+  "installed app badge count and notification bell share one dedupe store",
+);
+add(
   "supervisor-created accounts start pending",
   supervisorFunctions.includes('status: "pending"') &&
     supervisorFunctions.includes("isActive: false") &&

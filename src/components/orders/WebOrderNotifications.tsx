@@ -12,6 +12,12 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import type { Locale } from "@/i18n/translations";
 import { setFitterFavorite } from "@/lib/fitter.functions";
 import {
+  readNotificationIds,
+  ringUnseenNotificationIds,
+  saveNotificationIds,
+  updateInstalledAppBadge,
+} from "@/lib/web-notification-client";
+import {
   clearWebOrderNotification,
   clearWebOrderNotificationsBulk,
   listMerchantWebNotifications,
@@ -263,16 +269,12 @@ export function WebOrderNotifications(props: Props) {
       const actionableIds = visibleOrders
         .filter((order) => hasUnreadNotification(order, role))
         .map((order) => order.orderId);
-      const notifiedIds = readNotifiedIds(notifiedStorageKey);
-      const rungIds = readNotifiedIds(rungStorageKey);
-      const unrungIds = actionableIds.filter((orderId) => !rungIds.has(orderId));
-      if (unrungIds.length > 0) {
-        playNotificationBell();
-        saveNotifiedIds(rungStorageKey, new Set([...rungIds, ...unrungIds]));
-      }
+      const notifiedIds = readNotificationIds(notifiedStorageKey);
+      ringUnseenNotificationIds(rungStorageKey, actionableIds);
       const nextSeenIds = new Set([...notifiedIds, ...actionableIds]);
-      saveNotifiedIds(notifiedStorageKey, nextSeenIds);
+      saveNotificationIds(notifiedStorageKey, nextSeenIds);
       setSeenNotificationIds(nextSeenIds);
+      updateInstalledAppBadge(0);
       setOrders(visibleOrders);
       setPage(next.page);
       setHasMore(next.hasMore);
@@ -890,58 +892,6 @@ function statusLabel(order: WebOrderNotification, text: (typeof notificationCopy
   if (order.merchantStatus === "Unavailable") return text.productUnavailable;
   if (order.merchantStatus === "Sold") return text.waitingCustomer;
   return text.following;
-}
-
-function playNotificationBell() {
-  if (typeof window === "undefined") return;
-  const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextClass) return;
-  try {
-    const context = new AudioContextClass();
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
-    gain.connect(context.destination);
-
-    [880, 1175].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      const start = context.currentTime + index * 0.16;
-      oscillator.start(start);
-      oscillator.stop(start + 0.18);
-    });
-
-    window.setTimeout(() => context.close().catch(() => {}), 800);
-  } catch {
-    // Some browsers block audio until the user interacts with the page.
-  }
-}
-
-function readNotifiedIds(key: string) {
-  if (typeof window === "undefined") return new Set<string>();
-  try {
-    const raw = window.localStorage.getItem(key);
-    const values = raw ? (JSON.parse(raw) as unknown[]) : [];
-    return new Set(values.filter((value): value is string => typeof value === "string"));
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function saveNotifiedIds(key: string, ids: Set<string>) {
-  saveStoredIds(key, ids);
-}
-
-function saveStoredIds(key: string, ids: Set<string>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify([...ids].slice(-200)));
-  } catch {
-    // Ignore storage failures; the notification UI still works.
-  }
 }
 
 function hasUnreadNotification(order: WebOrderNotification, role: "merchant" | "requester") {

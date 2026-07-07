@@ -53,6 +53,26 @@ function stringArray(value: unknown) {
     : [];
 }
 
+const MATCHING_SCAN_LIMIT = 1_000;
+
+async function listProjectedMatchingRows(
+  eventType: "botly_merchant" | "botly_product",
+  projection: string,
+) {
+  const rows: ProjectedEventRow[] = [];
+  let cursor = "";
+  while (rows.length < MATCHING_SCAN_LIMIT) {
+    const page = await listProjectedEventsPage(eventType, projection, {
+      cursor,
+      limit: Math.min(100, MATCHING_SCAN_LIMIT - rows.length),
+    });
+    rows.push(...page.items);
+    if (!page.hasMore || !page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return rows;
+}
+
 function normalizeSpecialty(value: string) {
   const normalized = value
     .trim()
@@ -70,8 +90,37 @@ function normalizeSpecialty(value: string) {
   return value.trim();
 }
 
+function classifyProductSpecialty(row: ProjectedEventRow) {
+  const text = [
+    getString(row.category),
+    getString(row.title),
+    getString(row.description),
+    getString(row.search_text),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const groups: Array<[string, RegExp]> = [
+    ["كهربائيات", /كهرب|لايت|مصباح|لمب|بطاري|دينمو|سلف|حساس|ضفير|فيوز|سويتش/],
+    ["إكسسوارات", /اكسسوار|إكسسوار|زينة|فرش|شاشة|كفر|مسجل|كاميرا|عدة/],
+    ["فرامل", /فرامل|بريك|دسك|ديسك|سفايف/],
+    ["تبريد وتكييف", /تبريد|مكيف|تكييف|راديتر|رادييت|كمبريسر|ثرموستات/],
+    ["تعليق وتوجيه", /تعليق|توجيه|مساعد|مقص|دركسون|ستيرن|جامبينه|صليب/],
+    ["هيكل وبدن", /هيكل|بدن|صدام|بمبر|باب|رفرف|مراي|مرآ|غطاء|دعامي|شبك/],
+    ["محرك", /محرك|مكين|مكينة|بستم|توربو|كاسكيت|رأس|فلتر|جير|قير/],
+  ];
+  return groups.find(([, pattern]) => pattern.test(text))?.[0] ?? "";
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    const text = getString(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 async function projectedMerchantProfiles() {
-  const page = await listProjectedEventsPage(
+  const rows = await listProjectedMatchingRows(
     "botly_merchant",
     [
       "merchant_id:payload->>merchantId",
@@ -92,10 +141,9 @@ async function projectedMerchantProfiles() {
       "car_models:payload->carModels",
       "specialties:payload->specialties",
     ].join(","),
-    { limit: 100 },
   );
   const seen = new Set<string>();
-  return page.items.filter((row) => {
+  return rows.filter((row) => {
     const id = getString(row.merchant_id) || row.id;
     if (seen.has(id)) return false;
     seen.add(id);
@@ -104,7 +152,7 @@ async function projectedMerchantProfiles() {
 }
 
 async function projectedProductFilters() {
-  const page = await listProjectedEventsPage(
+  const rows = await listProjectedMatchingRows(
     "botly_product",
     [
       "product_id:payload->>productId",
@@ -112,13 +160,19 @@ async function projectedProductFilters() {
       "status:payload->>status",
       "availability:payload->>availability",
       "car_make:payload->>carMake",
+      "vehicle_make:payload->>vehicleMake",
+      "brand:payload->>brand",
       "car_model:payload->>carModel",
+      "vehicle_model:payload->>vehicleModel",
+      "model:payload->>model",
       "category:payload->>category",
+      "title:payload->>title",
+      "description:payload->>description",
+      "search_text:payload->>searchText",
     ].join(","),
-    { limit: 100 },
   );
   const latest = new Map<string, ProjectedEventRow>();
-  for (const row of page.items) {
+  for (const row of rows) {
     const id = getString(row.product_id) || row.id;
     if (!latest.has(id)) latest.set(id, row);
   }
@@ -128,7 +182,8 @@ async function projectedProductFilters() {
     specialties: Set<string>;
   }>();
   for (const row of latest.values()) {
-    if (getString(row.status) !== "active" || getString(row.availability) === "out_of_stock") continue;
+    const status = getString(row.status) || "active";
+    if (status !== "active" || getString(row.availability) === "out_of_stock") continue;
     const merchantId = getString(row.merchant_id);
     if (!merchantId) continue;
     const entry = filters.get(merchantId) ?? {
@@ -136,9 +191,13 @@ async function projectedProductFilters() {
       models: new Set<string>(),
       specialties: new Set<string>(),
     };
-    if (getString(row.car_make)) entry.makes.add(getString(row.car_make));
-    if (getString(row.car_model)) entry.models.add(getString(row.car_model));
+    const carMake = firstString(row.car_make, row.vehicle_make, row.brand);
+    const carModel = firstString(row.car_model, row.vehicle_model, row.model);
+    const specialty = firstString(row.category, classifyProductSpecialty(row));
+    if (carMake) entry.makes.add(carMake);
+    if (carModel) entry.models.add(carModel);
     if (getString(row.category)) entry.specialties.add(getString(row.category));
+    if (specialty) entry.specialties.add(specialty);
     filters.set(merchantId, entry);
   }
   return filters;
