@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "apps/flutter/merchant_app/**"
+      - "apps/flutter/MOBILE_APPS.md"
       - ".github/workflows/flutter-merchant-android.yml"
   workflow_dispatch:
 
