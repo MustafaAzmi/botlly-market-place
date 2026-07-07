@@ -12,6 +12,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import type { Locale } from "@/i18n/translations";
 import { setFitterFavorite } from "@/lib/fitter.functions";
 import {
+  prepareNotificationBell,
   readNotificationIds,
   ringUnseenNotificationIds,
   saveNotificationIds,
@@ -286,6 +287,7 @@ export function WebOrderNotifications(props: Props) {
   }, [listMerchantFn, listRequesterFn, merchantToken, notifiedStorageKey, page, requesterPhone, requesterType, role, rungStorageKey, text.loadError]);
 
   useEffect(() => {
+    prepareNotificationBell();
     refresh().catch(() => {});
     const timer = window.setInterval(() => {
       refresh(true).catch(() => {});

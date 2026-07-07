@@ -7,6 +7,7 @@ import {
   type WebOrderNotification,
 } from "@/lib/web-notifications.functions";
 import {
+  prepareNotificationBell,
   readNotificationIds,
   ringUnseenNotificationIds,
   updateInstalledAppBadge,
@@ -68,6 +69,7 @@ export function useWebNotificationCount(props: WebNotificationCountProps) {
   }, [listMerchantFn, listRequesterFn, requesterPhone, requesterType, role, rungStorageKey, seenStorageKey, token]);
 
   useEffect(() => {
+    prepareNotificationBell();
     refresh().catch(() => {});
     const timer = window.setInterval(() => {
       refresh().catch(() => {});
