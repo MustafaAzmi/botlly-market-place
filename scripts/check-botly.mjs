@@ -254,9 +254,19 @@ add(
   adminFunctions.includes("merchantPhoneIdentity") &&
     adminFunctions.includes("uniqueByPhone") &&
     adminFunctions.includes("targetPhone") &&
+    adminFunctions.includes('status: "active"') &&
+    adminFunctions.includes("isActive: true") &&
     adminFunctions.includes('deleteEventsByPayloadField("botly_merchant", "whatsapp"') &&
     adminFunctions.includes('deleteEventsByPayloadField("botly_merchant", "whatsappNormalized"'),
-  "admin store list collapses duplicate merchant phones and delete removes duplicate profile rows",
+  "admin store list collapses duplicate merchant phones, visibility activation fully activates, and delete removes duplicate profile rows",
+);
+add(
+  "event deletes cover current and legacy rows",
+  eventStore.includes('.eq("source", "botly")') &&
+    eventStore.includes('.eq("provider" as never, eventType)') &&
+    eventStore.includes('.delete()') &&
+    eventStore.includes('.select("id")'),
+  "hard delete actions remove both current source/event_type rows and legacy provider rows",
 );
 add(
   "merchant opens directly on orders only",

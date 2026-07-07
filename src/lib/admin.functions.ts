@@ -1113,7 +1113,17 @@ export const setMerchantVisibility = createServerFn({ method: "POST" })
   .inputValidator((d) => visibilityInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    return applyMerchantControl(data.merchantId, { visibilityEnabled: data.enabled });
+    return applyMerchantControl(
+      data.merchantId,
+      data.enabled
+        ? {
+            visibilityEnabled: true,
+            isActive: true,
+            status: "active",
+            suspendedAt: "",
+          }
+        : { visibilityEnabled: false },
+    );
   });
 
 // Enable/disable exposing the merchant WhatsApp number to customers/fitters.
@@ -1199,14 +1209,12 @@ export const deleteMerchantStore = createServerFn({ method: "POST" })
       );
     }
 
-    const legacyRowIds = merchantRows
-      .filter((row) => !getString(row.payload?.merchantId))
-      .map((row) => row.id);
-    if (legacyRowIds.length > 0) {
+    const merchantRowIds = [...new Set(merchantRows.map((row) => row.id).filter(Boolean))];
+    if (merchantRowIds.length > 0) {
       const result = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
-        .in("id", legacyRowIds);
+        .in("id", merchantRowIds);
       if (result.error) {
         throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
       }

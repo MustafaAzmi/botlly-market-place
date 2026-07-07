@@ -549,18 +549,37 @@ export async function deleteEventsByPayloadField(
   field: string,
   value: string,
 ): Promise<number> {
-  const result = await supabaseAdmin
+  const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .delete()
     .eq("source", "botly")
     .eq("event_type", eventType)
-    .eq(`payload->>${field}` as never, value);
+    .eq(`payload->>${field}` as never, value)
+    .select("id");
 
-  if (result.error) {
-    throw new Error(`Failed to delete ${eventType}: ${result.error.message ?? "unknown error"}`);
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .delete()
+    .eq("provider" as never, eventType)
+    .eq(`payload->>${field}` as never, value)
+    .select("id");
+
+  if (primary.error && fallback.error) {
+    throw new Error(`Failed to delete ${eventType}: ${primary.error.message ?? fallback.error.message ?? "unknown error"}`);
   }
+  if (primary.error && !fallback.error) {
+    invalidateEventReadCache(eventType);
+    return fallback.data?.length ?? 0;
+  }
+  if (fallback.error) {
+    const message = `${fallback.error.code ?? ""} ${fallback.error.message ?? ""}`.toLowerCase();
+    if (!message.includes("provider") && !message.includes("column") && !message.includes("schema cache")) {
+      throw new Error(`Failed to delete legacy ${eventType}: ${fallback.error.message ?? "unknown error"}`);
+    }
+  }
+
   invalidateEventReadCache(eventType);
-  return result.count ?? 0;
+  return (primary.data?.length ?? 0) + (fallback.data?.length ?? 0);
 }
 
 async function findMerchantById(id: string): Promise<EventRow | null> {
