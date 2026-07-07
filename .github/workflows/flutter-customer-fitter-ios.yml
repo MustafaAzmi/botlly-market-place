@@ -56,8 +56,7 @@ jobs:
         run: sudo gem install cocoapods -v 1.16.2
 
       - name: Install CocoaPods
-        run: pod install
-        working-directory: apps/flutter/${{ matrix.app.id }}/ios
+        run: cd ios && pod install
 
       - name: Analyze
         continue-on-error: true
