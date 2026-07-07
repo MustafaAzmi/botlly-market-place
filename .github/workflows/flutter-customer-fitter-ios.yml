@@ -55,9 +55,6 @@ jobs:
       - name: Setup CocoaPods
         run: sudo gem install cocoapods -v 1.16.2
 
-      - name: Install CocoaPods
-        run: cd ios && pod install
-
       - name: Analyze
         continue-on-error: true
         run: flutter analyze lib
