@@ -106,7 +106,7 @@ function SupervisorPage() {
       setCarMakes([]);
       setCarModels([]);
       setSpecialties([]);
-      toast.success("تم إنشاء التاجر بحالة pending وإرسال رابط التطبيق");
+      toast.success("تم إنشاء التاجر وتفعيله مباشرة وإرسال رابط التطبيق");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر إنشاء التاجر");
     } finally {
@@ -221,7 +221,7 @@ function SupervisorPage() {
             إنشاء {accountType === "merchant" ? "تاجر" : "فيتر"} جديد
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            ينشأ الحساب pending، ولا يستقبل طلبات حتى يفعّله الأدمن.
+            التاجر يتفعل مباشرة ويستقبل الطلبات، والفيتر يبقى بانتظار تفعيل الأدمن.
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Button

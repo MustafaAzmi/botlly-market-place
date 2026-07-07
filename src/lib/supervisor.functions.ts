@@ -204,9 +204,9 @@ export const createPendingMerchantBySupervisor = createServerFn({ method: "POST"
       carModels: data.carModels,
       specialties: data.specialties,
       servesAllGovernorates: data.servesAllGovernorates,
-      status: "pending",
-      isActive: false,
-      visibilityEnabled: false,
+      status: "active",
+      isActive: true,
+      visibilityEnabled: true,
       firstLoginCompleted: false,
       createdBySupervisorId: supervisorIdentity(supervisor),
       createdAt: now,
@@ -218,7 +218,7 @@ export const createPendingMerchantBySupervisor = createServerFn({ method: "POST"
       `تم إنشاء حساب التاجر: ${data.storeName}`,
       `افتح تطبيق التاجر من الرابط: ${inviteUrl}`,
       "سجل الدخول برقم الواتساب المسجل والباسورد المؤقت المرسل لك من المشرف.",
-      "الحساب بانتظار تفعيل إدارة Botlly قبل استقبال الطلبات.",
+      "الحساب فعال وجاهز لاستقبال الطلبات.",
     ].join("\n");
     const sendResult = await sendWhatsAppText(
       normalizedPhone.replace(/^\+/, ""),
@@ -227,7 +227,7 @@ export const createPendingMerchantBySupervisor = createServerFn({ method: "POST"
     return {
       ok: true,
       merchantId,
-      status: "pending" as const,
+      status: "active" as const,
       inviteUrl,
       whatsappSent: sendResult.ok,
     };

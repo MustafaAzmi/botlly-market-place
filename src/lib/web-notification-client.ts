@@ -42,11 +42,15 @@ export function saveNotificationIds(key: string, ids: Set<string>) {
 export function prepareNotificationBell() {
   if (typeof window === "undefined" || bellPrepared) return;
   bellPrepared = true;
+  const context = getNotificationAudioContext();
+  if (context?.state === "suspended") {
+    context.resume().catch(() => {});
+  }
 
   const unlock = () => {
-    const context = getNotificationAudioContext();
-    if (context?.state === "suspended") {
-      context.resume().catch(() => {});
+    const unlockedContext = getNotificationAudioContext();
+    if (unlockedContext?.state === "suspended") {
+      unlockedContext.resume().catch(() => {});
     }
     window.removeEventListener("pointerdown", unlock);
     window.removeEventListener("touchstart", unlock);
@@ -120,29 +124,32 @@ function playNotificationBell() {
       return;
     }
     if (context.state === "suspended") {
-      context.resume().catch(() => {});
       vibrateNotification();
+      context.resume().then(() => playBellTone(context)).catch(() => {});
       return;
     }
-
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
-    gain.connect(context.destination);
-
-    [880, 1175].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      oscillator.type = "sine";
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      const start = context.currentTime + index * 0.16;
-      oscillator.start(start);
-      oscillator.stop(start + 0.18);
-    });
+    playBellTone(context);
   } catch {
     vibrateNotification();
   }
+}
+
+function playBellTone(context: AudioContext) {
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+  gain.connect(context.destination);
+
+  [880, 1175].forEach((frequency, index) => {
+    const oscillator = context.createOscillator();
+    oscillator.type = "sine";
+    oscillator.frequency.value = frequency;
+    oscillator.connect(gain);
+    const start = context.currentTime + index * 0.16;
+    oscillator.start(start);
+    oscillator.stop(start + 0.18);
+  });
 }
 
 function getNotificationAudioContext() {

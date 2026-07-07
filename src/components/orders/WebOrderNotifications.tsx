@@ -467,15 +467,12 @@ export function WebOrderNotifications(props: Props) {
                     </div>
                     {role === "requester" &&
                     (order.merchantStatus === "Available" || order.merchantStatus === "Sold") &&
-                    order.requesterStatus === "Pending" ? (
+                    order.requesterStatus === "Pending" &&
+                    order.merchantPhoneVisible &&
+                    order.merchantWhatsapp ? (
                       <div className="mt-3 space-y-2 rounded-lg bg-secondary/70 p-3 text-sm">
                         <p>{text.purchasePrompt}</p>
-                        {order.mediatorPhone ? (
-                          <ContactLink label={text.mediatorPhone} phone={order.mediatorPhone} />
-                        ) : null}
-                        {order.merchantPhoneVisible && order.merchantWhatsapp ? (
-                          <ContactLink label={text.merchantPhone} phone={order.merchantWhatsapp} />
-                        ) : null}
+                        <ContactLink label={text.merchantPhone} phone={order.merchantWhatsapp} />
                       </div>
                     ) : null}
                     {role === "requester" && order.merchantStatus === "Unavailable" ? (

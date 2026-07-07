@@ -219,12 +219,14 @@ add(
   "installed app badge count and notification bell share one dedupe store",
 );
 add(
-  "supervisor-created accounts start pending",
-  supervisorFunctions.includes('status: "pending"') &&
-    supervisorFunctions.includes("isActive: false") &&
+  "supervisor-created merchants start active",
+  supervisorFunctions.includes('status: "active"') &&
+    supervisorFunctions.includes("isActive: true") &&
+    supervisorFunctions.includes("visibilityEnabled: true") &&
     supervisorFunctions.includes("createPendingMerchantBySupervisor") &&
-    supervisorFunctions.includes("createPendingFitterBySupervisor"),
-  "both merchants and fitters require admin activation",
+    supervisorFunctions.includes("createPendingFitterBySupervisor") &&
+    supervisorFunctions.includes('status: "pending"'),
+  "merchants are searchable immediately while fitters still require admin activation",
 );
 add(
   "supervisor merchant filters use dependent checkboxes",
