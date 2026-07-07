@@ -469,6 +469,15 @@ function isDeletedProduct(row: EventRow) {
   return getString(row.payload?.status) === "deleted";
 }
 
+function merchantPhoneIdentity(row: EventRow) {
+  const payload = row.payload ?? {};
+  return phoneKey(
+    getString(payload.whatsappNormalized) ||
+      getString(payload.whatsapp) ||
+      getString(payload.phone),
+  );
+}
+
 function toAdminMerchantProduct(row: EventRow): AdminMerchantProductView {
   const p = row.payload ?? {};
   const primaryImage = getString(p.imageUrl);
@@ -501,7 +510,13 @@ async function latestMerchants(sourceRows?: EventRow[]): Promise<EventRow[]> {
     const id = merchantIdentity(row);
     if (!seen.has(id)) seen.set(id, row);
   }
-  return [...seen.values()];
+  const uniqueByPhone = new Map<string, EventRow>();
+  for (const row of seen.values()) {
+    const phone = merchantPhoneIdentity(row);
+    const key = phone ? `phone:${phone}` : `id:${merchantIdentity(row)}`;
+    if (!uniqueByPhone.has(key)) uniqueByPhone.set(key, row);
+  }
+  return [...uniqueByPhone.values()];
 }
 
 // Compute effective customer-facing visibility from the control flags.
@@ -1146,21 +1161,52 @@ export const deleteMerchantStore = createServerFn({ method: "POST" })
       ?? await getEventById("botly_merchant", data.merchantId);
     if (!target) throw new Error("لم يتم العثور على المتجر.");
 
-    const merchantId = merchantIdentity(target);
+    const targetPhone = merchantPhoneIdentity(target);
+    const merchantRows = targetPhone
+      ? (await listEventsForAdminExport("botly_merchant", 20_000)).filter(
+          (row) => merchantPhoneIdentity(row) === targetPhone,
+        )
+      : [target];
+    const merchantIds = [
+      ...new Set(merchantRows.map((row) => merchantIdentity(row)).filter(Boolean)),
+    ];
+    const merchantPhones = [
+      ...new Set(
+        merchantRows
+          .flatMap((row) => [
+            getString(row.payload?.whatsapp),
+            getString(row.payload?.whatsappNormalized),
+            normalizePhone(getString(row.payload?.whatsapp)),
+          ])
+          .filter(Boolean),
+      ),
+    ];
 
-    const deleted = await Promise.all([
-      deleteEventsByPayloadField("botly_product", "merchantId", merchantId),
-      deleteEventsByPayloadField("botly_order", "merchantId", merchantId),
-      deleteEventsByPayloadField("botly_session", "merchantId", merchantId),
-      deleteEventsByPayloadField("botly_merchant", "merchantId", merchantId),
-    ]);
+    const deleted: number[] = [];
+    for (const merchantId of merchantIds) {
+      deleted.push(
+        await deleteEventsByPayloadField("botly_product", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_order", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_session", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_merchant", "merchantId", merchantId),
+      );
+    }
+    for (const phone of merchantPhones) {
+      deleted.push(
+        await deleteEventsByPayloadField("botly_session", "merchantPhone", phone),
+        await deleteEventsByPayloadField("botly_merchant", "whatsapp", phone),
+        await deleteEventsByPayloadField("botly_merchant", "whatsappNormalized", phone),
+      );
+    }
 
-    // Legacy merchant rows used their row id as the identity.
-    if (!getString(target.payload?.merchantId)) {
+    const legacyRowIds = merchantRows
+      .filter((row) => !getString(row.payload?.merchantId))
+      .map((row) => row.id);
+    if (legacyRowIds.length > 0) {
       const result = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
-        .eq("id", target.id);
+        .in("id", legacyRowIds);
       if (result.error) {
         throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
       }

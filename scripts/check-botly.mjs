@@ -250,6 +250,15 @@ add(
   "a pending merchant session updates without requiring a new login",
 );
 add(
+  "admin merchant actions handle duplicate phone accounts",
+  adminFunctions.includes("merchantPhoneIdentity") &&
+    adminFunctions.includes("uniqueByPhone") &&
+    adminFunctions.includes("targetPhone") &&
+    adminFunctions.includes('deleteEventsByPayloadField("botly_merchant", "whatsapp"') &&
+    adminFunctions.includes('deleteEventsByPayloadField("botly_merchant", "whatsappNormalized"'),
+  "admin store list collapses duplicate merchant phones and delete removes duplicate profile rows",
+);
+add(
   "merchant opens directly on orders only",
   merchantAuth.includes('navigate({ to: "/dashboard/orders" })') &&
     merchantDashboard.includes('redirect({ to: "/dashboard/orders" })') &&
