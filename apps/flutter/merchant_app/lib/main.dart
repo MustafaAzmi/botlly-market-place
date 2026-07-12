@@ -910,6 +910,9 @@ class MerchantRepository extends ChangeNotifier {
 
   Future<List<dynamic>> _postList(String action, Map<String, dynamic> data) async {
     final result = await _post(action, data);
+    if (result is Map<String, dynamic> && result['items'] is List) {
+      return result['items'] as List<dynamic>;
+    }
     return _list(result);
   }
 

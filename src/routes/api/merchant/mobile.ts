@@ -8,7 +8,6 @@ import {
   getPublicMerchantSignupCatalogue,
   getMerchantDashboard,
   getMerchantProduct,
-  listMerchantOrders,
   listMerchantProducts,
   loginMerchant,
   requestMerchantOtp,
@@ -20,6 +19,8 @@ import {
 import {
   merchantMarkProductAvailable,
   merchantMarkProductUnavailable,
+  listMerchantWebNotifications,
+  type WebOrderNotification,
 } from "@/lib/web-notifications.functions";
 import {
   diagnosticIdentity,
@@ -85,6 +86,34 @@ async function callServerFn<TData, TResult>(
   return fn({ data });
 }
 
+function webNotificationToMobileOrder(order: WebOrderNotification) {
+  const details = [
+    order.requestDetails ? `الوصف: ${order.requestDetails}` : "",
+    order.specialty ? `الاختصاص: ${order.specialty}` : "",
+    order.requesterName ? `مقدم الطلب: ${order.requesterName}` : "",
+  ].filter(Boolean).join("\n");
+  return {
+    id: order.orderId,
+    productTitle: order.productTitle,
+    productPrice: order.price,
+    currency: order.currency || "IQD",
+    customerNumber: order.requesterPhone,
+    customerDetails: details,
+    status: order.merchantStatus === "Pending" ? order.finalStatus : order.merchantStatus,
+    sentToDelivery: false,
+    merchantNotified: order.merchantStatus !== "Pending",
+    createdAt: order.createdAt || order.updatedAt,
+  };
+}
+
+async function listMobileMerchantOrders(data: unknown) {
+  const page = await callServerFn(listMerchantWebNotifications, data);
+  return {
+    ...page,
+    items: page.items.map(webNotificationToMobileOrder),
+  };
+}
+
 export const Route = createFileRoute("/api/merchant/mobile")({
   server: {
     handlers: {
@@ -123,7 +152,7 @@ export const Route = createFileRoute("/api/merchant/mobile")({
             case "deleteProduct":
               return json("api:merchantMobile:deleteProduct", { ok: true, result: await callServerFn(deleteMerchantProduct, data) }, data);
             case "listOrders":
-              return json("api:merchantMobile:listOrders", { ok: true, result: await callServerFn(listMerchantOrders, data) }, data);
+              return json("api:merchantMobile:listOrders", { ok: true, result: await listMobileMerchantOrders(data) }, data);
             case "markAvailable":
               return json("api:merchantMobile:markAvailable", { ok: true, result: await callServerFn(merchantMarkProductAvailable, data) }, data);
             case "markUnavailable":
