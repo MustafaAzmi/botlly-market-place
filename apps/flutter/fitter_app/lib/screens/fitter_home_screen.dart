@@ -35,7 +35,7 @@ class _FitterHomeScreenState extends State<FitterHomeScreen> {
             padding: const EdgeInsets.all(12),
             child: SegmentedButton<int>(
               segments: const [
-                ButtonSegment(value: 0, label: Text('المنتجات'), icon: Icon(Icons.search)),
+                ButtonSegment(value: 0, label: Text('البحث الذكي'), icon: Icon(Icons.search)),
                 ButtonSegment(value: 1, label: Text('طلباتي'), icon: Icon(Icons.assignment)),
               ],
               selected: {tab},
@@ -61,24 +61,53 @@ class _ProductsTab extends StatefulWidget {
 }
 
 class _ProductsTabState extends State<_ProductsTab> {
+  final description = TextEditingController();
+  String governorate = '';
   String make = '';
   String model = '';
-  String year = '';
-  String color = '';
-  String governorate = '';
+  String specialty = '';
 
-  Future<void> search() {
-    if (!canSearch) return Future.value();
-    return widget.controller.search(
-      carMake: make,
-      carModel: model,
-      carYear: year,
-      color: color,
-      governorate: governorate,
-    );
+  static const specialties = <String>[
+    'كهربائيات عامة',
+    'إكسسوارات',
+    'محرك',
+    'هيكل وبدن',
+    'تعليق وتوجيه',
+    'فرامل',
+    'تبريد وتكييف',
+    'أخرى',
+  ];
+
+  @override
+  void dispose() {
+    description.dispose();
+    super.dispose();
   }
 
-  bool get canSearch => governorate.isNotEmpty && make.isNotEmpty && model.isNotEmpty;
+  bool get canSubmit =>
+      governorate.isNotEmpty &&
+      make.isNotEmpty &&
+      model.isNotEmpty &&
+      specialty.isNotEmpty &&
+      description.text.trim().isNotEmpty;
+
+  Future<void> submitRequest() async {
+    if (!canSubmit) return;
+    await widget.controller.submitSmartRequest(
+      productName: description.text,
+      description: description.text,
+      carMake: make,
+      carModel: model,
+      specialty: specialty,
+      governorate: governorate,
+    );
+    if (!mounted) return;
+    description.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم إرسال الطلب للتجار المختصين')),
+    );
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +117,7 @@ class _ProductsTabState extends State<_ProductsTab> {
       orElse: () => const CarMakeOption(key: '', label: '', models: []),
     );
     return RefreshIndicator(
-      onRefresh: search,
+      onRefresh: c.refreshSummary,
       child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
@@ -96,89 +125,68 @@ class _ProductsTabState extends State<_ProductsTab> {
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Text(
+                    'البحث الذكي',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('اكتب وصف المنتج وسيتم إرسال الطلب للتجار المختصين حسب المحافظة ونوع السيارة والموديل والاختصاص.'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: governorate.isEmpty ? null : governorate,
+                    decoration: const InputDecoration(labelText: 'المحافظة'),
+                    items: iraqiGovernorates.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+                    onChanged: (value) => setState(() => governorate = value ?? ''),
+                  ),
+                  const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: make.isEmpty ? null : make,
-                    decoration: const InputDecoration(labelText: 'الموديل'),
+                    decoration: const InputDecoration(labelText: 'نوع السيارة'),
                     items: c.catalogue.makes.map((item) => DropdownMenuItem(value: item.label, child: Text(item.label))).toList(),
                     onChanged: (value) => setState(() {
                       make = value ?? '';
                       model = '';
                     }),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: model.isEmpty ? null : model,
-                    decoration: const InputDecoration(labelText: 'النوع'),
+                    decoration: const InputDecoration(labelText: 'الموديل'),
                     items: selectedMake.models.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
                     onChanged: make.isEmpty ? null : (value) => setState(() => model = value ?? ''),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: year.isEmpty ? null : year,
-                          decoration: const InputDecoration(labelText: 'السنة'),
-                          items: c.catalogue.years.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-                          onChanged: (value) => setState(() => year = value ?? ''),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: color.isEmpty ? null : color,
-                          decoration: const InputDecoration(labelText: 'اللون'),
-                          items: c.catalogue.colors.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-                          onChanged: (value) => setState(() => color = value ?? ''),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
-                    initialValue: governorate.isEmpty ? null : governorate,
-                    decoration: const InputDecoration(labelText: 'محافظة التاجر'),
-                    items: iraqiGovernorates.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-                    onChanged: (value) => setState(() => governorate = value ?? ''),
+                    initialValue: specialty.isEmpty ? null : specialty,
+                    decoration: const InputDecoration(labelText: 'الاختصاص'),
+                    items: specialties.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+                    onChanged: (value) => setState(() => specialty = value ?? ''),
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: c.loading || !canSearch ? null : search, icon: const Icon(Icons.search), label: const Text('بحث'))),
+                  TextField(
+                    controller: description,
+                    maxLines: 4,
+                    decoration: const InputDecoration(labelText: 'وصف المنتج'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: c.loading || !canSubmit ? null : submitRequest,
+                    icon: const Icon(Icons.send_rounded),
+                    label: const Text('إرسال الطلب للتجار المختصين'),
+                  ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          if (c.error.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ErrorNotice(message: c.error, onRetry: submitRequest),
+          ],
           if (c.loading)
             const SizedBox(height: 260, child: LoadingView())
-          else if (!canSearch)
-            const SizedBox(height: 260, child: EmptyView(title: 'Select governorate, make and model', subtitle: 'Products appear only after completing the required search filters.'))
-          else if (c.products.isEmpty)
-            const SizedBox(height: 260, child: EmptyView(title: 'No products available'))
-          else
-            ...c.products.map((product) => Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: ListTile(
-                    leading: _ProductThumbnail(product: product, size: 64),
-                    title: Text(product.title),
-                    subtitle: Text(money(product.price, product.currency)),
-                    trailing: FilledButton(
-                      onPressed: c.loading
-                          ? null
-                          : () async {
-                              try {
-                                await c.requestProduct(product);
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال طلب الفيتر للوسيط.')));
-                                }
-                              } catch (error) {
-                                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-                              }
-                            },
-                      child: const Text('طلب'),
-                    ),
-                  ),
-                )),
         ],
       ),
     );

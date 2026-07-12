@@ -95,6 +95,30 @@ class FitterController extends ChangeNotifier {
     });
   }
 
+  Future<void> submitSmartRequest({
+    required String productName,
+    required String description,
+    required String carMake,
+    required String carModel,
+    required String specialty,
+    required String governorate,
+  }) async {
+    final token = await session.read('token');
+    if (token.isEmpty) throw const ApiException('سجل دخولك أولاً.');
+    await _run(() async {
+      await fitterApi.post('submitSmartRequest', {
+        'token': token,
+        'productName': productName.trim().isEmpty ? description.trim() : productName.trim(),
+        'requestDetails': description.trim(),
+        'carMake': carMake,
+        'carModel': carModel,
+        'specialty': specialty,
+        'governorate': governorate,
+      });
+      await refreshSummary();
+    });
+  }
+
   Future<void> confirmOrder(FitterOrder order) async {
     final token = await session.read('token');
     await _run(() async {

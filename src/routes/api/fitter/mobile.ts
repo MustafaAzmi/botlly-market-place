@@ -11,6 +11,7 @@ import {
   updateFitterVisa,
 } from "@/lib/fitter.functions";
 import { browseCarProducts, getEnabledCarCatalogue } from "@/lib/customer.functions";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import {
   diagnosticIdentity,
   diagnosticResponse,
@@ -35,6 +36,7 @@ type Action =
   | "updateProfile"
   | "updateVisa"
   | "browseProducts"
+  | "submitSmartRequest"
   | "requestProduct"
   | "confirmReceipt"
   | "cancelOrder"
@@ -133,6 +135,18 @@ async function updateFitterWebPurchase(data: unknown, result: "purchased" | "can
   return { ok: true };
 }
 
+async function submitFitterSmartRequest(data: unknown) {
+  const record = (data ?? {}) as Record<string, unknown>;
+  const summary = await callServerFn(getFitterSummary, data);
+  return callServerFn(submitMissingProductRequest, {
+    ...record,
+    requesterType: "fitter" as const,
+    requesterName: summary.fitter.name || "فيتر",
+    requesterPhone: summary.fitter.whatsapp,
+    searchScope: "governorate",
+  });
+}
+
 export const Route = createFileRoute("/api/fitter/mobile")({
   server: {
     handlers: {
@@ -156,6 +170,8 @@ export const Route = createFileRoute("/api/fitter/mobile")({
               return json("api:fitterMobile:updateVisa", { ok: true, result: await callServerFn(updateFitterVisa, data) }, data);
             case "browseProducts":
               return json("api:fitterMobile:browseProducts", { ok: true, result: await callServerFn(browseCarProducts, data) }, data);
+            case "submitSmartRequest":
+              return json("api:fitterMobile:submitSmartRequest", { ok: true, result: await submitFitterSmartRequest(data) }, data);
             case "requestProduct":
               return json("api:fitterMobile:requestProduct", { ok: true, result: await callServerFn(requestFitterProduct, data) }, data);
             case "confirmReceipt":
