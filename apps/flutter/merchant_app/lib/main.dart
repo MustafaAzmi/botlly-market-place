@@ -706,7 +706,6 @@ class MerchantRepository extends ChangeNotifier {
     required String password,
     required String city,
     required String otpCode,
-    String? email,
     List<String> carMakes = const [],
     List<String> carModels = const [],
     List<String> specialties = const [],
@@ -720,7 +719,6 @@ class MerchantRepository extends ChangeNotifier {
       'password': password,
       'city': city,
       'otpCode': otpCode.trim(),
-      'email': email,
       'carMakes': carMakes,
       'carModels': carModels,
       'specialties': specialties,
@@ -738,6 +736,11 @@ class MerchantRepository extends ChangeNotifier {
       'whatsapp': whatsapp.trim(),
       'purpose': purpose,
     });
+  }
+
+  Future<MerchantCatalogue> getSignupCatalogue() async {
+    final result = _map(await _post('signupCatalogue', const {}));
+    return MerchantCatalogue.fromJson(result);
   }
 
   Future<MerchantProfile> resetPassword({
@@ -981,36 +984,78 @@ class _AuthScreenState extends State<AuthScreen> {
   final storeName = TextEditingController();
   final whatsapp = TextEditingController();
   final password = TextEditingController();
-  final email = TextEditingController();
   final otpCode = TextEditingController();
-  final carMakes = TextEditingController();
-  final carModels = TextEditingController();
-  final specialties = TextEditingController();
+  final selectedCarMakes = <String>{};
+  final selectedCarModels = <String>{};
+  final selectedSpecialties = <String>{};
   var mode = AuthMode.login;
   var city = governorates.first;
   var loading = false;
   var showReset = false;
   var showPassword = false;
+  MerchantCatalogue signupCatalogue = MerchantCatalogue.empty;
+
+  static const partSpecialties = <String>[
+    'كهربائيات عامة',
+    'محرك',
+    'هيكل وبدن',
+    'تعليق وتوجيه',
+    'فرامل',
+    'تبريد وتكييف',
+    'إكسسوارات',
+    'أخرى',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadSignupCatalogue());
+    });
+  }
 
   @override
   void dispose() {
     storeName.dispose();
     whatsapp.dispose();
     password.dispose();
-    email.dispose();
     otpCode.dispose();
-    carMakes.dispose();
-    carModels.dispose();
-    specialties.dispose();
     super.dispose();
   }
 
-  List<String> _csv(TextEditingController controller) {
-    return controller.text
-        .split(',')
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList();
+  Future<void> _loadSignupCatalogue() async {
+    try {
+      final catalogue = await MerchantScope.of(context).getSignupCatalogue();
+      if (!mounted) return;
+      setState(() => signupCatalogue = catalogue);
+    } catch (_) {
+      // Keep signup usable if the catalogue endpoint is temporarily unavailable.
+    }
+  }
+
+  void _toggleMake(String label, bool checked) {
+    setState(() {
+      if (checked) {
+        selectedCarMakes.add(label);
+      } else {
+        selectedCarMakes.remove(label);
+        final allowedModels = signupCatalogue.makes
+            .where((make) => selectedCarMakes.contains(make.label))
+            .expand((make) => make.models)
+            .toSet();
+        selectedCarModels.removeWhere((model) => !allowedModels.contains(model));
+      }
+    });
+  }
+
+  void _toggleSet(Set<String> target, String value, bool checked) {
+    setState(() {
+      if (checked) {
+        target.add(value);
+      } else {
+        target.remove(value);
+      }
+    });
   }
 
   Future<void> _requestOtp(String purpose) async {
@@ -1053,7 +1098,13 @@ class _AuthScreenState extends State<AuthScreen> {
       _showMessage(context, t.missingLoginFields);
       return;
     }
-    if (mode == AuthMode.signup && (storeName.text.trim().isEmpty || city.trim().isEmpty)) {
+    if (mode == AuthMode.signup &&
+        (storeName.text.trim().isEmpty ||
+            city.trim().isEmpty ||
+            otpCode.text.trim().isEmpty ||
+            selectedCarMakes.isEmpty ||
+            selectedCarModels.isEmpty ||
+            selectedSpecialties.isEmpty)) {
       _showMessage(context, t.missingSignupFields);
       return;
     }
@@ -1069,10 +1120,9 @@ class _AuthScreenState extends State<AuthScreen> {
           password: password.text,
           city: city,
           otpCode: otpCode.text,
-          email: email.text.trim().isEmpty ? null : email.text.trim(),
-          carMakes: _csv(carMakes),
-          carModels: _csv(carModels),
-          specialties: _csv(specialties),
+          carMakes: selectedCarMakes.toList(),
+          carModels: selectedCarModels.toList(),
+          specialties: selectedSpecialties.toList(),
         );
       }
       if (!mounted) return;
@@ -1162,13 +1212,52 @@ class _AuthScreenState extends State<AuthScreen> {
                   onChanged: (value) => setState(() => city = value ?? governorates.first),
                 ),
                 const SizedBox(height: 12),
-                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: t.optionalEmail)),
+                _CheckboxSection(
+                  title: 'أنواع السيارات',
+                  hint: 'اختر نوعاً واحداً أو أكثر',
+                  children: signupCatalogue.makes.isEmpty
+                      ? [const Text('جاري تحميل أنواع السيارات...')]
+                      : signupCatalogue.makes
+                          .map((make) => CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: selectedCarMakes.contains(make.label),
+                                title: Text(make.label),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                onChanged: (value) => _toggleMake(make.label, value == true),
+                              ))
+                          .toList(),
+                ),
                 const SizedBox(height: 12),
-                TextField(controller: carMakes, decoration: const InputDecoration(labelText: 'أنواع السيارات، مفصولة بفاصلة')),
+                _CheckboxSection(
+                  title: 'الموديلات',
+                  hint: 'تظهر موديلات أنواع السيارات المحددة فقط',
+                  children: selectedCarMakes.isEmpty
+                      ? [const Text('اختر نوع السيارة أولاً.')]
+                      : signupCatalogue.makes
+                          .where((make) => selectedCarMakes.contains(make.label))
+                          .expand((make) => make.models.map((model) => CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: selectedCarModels.contains(model),
+                                title: Text('${make.label} - $model'),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                onChanged: (value) => _toggleSet(selectedCarModels, model, value == true),
+                              )))
+                          .toList(),
+                ),
                 const SizedBox(height: 12),
-                TextField(controller: carModels, decoration: const InputDecoration(labelText: 'الموديلات، مفصولة بفاصلة')),
-                const SizedBox(height: 12),
-                TextField(controller: specialties, decoration: const InputDecoration(labelText: 'الاختصاصات، مفصولة بفاصلة')),
+                _CheckboxSection(
+                  title: 'الاختصاصات',
+                  hint: 'اختر اختصاصاً واحداً أو أكثر',
+                  children: partSpecialties
+                      .map((item) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: selectedSpecialties.contains(item),
+                            title: Text(item),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            onChanged: (value) => _toggleSet(selectedSpecialties, item, value == true),
+                          ))
+                      .toList(),
+                ),
                 const SizedBox(height: 12),
                 TextField(controller: otpCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رمز OTP')),
                 const SizedBox(height: 8),
@@ -1211,6 +1300,47 @@ class _AuthScreenState extends State<AuthScreen> {
 }
 
 enum AuthMode { login, signup }
+
+class _CheckboxSection extends StatelessWidget {
+  const _CheckboxSection({
+    required this.title,
+    required this.hint,
+    required this.children,
+  });
+
+  final String title;
+  final String hint;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54)),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260),
+              child: ListView(
+                shrinkWrap: true,
+                children: children,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class MerchantHome extends StatefulWidget {
   const MerchantHome({super.key});

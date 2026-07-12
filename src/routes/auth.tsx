@@ -1,6 +1,6 @@
 ﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -17,10 +17,12 @@ import { toast } from "sonner";
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { CAR_MAKES } from "@/lib/car-data";
 import {
   loginMerchant,
   requestMerchantOtp,
@@ -45,6 +47,17 @@ export const Route = createFileRoute("/auth")({
 
 type ResetMethod = "whatsapp" | "email";
 type AuthMode = "login" | "signup";
+
+const CAR_PART_SPECIALTIES = [
+  "كهربائيات عامة",
+  "محرك",
+  "هيكل وبدن",
+  "تعليق وتوجيه",
+  "فرامل",
+  "تبريد وتكييف",
+  "إكسسوارات",
+  "أخرى",
+];
 
 const copy = {
   ar: {
@@ -179,9 +192,9 @@ function AuthPage() {
   const [otpCode, setOtpCode] = useState("");
   const [storeName, setStoreName] = useState("");
   const [city, setCity] = useState("");
-  const [carMakes, setCarMakes] = useState("");
-  const [carModels, setCarModels] = useState("");
-  const [specialties, setSpecialties] = useState("");
+  const [carMakes, setCarMakes] = useState<string[]>([]);
+  const [carModels, setCarModels] = useState<string[]>([]);
+  const [specialties, setSpecialties] = useState<string[]>([]);
   const [resetMethod, setResetMethod] = useState<ResetMethod>("whatsapp");
   const [loading, setLoading] = useState(false);
 
@@ -212,8 +225,32 @@ function AuthPage() {
     navigate({ to: "/dashboard/orders" });
   };
 
-  const csv = (value: string) =>
-    value.split(",").map((item) => item.trim()).filter(Boolean);
+  const toggleValue = (
+    setter: Dispatch<SetStateAction<string[]>>,
+    value: string,
+    checked: boolean,
+  ) => {
+    setter((current) =>
+      checked
+        ? [...new Set([...current, value])]
+        : current.filter((item) => item !== value),
+    );
+  };
+
+  const toggleMake = (makeLabel: string, checked: boolean) => {
+    if (checked) {
+      setCarMakes((current) => [...new Set([...current, makeLabel])]);
+      return;
+    }
+    const remainingMakes = carMakes.filter((item) => item !== makeLabel);
+    const allowedModels = new Set(
+      CAR_MAKES
+        .filter((make) => remainingMakes.includes(make.label))
+        .flatMap((make) => make.models),
+    );
+    setCarMakes(remainingMakes);
+    setCarModels((current) => current.filter((model) => allowedModels.has(model)));
+  };
 
   const requestOtp = async (purpose: "signup" | "reset") => {
     if (!whatsapp.trim()) {
@@ -239,7 +276,15 @@ function AuthPage() {
       return;
     }
 
-    if (authMode === "signup" && (!storeName.trim() || !city.trim() || !otpCode.trim())) {
+    if (
+      authMode === "signup" &&
+      (!storeName.trim() ||
+        !city.trim() ||
+        !otpCode.trim() ||
+        carMakes.length === 0 ||
+        carModels.length === 0 ||
+        specialties.length === 0)
+    ) {
       toast.error(text.required);
       return;
     }
@@ -260,10 +305,9 @@ function AuthPage() {
               whatsapp: whatsapp.trim(),
               password,
               otpCode: otpCode.trim(),
-              email: email.trim(),
-              carMakes: csv(carMakes),
-              carModels: csv(carModels),
-              specialties: csv(specialties),
+              carMakes,
+              carModels,
+              specialties,
             },
           }),
         );
@@ -483,10 +527,45 @@ function AuthPage() {
                   <>
                     <Field icon={MessageCircle} id="storeName" label={text.storeName} value={storeName} onChange={setStoreName} placeholder={text.storeNamePlaceholder} />
                     <Field icon={MessageCircle} id="city" label={text.city} value={city} onChange={setCity} placeholder={text.cityPlaceholder} />
-                    <Field icon={Mail} id="signupEmail" label={text.emailOptional} value={email} onChange={setEmail} placeholder={text.emailPlaceholder} type="email" dir="ltr" />
-                    <Field icon={MessageCircle} id="carMakes" label="أنواع السيارات" value={carMakes} onChange={setCarMakes} placeholder="Toyota, BMW, Dodge" />
-                    <Field icon={MessageCircle} id="carModels" label="الموديلات" value={carModels} onChange={setCarModels} placeholder="Camry, Corolla, Charger" />
-                    <Field icon={MessageCircle} id="specialties" label="الاختصاصات" value={specialties} onChange={setSpecialties} placeholder="كهربائيات عامة، إكسسوارات" />
+                    <MultiCheckboxGroup
+                      label="أنواع السيارات"
+                      hint="اختر نوعاً واحداً أو أكثر"
+                      options={CAR_MAKES.map((make) => make.label)}
+                      selected={carMakes}
+                      onCheckedChange={toggleMake}
+                    />
+                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                      <div>
+                        <Label>الموديلات</Label>
+                        <p className="mt-1 text-xs text-muted-foreground">تظهر موديلات أنواع السيارات المحددة فقط.</p>
+                      </div>
+                      {carMakes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">اختر نوع السيارة أولاً.</p>
+                      ) : (
+                        <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+                          {CAR_MAKES
+                            .filter((make) => carMakes.includes(make.label))
+                            .flatMap((make) =>
+                              make.models.map((model) => (
+                                <CheckboxOption
+                                  key={`${make.key}-${model}`}
+                                  id={`signup-model-${make.key}-${model}`}
+                                  label={`${make.label} - ${model}`}
+                                  checked={carModels.includes(model)}
+                                  onCheckedChange={(checked) => toggleValue(setCarModels, model, checked)}
+                                />
+                              )),
+                            )}
+                        </div>
+                      )}
+                    </div>
+                    <MultiCheckboxGroup
+                      label="الاختصاصات"
+                      hint="اختر اختصاصاً واحداً أو أكثر"
+                      options={CAR_PART_SPECIALTIES}
+                      selected={specialties}
+                      onCheckedChange={(value, checked) => toggleValue(setSpecialties, value, checked)}
+                    />
                     <div className="grid grid-cols-[1fr_auto] items-end gap-2">
                       <Field icon={ShieldCheck} id="otpCode" label="رمز OTP" value={otpCode} onChange={setOtpCode} placeholder="اكتب الرمز" type="text" dir="ltr" />
                       <Button type="button" variant="outline" className="h-12" disabled={loading} onClick={() => requestOtp("signup")}>
@@ -578,6 +657,67 @@ function Field({
         />
       </div>
     </div>
+  );
+}
+
+function MultiCheckboxGroup({
+  label,
+  hint,
+  options,
+  selected,
+  onCheckedChange,
+}: {
+  label: string;
+  hint: string;
+  options: string[];
+  selected: string[];
+  onCheckedChange: (value: string, checked: boolean) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+      <div>
+        <Label>{label}</Label>
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+        {options.map((option) => (
+          <CheckboxOption
+            key={option}
+            id={`${label}-${option}`}
+            label={option}
+            checked={selected.includes(option)}
+            onCheckedChange={(checked) => onCheckedChange(option, checked)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CheckboxOption({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const inputId = `merchant-signup-${encodeURIComponent(id).replace(/%/g, "")}`;
+  return (
+    <label
+      htmlFor={inputId}
+      className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-white px-3 py-2 text-sm transition-colors hover:bg-secondary/70"
+    >
+      <Checkbox
+        id={inputId}
+        checked={checked}
+        onCheckedChange={(value) => onCheckedChange(value === true)}
+      />
+      <span>{label}</span>
+    </label>
   );
 }
 

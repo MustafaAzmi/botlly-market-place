@@ -26,12 +26,14 @@ import {
   type PageRequest,
   type PageResult,
 } from "@/lib/eventStore.server";
-import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
 const SESSION_PROVIDER = "botly_session";
 const MERCHANT_OTP_PROVIDER = "botly_merchant_otp";
+const WHATSAPP_OTP_TEMPLATE_NAME = process.env.WHATSAPP_OTP_TEMPLATE_NAME?.trim() || "";
+const WHATSAPP_OTP_TEMPLATE_LANGUAGE = process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE?.trim() || "ar";
 const SESSION_TTL_DAYS = 30;
 const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
@@ -809,8 +811,25 @@ export const requestMerchantOtp = createServerFn({ method: "POST" })
     });
     const label = data.purpose === "reset" ? "استرجاع كلمة مرور التاجر" : "تسجيل تاجر جديد";
     const message = `رمز تحقق Botlly لـ ${label}: ${code}\nينتهي خلال 10 دقائق.`;
-    const result = await sendWhatsAppText(toWhatsAppRecipient(phone), message);
-    return { ok: true, expiresAt, sent: result.ok, status: result.status };
+    const recipient = toWhatsAppRecipient(phone);
+    const templateResult = WHATSAPP_OTP_TEMPLATE_NAME
+      ? await sendWhatsAppTemplate(
+          recipient,
+          WHATSAPP_OTP_TEMPLATE_NAME,
+          WHATSAPP_OTP_TEMPLATE_LANGUAGE,
+          [label, code, "10"],
+        )
+      : null;
+    const result = templateResult?.ok
+      ? templateResult
+      : await sendWhatsAppText(recipient, message);
+    if (!result.ok) {
+      throw new Error(
+        result.error ||
+          "تعذر إرسال رمز OTP عبر واتساب. تأكد من إعداد قالب WhatsApp OTP في Meta.",
+      );
+    }
+    return { ok: true, expiresAt, sent: true, status: result.status, channel: templateResult?.ok ? "template" : "text" };
   });
 
 export const resetMerchantPassword = createServerFn({ method: "POST" })
@@ -1419,6 +1438,19 @@ export const getEnabledCarCatalogueForMerchant = createServerFn({ method: "POST"
     // Same single source as the customer side: newest parseable catalogue
     // event from the admin panel.
     const rows = await listEvents("botly_catalogue_config");
+    for (const row of rows) {
+      const config = parseCatalogueConfig(row.payload);
+      if (config) {
+        const enabled = toEnabledCatalogue(config);
+        if (enabled.makes.length || enabled.colors.length || enabled.years.length) return enabled;
+      }
+    }
+    return { makes: CAR_MAKES, colors: CAR_COLORS, years: CAR_YEARS };
+  });
+
+export const getPublicMerchantSignupCatalogue = createServerFn({ method: "POST" })
+  .handler(async (): Promise<MerchantCarCatalogue> => {
+    const rows = await listEvents("botly_catalogue_config").catch(() => [] as EventRow[]);
     for (const row of rows) {
       const config = parseCatalogueConfig(row.payload);
       if (config) {

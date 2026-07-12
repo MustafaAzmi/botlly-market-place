@@ -5,6 +5,7 @@ import {
   deleteMerchantProduct,
   getCurrentMerchant,
   getEnabledCarCatalogueForMerchant,
+  getPublicMerchantSignupCatalogue,
   getMerchantDashboard,
   getMerchantProduct,
   listMerchantOrders,
@@ -48,6 +49,7 @@ type Action =
   | "listOrders"
   | "markAvailable"
   | "markUnavailable"
+  | "signupCatalogue"
   | "catalogue";
 
 function json(route: string, data: unknown, requestData: unknown, init?: ResponseInit) {
@@ -126,6 +128,11 @@ export const Route = createFileRoute("/api/merchant/mobile")({
               return json("api:merchantMobile:markAvailable", { ok: true, result: await callServerFn(merchantMarkProductAvailable, data) }, data);
             case "markUnavailable":
               return json("api:merchantMobile:markUnavailable", { ok: true, result: await callServerFn(merchantMarkProductUnavailable, data) }, data);
+            case "signupCatalogue":
+              return json("api:merchantMobile:signupCatalogue", {
+                ok: true,
+                result: await getPublicMerchantSignupCatalogue(),
+              }, data);
             case "catalogue":
               return json("api:merchantMobile:catalogue", {
                 ok: true,

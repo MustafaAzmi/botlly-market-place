@@ -102,6 +102,46 @@ export async function sendWhatsAppText(
   return failedGraphResponse(response, "text");
 }
 
+export async function sendWhatsAppTemplate(
+  to: string,
+  templateName: string,
+  languageCode = "ar",
+  bodyParameters: string[] = [],
+  phoneNumberIdOverride?: string | null,
+): Promise<SendResult> {
+  const accessToken = getWhatsAppAccessToken();
+  const phoneNumberId = phoneNumberIdOverride ?? getWhatsAppPhoneNumberId();
+  if (!accessToken || !phoneNumberId) {
+    return { ok: false, status: 0, error: "Missing WhatsApp credentials" };
+  }
+
+  let response: Response;
+  try {
+    response = await postWhatsAppMessage(phoneNumberId, accessToken, {
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components: bodyParameters.length
+          ? [
+              {
+                type: "body",
+                parameters: bodyParameters.map((text) => ({ type: "text", text })),
+              },
+            ]
+          : undefined,
+      },
+    });
+  } catch (error) {
+    return sendError(error);
+  }
+
+  if (response.ok) return { ok: true, status: response.status };
+  return failedGraphResponse(response, "template");
+}
+
 export async function sendWhatsAppButtons(
   to: string,
   body: string,
