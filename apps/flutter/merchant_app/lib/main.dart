@@ -507,6 +507,9 @@ class MerchantOrder {
     required this.customerNumber,
     required this.customerDetails,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
     required this.sentToDelivery,
     required this.createdAt,
   });
@@ -518,8 +521,14 @@ class MerchantOrder {
   final String customerNumber;
   final String customerDetails;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
   final bool sentToDelivery;
   final DateTime createdAt;
+
+  bool get canMarkAvailability => merchantStatus == 'Pending';
+  bool get canConfirmSale => merchantStatus == 'Available';
 
   factory MerchantOrder.fromJson(Map<String, dynamic> json) {
     return MerchantOrder(
@@ -530,6 +539,9 @@ class MerchantOrder {
       customerNumber: _string(json['customerNumber']),
       customerDetails: _string(json['customerDetails']),
       status: _string(json['status'], fallback: 'unknown'),
+      merchantStatus: _string(json['merchantStatus'], fallback: 'Pending'),
+      requesterStatus: _string(json['requesterStatus'], fallback: 'Pending'),
+      finalStatus: _string(json['finalStatus'], fallback: _string(json['status'], fallback: 'pending_review')),
       sentToDelivery: json['sentToDelivery'] == true,
       createdAt: DateTime.tryParse(_string(json['createdAt'])) ?? DateTime.now(),
     );
@@ -825,6 +837,20 @@ class MerchantRepository extends ChangeNotifier {
   Future<void> markOrderUnavailable(String orderId) async {
     _requireSession();
     await _post('markUnavailable', {'token': _token, 'orderId': orderId});
+    _ordersLoaded = false;
+    notifyListeners();
+  }
+
+  Future<void> markOrderSold(String orderId) async {
+    _requireSession();
+    await _post('markSold', {'token': _token, 'orderId': orderId});
+    _ordersLoaded = false;
+    notifyListeners();
+  }
+
+  Future<void> markOrderCancelled(String orderId) async {
+    _requireSession();
+    await _post('markCancelled', {'token': _token, 'orderId': orderId});
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -1597,7 +1623,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 Text(order.customerDetails),
                                 if (order.sentToDelivery) Text(t.sentToDelivery),
                                 const SizedBox(height: 12),
-                                Row(
+                                if (order.canMarkAvailability) Row(
                                   children: [
                                     Expanded(
                                       child: FilledButton.icon(
@@ -1619,7 +1645,34 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                           _refresh();
                                         },
                                         icon: const Icon(Icons.cancel_rounded),
-                                        label: const Text('غير متوفر'),
+                                        label: const Text('المنتج غير متوفر'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (order.canConfirmSale) Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () async {
+                                          await repository.markOrderSold(order.id);
+                                          if (context.mounted) _showMessage(context, 'تم بيع المنتج');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.check_circle_rounded),
+                                        label: const Text('تم بيع المنتج'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          await repository.markOrderCancelled(order.id);
+                                          if (context.mounted) _showMessage(context, 'تم إلغاء الطلب');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.cancel_rounded),
+                                        label: const Text('تم إلغاء الطلب'),
                                       ),
                                     ),
                                   ],

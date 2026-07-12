@@ -27,6 +27,11 @@ import {
   diagnosticSession,
   payloadBytes,
 } from "@/lib/egress-diagnostics.server";
+import {
+  listRequesterWebNotifications,
+  requesterConfirmWebPurchase,
+  type WebOrderNotification,
+} from "@/lib/web-notifications.functions";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -101,6 +106,22 @@ function orderTime(row: EventRow) {
   return row.created_at || row.received_at || "";
 }
 
+function webRequesterNotificationToMobileOrder(order: WebOrderNotification) {
+  return {
+    id: order.orderId,
+    productTitle: order.productTitle,
+    price: order.price,
+    currency: order.currency || "IQD",
+    status: order.finalStatus || order.requesterStatus,
+    merchantStatus: order.merchantStatus,
+    requesterStatus: order.requesterStatus,
+    finalStatus: order.finalStatus,
+    merchantStoreName: order.merchantStoreName,
+    merchantWhatsapp: order.merchantWhatsapp,
+    updatedAt: order.updatedAt || order.createdAt,
+  };
+}
+
 async function listCustomerOrders(data: unknown) {
   const input = data as Record<string, unknown> | null;
   const phone = getString(input?.customerPhone);
@@ -112,6 +133,23 @@ async function listCustomerOrders(data: unknown) {
   });
   if (!key) {
     return { items: [], ...pagination, nextCursor: null, hasMore: false };
+  }
+  try {
+    const page = await callServerFn(listRequesterWebNotifications, {
+      requesterPhone: phone,
+      requesterType: "customer" as const,
+      page: pagination.page,
+      limit: pagination.limit,
+      cursor: pagination.cursor,
+    });
+    if (page.items.length > 0) {
+      return {
+        ...page,
+        items: page.items.map(webRequesterNotificationToMobileOrder),
+      };
+    }
+  } catch {
+    // Keep the legacy mobile order list as a fallback for older records.
   }
   const projection = [
     "order_id:payload->>orderId",
@@ -296,6 +334,17 @@ async function updateCustomerOrderStatus(data: unknown) {
   const status = getString(record?.status);
   if (!orderId || !customerPhone) throw new Error("بيانات الطلب غير مكتملة.");
   if (!["cancelled", "purchased"].includes(status)) throw new Error("حالة الطلب غير صحيحة.");
+  try {
+    await callServerFn(requesterConfirmWebPurchase, {
+      orderId,
+      requesterPhone: customerPhone,
+      requesterType: "customer" as const,
+      result: status === "purchased" ? "purchased" as const : "cancelled" as const,
+    });
+    return { ok: true };
+  } catch {
+    // Keep the legacy status update as a fallback for older mobile orders.
+  }
 
   const order = await findCustomerOrder(orderId, customerPhone);
   if (!order) throw new Error("لم يتم العثور على الطلب.");

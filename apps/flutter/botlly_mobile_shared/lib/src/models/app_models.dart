@@ -108,6 +108,9 @@ class CustomerOrder {
     required this.id,
     required this.productTitle,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
     required this.currency,
     required this.price,
     required this.updatedAt,
@@ -116,14 +119,23 @@ class CustomerOrder {
   final String id;
   final String productTitle;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
   final String currency;
   final double price;
   final String updatedAt;
+
+  bool get canRequesterAct =>
+      (merchantStatus == 'Available' || merchantStatus == 'Sold') && requesterStatus == 'Pending';
 
   factory CustomerOrder.fromJson(Map<String, dynamic> json) => CustomerOrder(
         id: readString(json, 'id'),
         productTitle: readString(json, 'productTitle', 'طلب'),
         status: readString(json, 'status', 'requested'),
+        merchantStatus: readString(json, 'merchantStatus', 'Pending'),
+        requesterStatus: readString(json, 'requesterStatus', 'Pending'),
+        finalStatus: readString(json, 'finalStatus', readString(json, 'status', 'requested')),
         currency: readString(json, 'currency', 'IQD'),
         price: readDouble(json, 'price'),
         updatedAt: readString(json, 'updatedAt'),
@@ -203,6 +215,9 @@ class FitterOrder {
     required this.merchantGovernorate,
     required this.commissionAmount,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
   });
 
   final String id;
@@ -215,6 +230,12 @@ class FitterOrder {
   final String merchantGovernorate;
   final double commissionAmount;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
+
+  bool get canRequesterAct =>
+      (merchantStatus == 'Available' || merchantStatus == 'Sold') && requesterStatus == 'Pending';
 
   factory FitterOrder.fromJson(Map<String, dynamic> json) => FitterOrder(
         id: readString(json, 'id'),
@@ -227,6 +248,9 @@ class FitterOrder {
         merchantGovernorate: readString(json, 'merchantGovernorate'),
         commissionAmount: readDouble(json, 'commissionAmount'),
         status: readString(json, 'status', 'requested'),
+        merchantStatus: readString(json, 'merchantStatus', 'Pending'),
+        requesterStatus: readString(json, 'requesterStatus', 'Pending'),
+        finalStatus: readString(json, 'finalStatus', readString(json, 'status', 'requested')),
       );
 }
 

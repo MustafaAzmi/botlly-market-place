@@ -36,7 +36,7 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
                     itemCount: orders.length,
                     itemBuilder: (context, index) {
                       final order = orders[index];
-                      final closed = order.status == 'cancelled' || order.status == 'purchased';
+                      final canAct = order.canRequesterAct;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         child: Padding(
@@ -62,29 +62,30 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
                               const SizedBox(height: 8),
                               Text('الحالة: ${readableStatus(order.status)}'),
                               const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: closed || widget.controller.loading
-                                          ? null
-                                          : () => _updateOrder(context, order, 'cancelled'),
-                                      icon: const Icon(Icons.close),
-                                      label: const Text('إلغاء الطلب'),
+                              if (canAct)
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: widget.controller.loading
+                                            ? null
+                                            : () => _updateOrder(context, order, 'cancelled'),
+                                        icon: const Icon(Icons.close),
+                                        label: const Text('إلغاء الطلب'),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: FilledButton.icon(
-                                      onPressed: closed || widget.controller.loading
-                                          ? null
-                                          : () => _updateOrder(context, order, 'purchased'),
-                                      icon: const Icon(Icons.check),
-                                      label: const Text('تم الشراء'),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: widget.controller.loading
+                                            ? null
+                                            : () => _updateOrder(context, order, 'purchased'),
+                                        icon: const Icon(Icons.check),
+                                        label: const Text('تم الشراء'),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
                             ],
                           ),
                         ),

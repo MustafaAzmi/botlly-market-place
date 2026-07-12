@@ -74,6 +74,7 @@ class MobileApi {
 
   Future<List<dynamic>> postList(String action, Map<String, dynamic> data) async {
     final result = await post(action, data);
+    if (result is Map && result['items'] is List) return result['items'] as List<dynamic>;
     return result is List ? result : const [];
   }
 }

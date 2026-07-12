@@ -275,19 +275,19 @@ class _OrdersTab extends StatelessWidget {
                         if (order.merchantAddress.isNotEmpty) Text('العنوان: ${order.merchantAddress}'),
                         if (order.merchantWhatsapp.isNotEmpty) Text('واتساب التاجر: ${order.merchantWhatsapp}', textDirection: TextDirection.ltr),
                         const SizedBox(height: 10),
-                        Row(
+                        if (order.canRequesterAct) Row(
                           children: [
                             Expanded(
                               child: FilledButton(
-                                onPressed: order.status != 'requested' ? null : () => controller.confirmOrder(order),
-                                child: const Text('تأكيد الاستلام'),
+                                onPressed: () => controller.confirmOrder(order),
+                                child: const Text('تم الشراء'),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: order.status == 'cancelled' ? null : () => controller.cancelOrder(order),
-                                child: const Text('إلغاء'),
+                                onPressed: () => controller.cancelOrder(order),
+                                child: const Text('تم إلغاء الطلب'),
                               ),
                             ),
                           ],

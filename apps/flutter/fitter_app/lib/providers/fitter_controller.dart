@@ -98,7 +98,7 @@ class FitterController extends ChangeNotifier {
   Future<void> confirmOrder(FitterOrder order) async {
     final token = await session.read('token');
     await _run(() async {
-      await fitterApi.post('confirmReceipt', {'token': token, 'orderId': order.id});
+      await fitterApi.post('confirmWebPurchase', {'token': token, 'orderId': order.id});
       await refreshSummary();
     });
   }
@@ -106,7 +106,7 @@ class FitterController extends ChangeNotifier {
   Future<void> cancelOrder(FitterOrder order) async {
     final token = await session.read('token');
     await _run(() async {
-      await fitterApi.post('cancelOrder', {'token': token, 'orderId': order.id});
+      await fitterApi.post('cancelWebPurchase', {'token': token, 'orderId': order.id});
       await refreshSummary();
     });
   }

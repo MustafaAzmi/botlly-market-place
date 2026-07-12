@@ -17,6 +17,7 @@ import {
   updateMerchantProfile,
 } from "@/lib/merchant.functions";
 import {
+  merchantConfirmWebSale,
   merchantMarkProductAvailable,
   merchantMarkProductUnavailable,
   listMerchantWebNotifications,
@@ -50,6 +51,8 @@ type Action =
   | "listOrders"
   | "markAvailable"
   | "markUnavailable"
+  | "markSold"
+  | "markCancelled"
   | "signupCatalogue"
   | "catalogue";
 
@@ -100,6 +103,9 @@ function webNotificationToMobileOrder(order: WebOrderNotification) {
     customerNumber: order.requesterPhone,
     customerDetails: details,
     status: order.merchantStatus === "Pending" ? order.finalStatus : order.merchantStatus,
+    merchantStatus: order.merchantStatus,
+    requesterStatus: order.requesterStatus,
+    finalStatus: order.finalStatus,
     sentToDelivery: false,
     merchantNotified: order.merchantStatus !== "Pending",
     createdAt: order.createdAt || order.updatedAt,
@@ -157,6 +163,10 @@ export const Route = createFileRoute("/api/merchant/mobile")({
               return json("api:merchantMobile:markAvailable", { ok: true, result: await callServerFn(merchantMarkProductAvailable, data) }, data);
             case "markUnavailable":
               return json("api:merchantMobile:markUnavailable", { ok: true, result: await callServerFn(merchantMarkProductUnavailable, data) }, data);
+            case "markSold":
+              return json("api:merchantMobile:markSold", { ok: true, result: await callServerFn(merchantConfirmWebSale, { ...(data as Record<string, unknown>), result: "sold" }) }, data);
+            case "markCancelled":
+              return json("api:merchantMobile:markCancelled", { ok: true, result: await callServerFn(merchantConfirmWebSale, { ...(data as Record<string, unknown>), result: "cancelled" }) }, data);
             case "signupCatalogue":
               return json("api:merchantMobile:signupCatalogue", {
                 ok: true,
