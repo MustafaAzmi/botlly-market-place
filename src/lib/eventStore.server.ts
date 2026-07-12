@@ -14,6 +14,7 @@ export type BotlyEventType =
   | "botly_merchant"
   | "botly_product"
   | "botly_session"
+  | "botly_merchant_otp"
   | "botly_lead"
   | "botly_customer"
   | "botly_customer_session"

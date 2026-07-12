@@ -9,6 +9,7 @@ import {
   submitProductOrder,
   updateCustomerProfile,
 } from "@/lib/customer.functions";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import {
   appendEvent,
   getString,
@@ -38,6 +39,7 @@ type Action =
   | "updateProfile"
   | "browseProducts"
   | "submitOrder"
+  | "submitSmartRequest"
   | "catalogue"
   | "mediator"
   | "listOrders"
@@ -341,6 +343,8 @@ export const Route = createFileRoute("/api/customer/mobile")({
               return json("api:customerMobile:browseProducts", { ok: true, result: await callServerFn(browseCarProducts, data) }, data);
             case "submitOrder":
               return json("api:customerMobile:submitOrder", { ok: true, result: await callServerFn(submitProductOrder, data) }, data);
+            case "submitSmartRequest":
+              return json("api:customerMobile:submitSmartRequest", { ok: true, result: await callServerFn(submitMissingProductRequest, data) }, data);
             case "catalogue":
               return json("api:customerMobile:catalogue", { ok: true, result: await getEnabledCarCatalogue() }, data);
             case "mediator":

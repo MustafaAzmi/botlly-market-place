@@ -15,11 +15,32 @@ class CustomerHomeScreen extends StatefulWidget {
 }
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
+  final smartProductName = TextEditingController();
+  final smartDescription = TextEditingController();
   String make = '';
   String model = '';
   String year = '';
   String color = '';
   String governorate = '';
+  String specialty = '';
+
+  static const specialties = <String>[
+    'كهربائيات عامة',
+    'إكسسوارات',
+    'محرك',
+    'هيكل وبدن',
+    'تعليق وتوجيه',
+    'فرامل',
+    'تبريد وتكييف',
+    'أخرى',
+  ];
+
+  @override
+  void dispose() {
+    smartProductName.dispose();
+    smartDescription.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -41,6 +62,32 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   bool get canSearch => governorate.isNotEmpty && make.isNotEmpty && model.isNotEmpty;
+
+  bool get canSendSmartRequest =>
+      governorate.isNotEmpty &&
+      make.isNotEmpty &&
+      model.isNotEmpty &&
+      specialty.isNotEmpty &&
+      smartDescription.text.trim().isNotEmpty;
+
+  Future<void> sendSmartRequest() async {
+    if (!canSendSmartRequest) return;
+    await widget.controller.submitSmartRequest(
+      productName: smartProductName.text,
+      description: smartDescription.text,
+      carMake: make,
+      carModel: model,
+      specialty: specialty,
+      governorate: governorate,
+    );
+    if (!mounted) return;
+    smartProductName.clear();
+    smartDescription.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم إرسال الطلب للتجار المختصين')),
+    );
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +174,46 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                         icon: const Icon(Icons.search),
                         label: const Text('بحث'),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('البحث الذكي', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    const Text('اكتب وصف القطعة وسيتم إرسال الطلب للتجار حسب المحافظة ونوع السيارة والموديل والاختصاص.'),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: smartProductName,
+                      decoration: const InputDecoration(labelText: 'اسم المنتج المطلوب'),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: specialty.isEmpty ? null : specialty,
+                      decoration: const InputDecoration(labelText: 'الاختصاص'),
+                      items: specialties.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+                      onChanged: (value) => setState(() => specialty = value ?? ''),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: smartDescription,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: 'وصف المنتج'),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: c.loading || !canSendSmartRequest ? null : sendSmartRequest,
+                      icon: const Icon(Icons.send_rounded),
+                      label: const Text('إرسال للتجار المختصين'),
                     ),
                   ],
                 ),

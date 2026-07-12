@@ -98,6 +98,33 @@ class CustomerController extends ChangeNotifier {
     });
   }
 
+  Future<void> submitSmartRequest({
+    required String productName,
+    required String description,
+    required String carMake,
+    required String carModel,
+    required String specialty,
+    required String governorate,
+  }) async {
+    final current = profile;
+    if (current == null) throw const ApiException('سجل دخولك أولاً.');
+    await _run(() async {
+      await customerApi.post('submitSmartRequest', {
+        'productName': productName.trim().isEmpty ? description.trim() : productName.trim(),
+        'requestDetails': description.trim(),
+        'carMake': carMake,
+        'carModel': carModel,
+        'specialty': specialty,
+        'governorate': governorate,
+        'requesterType': 'customer',
+        'requesterName': current.name.trim().isEmpty ? 'زبون' : current.name.trim(),
+        'requesterPhone': current.whatsapp,
+        'searchScope': 'governorate',
+      });
+      await refreshOrders();
+    });
+  }
+
   Future<void> refreshOrders() async {
     final current = profile;
     if (current == null) return;

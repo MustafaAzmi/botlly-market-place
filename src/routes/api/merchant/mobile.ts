@@ -10,10 +10,16 @@ import {
   listMerchantOrders,
   listMerchantProducts,
   loginMerchant,
+  requestMerchantOtp,
+  resetMerchantPassword,
   signupMerchant,
   updateMerchantProduct,
   updateMerchantProfile,
 } from "@/lib/merchant.functions";
+import {
+  merchantMarkProductAvailable,
+  merchantMarkProductUnavailable,
+} from "@/lib/web-notifications.functions";
 import {
   diagnosticIdentity,
   diagnosticResponse,
@@ -28,6 +34,8 @@ const jsonHeaders = {
 
 type Action =
   | "login"
+  | "requestOtp"
+  | "resetPassword"
   | "signup"
   | "currentMerchant"
   | "updateProfile"
@@ -38,6 +46,8 @@ type Action =
   | "updateProduct"
   | "deleteProduct"
   | "listOrders"
+  | "markAvailable"
+  | "markUnavailable"
   | "catalogue";
 
 function json(route: string, data: unknown, requestData: unknown, init?: ResponseInit) {
@@ -86,6 +96,10 @@ export const Route = createFileRoute("/api/merchant/mobile")({
           }
 
           switch (action) {
+            case "requestOtp":
+              return json("api:merchantMobile:requestOtp", { ok: true, result: await callServerFn(requestMerchantOtp, data) }, data);
+            case "resetPassword":
+              return json("api:merchantMobile:resetPassword", { ok: true, result: await callServerFn(resetMerchantPassword, data) }, data);
             case "login":
               return json("api:merchantMobile:login", { ok: true, result: await callServerFn(loginMerchant, data) }, data);
             case "signup":
@@ -108,6 +122,10 @@ export const Route = createFileRoute("/api/merchant/mobile")({
               return json("api:merchantMobile:deleteProduct", { ok: true, result: await callServerFn(deleteMerchantProduct, data) }, data);
             case "listOrders":
               return json("api:merchantMobile:listOrders", { ok: true, result: await callServerFn(listMerchantOrders, data) }, data);
+            case "markAvailable":
+              return json("api:merchantMobile:markAvailable", { ok: true, result: await callServerFn(merchantMarkProductAvailable, data) }, data);
+            case "markUnavailable":
+              return json("api:merchantMobile:markUnavailable", { ok: true, result: await callServerFn(merchantMarkProductUnavailable, data) }, data);
             case "catalogue":
               return json("api:merchantMobile:catalogue", {
                 ok: true,

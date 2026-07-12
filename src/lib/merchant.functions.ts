@@ -26,10 +26,12 @@ import {
   type PageRequest,
   type PageResult,
 } from "@/lib/eventStore.server";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
 const SESSION_PROVIDER = "botly_session";
+const MERCHANT_OTP_PROVIDER = "botly_merchant_otp";
 const SESSION_TTL_DAYS = 30;
 const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
@@ -134,6 +136,20 @@ const signupInput = authInput.extend({
   storeName: z.string().trim().min(1).max(140),
   city: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(200).optional().or(z.literal("")),
+  otpCode: z.string().trim().min(4).max(8),
+  carMakes: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  carModels: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
+  specialties: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  servesAllGovernorates: z.boolean().optional(),
+});
+
+const merchantOtpInput = z.object({
+  whatsapp: z.string().trim().min(3).max(40),
+  purpose: z.enum(["signup", "reset"]).default("signup"),
+});
+
+const merchantPasswordResetInput = authInput.extend({
+  otpCode: z.string().trim().min(4).max(8),
 });
 
 const tokenInput = z.object({
@@ -462,8 +478,47 @@ function randomToken() {
     .replace(/=+$/g, "");
 }
 
+function randomOtpCode() {
+  return String(100000 + Math.floor(Math.random() * 900000));
+}
+
+function toWhatsAppRecipient(phone: string) {
+  return normalizePhone(phone).replace(/^\+/, "");
+}
+
+function uniqueStrings(values: string[] | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
 async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
+}
+
+async function hashOtp(phone: string, purpose: "signup" | "reset", code: string) {
+  return sha256(`${phoneKey(phone)}:${purpose}:${code.trim()}`);
+}
+
+async function assertValidMerchantOtp(phone: string, purpose: "signup" | "reset", code: string) {
+  const key = phoneKey(phone);
+  const rows = await listSharedEventsByPayloadField(MERCHANT_OTP_PROVIDER, "phoneKey", key, 20);
+  const now = Date.now();
+  for (const row of rows) {
+    const payload = row.payload ?? {};
+    if (getString(payload.purpose) !== purpose) continue;
+    if (getString(payload.usedAt)) continue;
+    const expiresAt = Date.parse(getString(payload.expiresAt));
+    if (!expiresAt || expiresAt < now) continue;
+    const expected = getString(payload.codeHash);
+    const actual = await hashOtp(phone, purpose, code);
+    if (expected && expected === actual) {
+      await insertEvent(MERCHANT_OTP_PROVIDER, {
+        ...payload,
+        usedAt: new Date().toISOString(),
+      });
+      return;
+    }
+  }
+  throw new Error("رمز التحقق غير صحيح أو منتهي الصلاحية.");
 }
 
 async function getEventStore(): Promise<EventStore> {
@@ -699,8 +754,82 @@ function buildManualProductKeywords(data: {
 
 export const signupMerchant = createServerFn({ method: "POST" })
   .inputValidator((d) => signupInput.parse(d))
-  .handler(async () => {
-    throw new Error("إنشاء حساب التاجر يتم عن طريق المشرف، ثم تفعّله الإدارة.");
+  .handler(async ({ data }) => {
+    const existing = await findMerchantByPhone(data.whatsapp);
+    if (existing) throw new Error("رقم الواتساب مستخدم بحساب تاجر آخر.");
+
+    await assertValidMerchantOtp(data.whatsapp, "signup", data.otpCode);
+
+    const now = new Date().toISOString();
+    const merchantId = crypto.randomUUID();
+    const salt = randomToken();
+    const storeSlug = await generateStoreSlug(data.storeName);
+    const payload = {
+      merchantId,
+      storeName: data.storeName.trim(),
+      storeSlug,
+      whatsapp: data.whatsapp.trim(),
+      whatsappNormalized: normalizePhone(data.whatsapp),
+      email: data.email || "",
+      city: normalizeGovernorate(data.city),
+      status: "active",
+      isActive: true,
+      visibilityEnabled: true,
+      bannedFromBot: false,
+      firstLoginCompleted: true,
+      passwordSalt: salt,
+      passwordHash: await hashPassword(data.password, salt),
+      carMakes: uniqueStrings(data.carMakes),
+      carModels: uniqueStrings(data.carModels),
+      specialties: uniqueStrings(data.specialties),
+      servesAllGovernorates: data.servesAllGovernorates === true,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: "merchant_self_signup",
+    };
+    const row = await insertEvent(MERCHANT_PROVIDER, payload);
+    const token = await createSession(row);
+    return { token, profile: toProfile(row) };
+  });
+
+export const requestMerchantOtp = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantOtpInput.parse(d))
+  .handler(async ({ data }) => {
+    const code = randomOtpCode();
+    const phone = normalizePhone(data.whatsapp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await insertEvent(MERCHANT_OTP_PROVIDER, {
+      otpId: crypto.randomUUID(),
+      phone,
+      phoneKey: phoneKey(phone),
+      purpose: data.purpose,
+      codeHash: await hashOtp(phone, data.purpose, code),
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
+    const label = data.purpose === "reset" ? "استرجاع كلمة مرور التاجر" : "تسجيل تاجر جديد";
+    const message = `رمز تحقق Botlly لـ ${label}: ${code}\nينتهي خلال 10 دقائق.`;
+    const result = await sendWhatsAppText(toWhatsAppRecipient(phone), message);
+    return { ok: true, expiresAt, sent: result.ok, status: result.status };
+  });
+
+export const resetMerchantPassword = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantPasswordResetInput.parse(d))
+  .handler(async ({ data }) => {
+    const row = await findMerchantByPhone(data.whatsapp);
+    if (!row) throw new Error("رقم الواتساب غير مسجل.");
+    await assertValidMerchantOtp(data.whatsapp, "reset", data.otpCode);
+    const salt = randomToken();
+    const updated = await insertEvent(MERCHANT_PROVIDER, {
+      ...row.payload,
+      merchantId: merchantIdentity(row),
+      passwordSalt: salt,
+      passwordHash: await hashPassword(data.password, salt),
+      updatedAt: new Date().toISOString(),
+      passwordResetAt: new Date().toISOString(),
+    });
+    const token = await createSession(updated);
+    return { token, profile: toProfile(updated) };
   });
 
 export const loginMerchant = createServerFn({ method: "POST" })

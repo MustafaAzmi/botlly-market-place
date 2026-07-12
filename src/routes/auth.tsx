@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import {
@@ -21,7 +21,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { loginMerchant } from "@/lib/merchant.functions";
+import {
+  loginMerchant,
+  requestMerchantOtp,
+  resetMerchantPassword,
+  signupMerchant,
+} from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
 import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
@@ -29,7 +34,7 @@ import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "تسجيل دخول التاجر - Botly" },
+      { title: "ØªØ³Ø¬ÙŠÙ„ Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªØ§Ø¬Ø± - Botly" },
       { name: "description", content: "Create or access your Botly merchant account." },
       ...pwaHeadMeta("merchant"),
     ],
@@ -39,45 +44,46 @@ export const Route = createFileRoute("/auth")({
 });
 
 type ResetMethod = "whatsapp" | "email";
+type AuthMode = "login" | "signup";
 
 const copy = {
   ar: {
-    title: "دخول التجار",
-    subtitle: "ادخل برقم واتساب وكلمة المرور. إنشاء الحسابات الجديدة يتم عن طريق المشرف.",
-    login: "تسجيل الدخول",
-    signup: "إنشاء حساب",
-    whatsapp: "رقم الهاتف / واتساب",
+    title: "Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªØ¬Ø§Ø±",
+    subtitle: "Ø§Ø¯Ø®Ù„ Ø¨Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© ÙŠØªÙ… Ø¹Ù† Ø·Ø±ÙŠÙ‚ Ø§Ù„Ù…Ø´Ø±Ù.",
+    login: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+    signup: "Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨",
+    whatsapp: "Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ / ÙˆØ§ØªØ³Ø§Ø¨",
     whatsappPlaceholder: "07XX XXX XXXX",
-    storeName: "اسم المحل أو الشركة",
-    storeNamePlaceholder: "مثال: بوتلي ستور",
-    city: "المحافظة",
-    cityPlaceholder: "اختر محافظة المتجر",
-    email: "الإيميل",
-    emailOptional: "الإيميل (اختياري)",
+    storeName: "Ø§Ø³Ù… Ø§Ù„Ù…Ø­Ù„ Ø£Ùˆ Ø§Ù„Ø´Ø±ÙƒØ©",
+    storeNamePlaceholder: "Ù…Ø«Ø§Ù„: Ø¨ÙˆØªÙ„ÙŠ Ø³ØªÙˆØ±",
+    city: "Ø§Ù„Ù…Ø­Ø§ÙØ¸Ø©",
+    cityPlaceholder: "Ø§Ø®ØªØ± Ù…Ø­Ø§ÙØ¸Ø© Ø§Ù„Ù…ØªØ¬Ø±",
+    email: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    emailOptional: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)",
     emailPlaceholder: "name@example.com",
-    password: "الباسورد",
-    passwordPlaceholder: "اكتب كلمة المرور",
-    loginSubmit: "دخول إلى اللوحة",
-    signupSubmit: "إنشاء الحساب",
-    forgotPassword: "نسيت كلمة المرور؟",
-    resetTitle: "استعادة كلمة المرور",
-    resetSubtitle: "اختر طريقة إرسال رابط أو كود إعادة التعيين.",
-    resetByWhatsapp: "رقم الواتساب",
-    resetByEmail: "الإيميل",
-    sendReset: "إرسال إعادة التعيين",
-    backToLogin: "رجوع للدخول",
-    terms: "بالاستمرار أنت توافق على شروط الاستخدام وسياسة الخصوصية.",
-    required: "أكمل الحقول المطلوبة",
-    passwordShort: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
-    emailRequired: "أدخل الإيميل حتى نرسل عليه إعادة التعيين",
-    loginSuccess: "تم تسجيل الدخول",
-    signupSuccess: "تم إنشاء الحساب",
-    resetSentWhatsapp: "تم تجهيز رسالة إعادة التعيين عبر واتساب",
-    resetSentEmail: "تم تجهيز رسالة إعادة التعيين عبر الإيميل",
-    secure: "دخول مختصر وآمن للتاجر",
-    pointOne: "الدخول لاحقاً برقم واتساب وكلمة المرور",
-    pointTwo: "الإيميل يبقى اختياري للحساب",
-    pointThree: "استرجاع كلمة المرور عبر واتساب أو إيميل",
+    password: "Ø§Ù„Ø¨Ø§Ø³ÙˆØ±Ø¯",
+    passwordPlaceholder: "Ø§ÙƒØªØ¨ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    loginSubmit: "Ø¯Ø®ÙˆÙ„ Ø¥Ù„Ù‰ Ø§Ù„Ù„ÙˆØ­Ø©",
+    signupSubmit: "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨",
+    forgotPassword: "Ù†Ø³ÙŠØª ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±ØŸ",
+    resetTitle: "Ø§Ø³ØªØ¹Ø§Ø¯Ø© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    resetSubtitle: "Ø§Ø®ØªØ± Ø·Ø±ÙŠÙ‚Ø© Ø¥Ø±Ø³Ø§Ù„ Ø±Ø§Ø¨Ø· Ø£Ùˆ ÙƒÙˆØ¯ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†.",
+    resetByWhatsapp: "Ø±Ù‚Ù… Ø§Ù„ÙˆØ§ØªØ³Ø§Ø¨",
+    resetByEmail: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    sendReset: "Ø¥Ø±Ø³Ø§Ù„ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†",
+    backToLogin: "Ø±Ø¬ÙˆØ¹ Ù„Ù„Ø¯Ø®ÙˆÙ„",
+    terms: "Ø¨Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø± Ø£Ù†Øª ØªÙˆØ§ÙÙ‚ Ø¹Ù„Ù‰ Ø´Ø±ÙˆØ· Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… ÙˆØ³ÙŠØ§Ø³Ø© Ø§Ù„Ø®ØµÙˆØµÙŠØ©.",
+    required: "Ø£ÙƒÙ…Ù„ Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©",
+    passwordShort: "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 6 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„",
+    emailRequired: "Ø£Ø¯Ø®Ù„ Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ Ø­ØªÙ‰ Ù†Ø±Ø³Ù„ Ø¹Ù„ÙŠÙ‡ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†",
+    loginSuccess: "ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+    signupSuccess: "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨",
+    resetSentWhatsapp: "ØªÙ… ØªØ¬Ù‡ÙŠØ² Ø±Ø³Ø§Ù„Ø© Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨",
+    resetSentEmail: "ØªÙ… ØªØ¬Ù‡ÙŠØ² Ø±Ø³Ø§Ù„Ø© Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¹Ø¨Ø± Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    secure: "Ø¯Ø®ÙˆÙ„ Ù…Ø®ØªØµØ± ÙˆØ¢Ù…Ù† Ù„Ù„ØªØ§Ø¬Ø±",
+    pointOne: "Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ø§Ø­Ù‚Ø§Ù‹ Ø¨Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    pointTwo: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ ÙŠØ¨Ù‚Ù‰ Ø§Ø®ØªÙŠØ§Ø±ÙŠ Ù„Ù„Ø­Ø³Ø§Ø¨",
+    pointThree: "Ø§Ø³ØªØ±Ø¬Ø§Ø¹ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨ Ø£Ùˆ Ø¥ÙŠÙ…ÙŠÙ„",
   },
   en: {
     title: "Merchant Access",
@@ -118,42 +124,42 @@ const copy = {
     pointThree: "Reset password through WhatsApp or email",
   },
   ku: {
-    title: "چوونەژوورەوەی فرۆشیار",
-    subtitle: "بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە، یان هەژماری فرۆشگای نوێ دروست بکە.",
-    login: "چوونەژوورەوە",
-    signup: "دروستکردنی هەژمار",
-    whatsapp: "ژمارەی تەلەفۆن / واتساپ",
+    title: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ÛŒ ÙØ±Û†Ø´ÛŒØ§Ø±",
+    subtitle: "Ø¨Û• Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾ Ùˆ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ú†Û† Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ØŒ ÛŒØ§Ù† Ù‡Û•Ú˜Ù…Ø§Ø±ÛŒ ÙØ±Û†Ø´Ú¯Ø§ÛŒ Ù†ÙˆÛŽ Ø¯Ø±ÙˆØ³Øª Ø¨Ú©Û•.",
+    login: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    signup: "Ø¯Ø±ÙˆØ³ØªÚ©Ø±Ø¯Ù†ÛŒ Ù‡Û•Ú˜Ù…Ø§Ø±",
+    whatsapp: "Ú˜Ù…Ø§Ø±Û•ÛŒ ØªÛ•Ù„Û•ÙÛ†Ù† / ÙˆØ§ØªØ³Ø§Ù¾",
     whatsappPlaceholder: "07XX XXX XXXX",
-    storeName: "ناوی شوێن یان کۆمپانیا",
-    storeNamePlaceholder: "نموونە: Botly Store",
-    city: "پارێزگا",
-    cityPlaceholder: "پارێزگای فرۆشگا هەڵبژێرە",
-    email: "ئیمەیڵ",
-    emailOptional: "ئیمەیڵ (ئارەزوومەندانە)",
+    storeName: "Ù†Ø§ÙˆÛŒ Ø´ÙˆÛŽÙ† ÛŒØ§Ù† Ú©Û†Ù…Ù¾Ø§Ù†ÛŒØ§",
+    storeNamePlaceholder: "Ù†Ù…ÙˆÙˆÙ†Û•: Botly Store",
+    city: "Ù¾Ø§Ø±ÛŽØ²Ú¯Ø§",
+    cityPlaceholder: "Ù¾Ø§Ø±ÛŽØ²Ú¯Ø§ÛŒ ÙØ±Û†Ø´Ú¯Ø§ Ù‡Û•ÚµØ¨Ú˜ÛŽØ±Û•",
+    email: "Ø¦ÛŒÙ…Û•ÛŒÚµ",
+    emailOptional: "Ø¦ÛŒÙ…Û•ÛŒÚµ (Ø¦Ø§Ø±Û•Ø²ÙˆÙˆÙ…Û•Ù†Ø¯Ø§Ù†Û•)",
     emailPlaceholder: "name@example.com",
-    password: "وشەی نهێنی",
-    passwordPlaceholder: "وشەی نهێنی بنووسە",
-    loginSubmit: "کردنەوەی داشبۆرد",
-    signupSubmit: "دروستکردنی هەژمار",
-    forgotPassword: "وشەی نهێنیت لەبیر کردووە؟",
-    resetTitle: "گۆڕینی وشەی نهێنی",
-    resetSubtitle: "شوێنی وەرگرتنی کۆد یان بەستەری گۆڕین هەڵبژێرە.",
-    resetByWhatsapp: "ژمارەی واتساپ",
-    resetByEmail: "ئیمەیڵ",
-    sendReset: "ناردنی گۆڕین",
-    backToLogin: "گەڕانەوە بۆ چوونەژوورەوە",
-    terms: "بە بەردەوامبوونت ڕازی دەبیت بە مەرجەکانی بەکارهێنان و سیاسەتی تایبەتمەندی.",
-    required: "تکایە خانە پێویستەکان پڕ بکە",
-    passwordShort: "وشەی نهێنی دەبێت لانیکەم 6 پیت بێت",
-    emailRequired: "ئیمەیڵ بنووسە بۆ وەرگرتنی گۆڕینی وشەی نهێنی",
-    loginSuccess: "چوویتە ژوورەوە",
-    signupSuccess: "هەژمار دروست کرا",
-    resetSentWhatsapp: "نامەی گۆڕینی وشەی نهێنی بۆ واتساپ ئامادە کرا",
-    resetSentEmail: "نامەی گۆڕینی وشەی نهێنی بۆ ئیمەیڵ ئامادە کرا",
-    secure: "چوونەژوورەوەی کورت و پارێزراو بۆ فرۆشیار",
-    pointOne: "دواتر بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە",
-    pointTwo: "ئیمەیڵ لە هەژماردا ئارەزوومەندانە دەمێنێت",
-    pointThree: "گۆڕینی وشەی نهێنی لە ڕێی واتساپ یان ئیمەیڵ",
+    password: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    passwordPlaceholder: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ù†ÙˆÙˆØ³Û•",
+    loginSubmit: "Ú©Ø±Ø¯Ù†Û•ÙˆÛ•ÛŒ Ø¯Ø§Ø´Ø¨Û†Ø±Ø¯",
+    signupSubmit: "Ø¯Ø±ÙˆØ³ØªÚ©Ø±Ø¯Ù†ÛŒ Ù‡Û•Ú˜Ù…Ø§Ø±",
+    forgotPassword: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒØª Ù„Û•Ø¨ÛŒØ± Ú©Ø±Ø¯ÙˆÙˆÛ•ØŸ",
+    resetTitle: "Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    resetSubtitle: "Ø´ÙˆÛŽÙ†ÛŒ ÙˆÛ•Ø±Ú¯Ø±ØªÙ†ÛŒ Ú©Û†Ø¯ ÛŒØ§Ù† Ø¨Û•Ø³ØªÛ•Ø±ÛŒ Ú¯Û†Ú•ÛŒÙ† Ù‡Û•ÚµØ¨Ú˜ÛŽØ±Û•.",
+    resetByWhatsapp: "Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾",
+    resetByEmail: "Ø¦ÛŒÙ…Û•ÛŒÚµ",
+    sendReset: "Ù†Ø§Ø±Ø¯Ù†ÛŒ Ú¯Û†Ú•ÛŒÙ†",
+    backToLogin: "Ú¯Û•Ú•Ø§Ù†Û•ÙˆÛ• Ø¨Û† Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    terms: "Ø¨Û• Ø¨Û•Ø±Ø¯Û•ÙˆØ§Ù…Ø¨ÙˆÙˆÙ†Øª Ú•Ø§Ø²ÛŒ Ø¯Û•Ø¨ÛŒØª Ø¨Û• Ù…Û•Ø±Ø¬Û•Ú©Ø§Ù†ÛŒ Ø¨Û•Ú©Ø§Ø±Ù‡ÛŽÙ†Ø§Ù† Ùˆ Ø³ÛŒØ§Ø³Û•ØªÛŒ ØªØ§ÛŒØ¨Û•ØªÙ…Û•Ù†Ø¯ÛŒ.",
+    required: "ØªÚ©Ø§ÛŒÛ• Ø®Ø§Ù†Û• Ù¾ÛŽÙˆÛŒØ³ØªÛ•Ú©Ø§Ù† Ù¾Ú• Ø¨Ú©Û•",
+    passwordShort: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¯Û•Ø¨ÛŽØª Ù„Ø§Ù†ÛŒÚ©Û•Ù… 6 Ù¾ÛŒØª Ø¨ÛŽØª",
+    emailRequired: "Ø¦ÛŒÙ…Û•ÛŒÚµ Ø¨Ù†ÙˆÙˆØ³Û• Ø¨Û† ÙˆÛ•Ø±Ú¯Ø±ØªÙ†ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    loginSuccess: "Ú†ÙˆÙˆÛŒØªÛ• Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    signupSuccess: "Ù‡Û•Ú˜Ù…Ø§Ø± Ø¯Ø±ÙˆØ³Øª Ú©Ø±Ø§",
+    resetSentWhatsapp: "Ù†Ø§Ù…Û•ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Û† ÙˆØ§ØªØ³Ø§Ù¾ Ø¦Ø§Ù…Ø§Ø¯Û• Ú©Ø±Ø§",
+    resetSentEmail: "Ù†Ø§Ù…Û•ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Û† Ø¦ÛŒÙ…Û•ÛŒÚµ Ø¦Ø§Ù…Ø§Ø¯Û• Ú©Ø±Ø§",
+    secure: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ÛŒ Ú©ÙˆØ±Øª Ùˆ Ù¾Ø§Ø±ÛŽØ²Ø±Ø§Ùˆ Ø¨Û† ÙØ±Û†Ø´ÛŒØ§Ø±",
+    pointOne: "Ø¯ÙˆØ§ØªØ± Ø¨Û• Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾ Ùˆ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ú†Û† Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    pointTwo: "Ø¦ÛŒÙ…Û•ÛŒÚµ Ù„Û• Ù‡Û•Ú˜Ù…Ø§Ø±Ø¯Ø§ Ø¦Ø§Ø±Û•Ø²ÙˆÙˆÙ…Û•Ù†Ø¯Ø§Ù†Û• Ø¯Û•Ù…ÛŽÙ†ÛŽØª",
+    pointThree: "Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ù„Û• Ú•ÛŽÛŒ ÙˆØ§ØªØ³Ø§Ù¾ ÛŒØ§Ù† Ø¦ÛŒÙ…Û•ÛŒÚµ",
   },
 } as const;
 
@@ -162,10 +168,20 @@ function AuthPage() {
   const text = copy[locale];
   const navigate = useNavigate();
   const loginMerchantFn = useServerFn(loginMerchant);
+  const signupMerchantFn = useServerFn(signupMerchant);
+  const requestOtpFn = useServerFn(requestMerchantOtp);
+  const resetPasswordFn = useServerFn(resetMerchantPassword);
   const [showReset, setShowReset] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [storeName, setStoreName] = useState("");
+  const [city, setCity] = useState("");
+  const [carMakes, setCarMakes] = useState("");
+  const [carModels, setCarModels] = useState("");
+  const [specialties, setSpecialties] = useState("");
   const [resetMethod, setResetMethod] = useState<ResetMethod>("whatsapp");
   const [loading, setLoading] = useState(false);
 
@@ -196,10 +212,34 @@ function AuthPage() {
     navigate({ to: "/dashboard/orders" });
   };
 
+  const csv = (value: string) =>
+    value.split(",").map((item) => item.trim()).filter(Boolean);
+
+  const requestOtp = async (purpose: "signup" | "reset") => {
+    if (!whatsapp.trim()) {
+      toast.error(text.required);
+      return;
+    }
+    setLoading(true);
+    try {
+      await requestOtpFn({ data: { whatsapp: whatsapp.trim(), purpose } });
+      toast.success("ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø±Ù…Ø² OTP Ø¥Ù„Ù‰ ÙˆØ§ØªØ³Ø§Ø¨");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.required);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const onAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!whatsapp.trim() || !password.trim()) {
+      toast.error(text.required);
+      return;
+    }
+
+    if (authMode === "signup" && (!storeName.trim() || !city.trim() || !otpCode.trim())) {
       toast.error(text.required);
       return;
     }
@@ -211,15 +251,34 @@ function AuthPage() {
 
     setLoading(true);
     try {
-      const result = await withNetworkRetry(() =>
-        loginMerchantFn({
-          data: {
-            whatsapp: whatsapp.trim(),
-            password,
-          },
-        }),
-      );
-      saveAuthSession(text.loginSuccess, result);
+      if (authMode === "signup") {
+        const result = await withNetworkRetry(() =>
+          signupMerchantFn({
+            data: {
+              storeName: storeName.trim(),
+              city: city.trim(),
+              whatsapp: whatsapp.trim(),
+              password,
+              otpCode: otpCode.trim(),
+              email: email.trim(),
+              carMakes: csv(carMakes),
+              carModels: csv(carModels),
+              specialties: csv(specialties),
+            },
+          }),
+        );
+        saveAuthSession(text.signupSuccess, result);
+      } else {
+        const result = await withNetworkRetry(() =>
+          loginMerchantFn({
+            data: {
+              whatsapp: whatsapp.trim(),
+              password,
+            },
+          }),
+        );
+        saveAuthSession(text.loginSuccess, result);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : text.required);
     } finally {
@@ -227,21 +286,25 @@ function AuthPage() {
     }
   };
 
-  const onResetSubmit = (e: React.FormEvent) => {
+  const onResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!whatsapp.trim() || (resetMethod === "email" && !email.trim())) {
-      toast.error(resetMethod === "email" ? text.emailRequired : text.required);
+    if (!whatsapp.trim() || !otpCode.trim() || !password.trim()) {
+      toast.error(text.required);
       return;
     }
 
     setLoading(true);
-    // TODO(auth): request password reset through email provider or WhatsApp template.
-    setTimeout(() => {
+    try {
+      const result = await resetPasswordFn({
+        data: { whatsapp: whatsapp.trim(), password, otpCode: otpCode.trim() },
+      });
+      saveAuthSession(text.loginSuccess, result);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.required);
+    } finally {
       setLoading(false);
-      toast.success(resetMethod === "email" ? text.resetSentEmail : text.resetSentWhatsapp);
-      setShowReset(false);
-    }, 450);
+    }
   };
 
   return (
@@ -307,8 +370,32 @@ function AuthPage() {
                   dir="ltr"
                 />
 
+                <Field
+                  icon={ShieldCheck}
+                  id="resetOtp"
+                  label="Ø±Ù…Ø² OTP"
+                  value={otpCode}
+                  onChange={setOtpCode}
+                  placeholder="Ø§ÙƒØªØ¨ Ø§Ù„Ø±Ù…Ø²"
+                  type="text"
+                  dir="ltr"
+                />
+
+                <PasswordField
+                  id="resetPassword"
+                  label="ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder={text.passwordPlaceholder}
+                />
+
                 <div className="space-y-3">
-                  <Label>{text.sendReset}</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>{text.sendReset}</Label>
+                    <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => requestOtp("reset")}>
+                      Ø¥Ø±Ø³Ø§Ù„ OTP
+                    </Button>
+                  </div>
                   <RadioGroup
                     value={resetMethod}
                     onValueChange={(value) => setResetMethod(value as ResetMethod)}
@@ -344,7 +431,7 @@ function AuthPage() {
 
                 <div className="space-y-3">
                   <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                    {loading ? "..." : text.sendReset}
+                    {loading ? "..." : "ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±"}
                     <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                   </Button>
                   <Button
@@ -362,12 +449,23 @@ function AuthPage() {
             ) : (
               <form onSubmit={onAuthSubmit} className="space-y-5">
                 <div>
-                  <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
+                  <h2 className="text-xl font-semibold tracking-normal">
+                    {authMode === "login" ? text.login : text.signup}
+                  </h2>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    {locale === "ar"
-                      ? "ادخل برقم واتساب وكلمة المرور. الحساب الجديد ينشئه المشرف."
-                      : "Sign in with your WhatsApp number and password. A supervisor creates new accounts."}
+                    {authMode === "login"
+                      ? "ادخل برقم واتساب وكلمة المرور."
+                      : "أنشئ حساب التاجر مباشرة وسيصل رمز OTP إلى رقم واتساب التاجر."}
                   </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary p-1">
+                  <Button type="button" variant={authMode === "login" ? "default" : "ghost"} onClick={() => setAuthMode("login")}>
+                    {text.login}
+                  </Button>
+                  <Button type="button" variant={authMode === "signup" ? "default" : "ghost"} onClick={() => setAuthMode("signup")}>
+                    {text.signup}
+                  </Button>
                 </div>
 
                 <Field
@@ -380,6 +478,23 @@ function AuthPage() {
                   type="tel"
                   dir="ltr"
                 />
+
+                {authMode === "signup" && (
+                  <>
+                    <Field icon={MessageCircle} id="storeName" label={text.storeName} value={storeName} onChange={setStoreName} placeholder={text.storeNamePlaceholder} />
+                    <Field icon={MessageCircle} id="city" label={text.city} value={city} onChange={setCity} placeholder={text.cityPlaceholder} />
+                    <Field icon={Mail} id="signupEmail" label={text.emailOptional} value={email} onChange={setEmail} placeholder={text.emailPlaceholder} type="email" dir="ltr" />
+                    <Field icon={MessageCircle} id="carMakes" label="أنواع السيارات" value={carMakes} onChange={setCarMakes} placeholder="Toyota, BMW, Dodge" />
+                    <Field icon={MessageCircle} id="carModels" label="الموديلات" value={carModels} onChange={setCarModels} placeholder="Camry, Corolla, Charger" />
+                    <Field icon={MessageCircle} id="specialties" label="الاختصاصات" value={specialties} onChange={setSpecialties} placeholder="كهربائيات عامة، إكسسوارات" />
+                    <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                      <Field icon={ShieldCheck} id="otpCode" label="رمز OTP" value={otpCode} onChange={setOtpCode} placeholder="اكتب الرمز" type="text" dir="ltr" />
+                      <Button type="button" variant="outline" className="h-12" disabled={loading} onClick={() => requestOtp("signup")}>
+                        إرسال OTP
+                      </Button>
+                    </div>
+                  </>
+                )}
 
                 <PasswordField
                   id="password"
@@ -406,7 +521,7 @@ function AuthPage() {
                   className="w-full gap-2 rounded-xl shadow-soft"
                   disabled={loading}
                 >
-                  {loading ? "..." : text.loginSubmit}
+                  {loading ? "..." : authMode === "login" ? text.loginSubmit : text.signupSubmit}
                   <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                 </Button>
 
@@ -499,7 +614,7 @@ function PasswordField({
           type="button"
           onClick={() => setVisible((v) => !v)}
           className="absolute end-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+          aria-label={visible ? "Ø¥Ø®ÙØ§Ø¡ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±" : "Ø¥Ø¸Ù‡Ø§Ø± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±"}
           tabIndex={-1}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
