@@ -111,6 +111,10 @@ class CustomerOrder {
     required this.merchantStatus,
     required this.requesterStatus,
     required this.finalStatus,
+    required this.merchantStoreName,
+    required this.merchantWhatsapp,
+    required this.merchantPhoneVisible,
+    required this.merchantNote,
     required this.currency,
     required this.price,
     required this.updatedAt,
@@ -122,6 +126,10 @@ class CustomerOrder {
   final String merchantStatus;
   final String requesterStatus;
   final String finalStatus;
+  final String merchantStoreName;
+  final String merchantWhatsapp;
+  final bool merchantPhoneVisible;
+  final String merchantNote;
   final String currency;
   final double price;
   final String updatedAt;
@@ -136,6 +144,10 @@ class CustomerOrder {
         merchantStatus: readString(json, 'merchantStatus', 'Pending'),
         requesterStatus: readString(json, 'requesterStatus', 'Pending'),
         finalStatus: readString(json, 'finalStatus', readString(json, 'status', 'requested')),
+        merchantStoreName: readString(json, 'merchantStoreName'),
+        merchantWhatsapp: readString(json, 'merchantWhatsapp'),
+        merchantPhoneVisible: json['merchantPhoneVisible'] == true,
+        merchantNote: readString(json, 'merchantNote'),
         currency: readString(json, 'currency', 'IQD'),
         price: readDouble(json, 'price'),
         updatedAt: readString(json, 'updatedAt'),

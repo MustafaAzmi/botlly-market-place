@@ -118,6 +118,8 @@ function webRequesterNotificationToMobileOrder(order: WebOrderNotification) {
     finalStatus: order.finalStatus,
     merchantStoreName: order.merchantStoreName,
     merchantWhatsapp: order.merchantWhatsapp,
+    merchantPhoneVisible: order.merchantPhoneVisible,
+    merchantNote: order.merchantNote ?? "",
     updatedAt: order.updatedAt || order.createdAt,
   };
 }

@@ -106,6 +106,7 @@ function webNotificationToMobileOrder(order: WebOrderNotification) {
     merchantStatus: order.merchantStatus,
     requesterStatus: order.requesterStatus,
     finalStatus: order.finalStatus,
+    merchantNote: order.merchantNote ?? "",
     sentToDelivery: false,
     merchantNotified: order.merchantStatus !== "Pending",
     createdAt: order.createdAt || order.updatedAt,

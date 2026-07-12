@@ -510,6 +510,7 @@ class MerchantOrder {
     required this.merchantStatus,
     required this.requesterStatus,
     required this.finalStatus,
+    required this.merchantNote,
     required this.sentToDelivery,
     required this.createdAt,
   });
@@ -524,6 +525,7 @@ class MerchantOrder {
   final String merchantStatus;
   final String requesterStatus;
   final String finalStatus;
+  final String merchantNote;
   final bool sentToDelivery;
   final DateTime createdAt;
 
@@ -542,6 +544,7 @@ class MerchantOrder {
       merchantStatus: _string(json['merchantStatus'], fallback: 'Pending'),
       requesterStatus: _string(json['requesterStatus'], fallback: 'Pending'),
       finalStatus: _string(json['finalStatus'], fallback: _string(json['status'], fallback: 'pending_review')),
+      merchantNote: _string(json['merchantNote']),
       sentToDelivery: json['sentToDelivery'] == true,
       createdAt: DateTime.tryParse(_string(json['createdAt'])) ?? DateTime.now(),
     );
@@ -827,9 +830,20 @@ class MerchantRepository extends ChangeNotifier {
     return List.unmodifiable(_orders);
   }
 
-  Future<void> markOrderAvailable(String orderId) async {
+  Future<void> markOrderAvailable(
+    String orderId, {
+    double? finalPrice,
+    String currency = 'IQD',
+    String merchantNote = '',
+  }) async {
     _requireSession();
-    await _post('markAvailable', {'token': _token, 'orderId': orderId});
+    await _post('markAvailable', {
+      'token': _token,
+      'orderId': orderId,
+      if (finalPrice != null) 'finalPrice': finalPrice,
+      'currency': currency,
+      'merchantNote': merchantNote,
+    });
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -1572,6 +1586,9 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   late Future<List<MerchantOrder>> _ordersFuture;
+  final Map<String, String> _offerPrices = {};
+  final Map<String, String> _offerCurrencies = {};
+  final Map<String, String> _offerNotes = {};
 
   @override
   void didChangeDependencies() {
@@ -1583,6 +1600,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
     setState(() {
       _ordersFuture = MerchantScope.of(context).listOrders(force: true);
     });
+  }
+
+  String _offerPrice(MerchantOrder order) {
+    return _offerPrices.putIfAbsent(
+      order.id,
+      () => order.productPrice > 0 ? order.productPrice.toStringAsFixed(order.productPrice.truncateToDouble() == order.productPrice ? 0 : 2) : '',
+    );
+  }
+
+  String _offerCurrency(MerchantOrder order) {
+    return _offerCurrencies.putIfAbsent(order.id, () => order.currency == 'USD' ? 'USD' : 'IQD');
+  }
+
+  String _offerNote(MerchantOrder order) {
+    return _offerNotes.putIfAbsent(order.id, () => order.merchantNote);
   }
 
   @override
@@ -1605,6 +1637,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final order = orders[index];
+                        final offerPrice = _offerPrice(order);
+                        final offerCurrency = _offerCurrency(order);
+                        final offerNote = _offerNote(order);
                         return Card(
                           child: Padding(
                             padding: const EdgeInsets.all(14),
@@ -1623,12 +1658,54 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 Text(order.customerDetails),
                                 if (order.sentToDelivery) Text(t.sentToDelivery),
                                 const SizedBox(height: 12),
+                                if (order.canMarkAvailability)
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: const Color(0xffd1d5db)),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        TextFormField(
+                                          initialValue: offerPrice,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textDirection: ui.TextDirection.ltr,
+                                          decoration: const InputDecoration(labelText: 'السعر النهائي'),
+                                          onChanged: (value) => _offerPrices[order.id] = value,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        DropdownButtonFormField<String>(
+                                          initialValue: offerCurrency,
+                                          decoration: const InputDecoration(labelText: 'العملة'),
+                                          items: const [
+                                            DropdownMenuItem(value: 'IQD', child: Text('IQD')),
+                                            DropdownMenuItem(value: 'USD', child: Text('USD')),
+                                          ],
+                                          onChanged: (value) => setState(() => _offerCurrencies[order.id] = value ?? 'IQD'),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        TextFormField(
+                                          initialValue: offerNote,
+                                          decoration: const InputDecoration(labelText: 'ملاحظة عن القطعة أو العرض'),
+                                          onChanged: (value) => _offerNotes[order.id] = value,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (order.canMarkAvailability) const SizedBox(height: 12),
                                 if (order.canMarkAvailability) Row(
                                   children: [
                                     Expanded(
                                       child: FilledButton.icon(
                                         onPressed: () async {
-                                          await repository.markOrderAvailable(order.id);
+                                          final parsedPrice = double.tryParse((_offerPrices[order.id] ?? '').replaceAll(',', '.'));
+                                          await repository.markOrderAvailable(
+                                            order.id,
+                                            finalPrice: parsedPrice,
+                                            currency: _offerCurrencies[order.id] ?? 'IQD',
+                                            merchantNote: _offerNotes[order.id] ?? '',
+                                          );
                                           if (context.mounted) _showMessage(context, 'تم تأكيد توفر المنتج');
                                           _refresh();
                                         },
@@ -1835,6 +1912,16 @@ class _PageScaffold extends StatelessWidget {
           children: [
             Row(
               children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
