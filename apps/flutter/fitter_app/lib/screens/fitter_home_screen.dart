@@ -193,55 +193,6 @@ class _ProductsTabState extends State<_ProductsTab> {
   }
 }
 
-class _ProductThumbnail extends StatelessWidget {
-  const _ProductThumbnail({required this.product, required this.size});
-
-  final CustomerProduct product;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final image = product.imageUrls.isNotEmpty ? product.imageUrls.first : '';
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Stack(
-        children: [
-          image.startsWith('http')
-              ? Container(
-                  width: size,
-                  height: size,
-                  color: Colors.white,
-                  child: Image.network(
-                    image,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
-                  ),
-                )
-              : Container(width: size, height: size, color: const Color(0xffe2e8f0), child: const Icon(Icons.image)),
-          if (product.imageUrls.length > 1)
-            Positioned(
-              right: 3,
-              bottom: 3,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  child: Text(
-                    '+${product.imageUrls.length - 1}',
-                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OrdersTab extends StatelessWidget {
   const _OrdersTab({required this.controller});
 
