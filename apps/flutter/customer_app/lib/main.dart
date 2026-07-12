@@ -9,6 +9,7 @@ import 'screens/customer_login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(MobileNotificationService.instance.initialize());
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
   };

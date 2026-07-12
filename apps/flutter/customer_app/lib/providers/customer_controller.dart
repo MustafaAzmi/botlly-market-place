@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:botlly_mobile_shared/botlly_mobile_shared.dart';
 import 'package:flutter/foundation.dart';
 
 class CustomerController extends ChangeNotifier {
+  static const _pollInterval = Duration(seconds: 30);
+
   final session = const SessionStore('customer');
 
   CustomerProfile? profile;
@@ -10,6 +14,9 @@ class CustomerController extends ChangeNotifier {
   List<CustomerOrder> orders = const [];
   bool loading = false;
   String error = '';
+  Timer? _ordersTimer;
+  var _ordersSnapshotReady = false;
+  final _orderSignatures = <String, String>{};
 
   Future<void> restore() async {
     final phone = await session.read('phone');
@@ -27,7 +34,8 @@ class CustomerController extends ChangeNotifier {
       profile = CustomerProfile.fromJson(Map<String, dynamic>.from(result['customer'] as Map));
       await session.save({'phone': profile!.whatsapp});
       await loadCatalogue();
-      await refreshOrders();
+      await refreshOrders(notifyChanges: false);
+      startOrderUpdates();
     });
   }
 
@@ -47,7 +55,8 @@ class CustomerController extends ChangeNotifier {
       profile = CustomerProfile.fromJson(Map<String, dynamic>.from(result['customer'] as Map));
       await session.save({'phone': profile!.whatsapp});
       await loadCatalogue();
-      await refreshOrders();
+      await refreshOrders(notifyChanges: false);
+      startOrderUpdates();
     });
   }
 
@@ -91,7 +100,7 @@ class CustomerController extends ChangeNotifier {
         'customerLandmark': landmark,
       });
       try {
-        await refreshOrders();
+        await refreshOrders(notifyChanges: false);
       } catch (_) {
         // The order was accepted; a failed history refresh should not look like a failed order.
       }
@@ -121,15 +130,24 @@ class CustomerController extends ChangeNotifier {
         'requesterPhone': current.whatsapp,
         'searchScope': 'governorate',
       });
-      await refreshOrders();
+      await refreshOrders(notifyChanges: false);
     });
   }
 
-  Future<void> refreshOrders() async {
+  void startOrderUpdates() {
+    _ordersTimer?.cancel();
+    _ordersTimer = Timer.periodic(_pollInterval, (_) {
+      unawaited(refreshOrders().catchError((_) {}));
+    });
+  }
+
+  Future<void> refreshOrders({bool notifyChanges = true}) async {
     final current = profile;
     if (current == null) return;
     final list = await customerApi.postList('listOrders', {'customerPhone': current.whatsapp});
-    orders = list.whereType<Map>().map((item) => CustomerOrder.fromJson(Map<String, dynamic>.from(item))).toList();
+    final nextOrders = list.whereType<Map>().map((item) => CustomerOrder.fromJson(Map<String, dynamic>.from(item))).toList();
+    if (notifyChanges) _notifyChangedOrders(nextOrders);
+    orders = nextOrders;
     notifyListeners();
   }
 
@@ -142,7 +160,7 @@ class CustomerController extends ChangeNotifier {
         'customerPhone': current.whatsapp,
         'status': status,
       });
-      await refreshOrders();
+      await refreshOrders(notifyChanges: false);
     });
   }
 
@@ -151,6 +169,10 @@ class CustomerController extends ChangeNotifier {
   Future<void> markOrderPurchased(CustomerOrder order) => updateOrderStatus(order, 'purchased');
 
   Future<void> logout() async {
+    _ordersTimer?.cancel();
+    _ordersTimer = null;
+    _ordersSnapshotReady = false;
+    _orderSignatures.clear();
     await session.clear();
     profile = null;
     products = const [];
@@ -171,5 +193,57 @@ class CustomerController extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  void _notifyChangedOrders(List<CustomerOrder> nextOrders) {
+    final nextSignatures = {
+      for (final order in nextOrders) order.id: _signature(order),
+    };
+    if (!_ordersSnapshotReady) {
+      _orderSignatures
+        ..clear()
+        ..addAll(nextSignatures);
+      _ordersSnapshotReady = true;
+      return;
+    }
+
+    CustomerOrder? changed;
+    for (final order in nextOrders) {
+      if (_orderSignatures[order.id] != nextSignatures[order.id]) {
+        changed = order;
+        break;
+      }
+    }
+    _orderSignatures
+      ..clear()
+      ..addAll(nextSignatures);
+    if (changed == null) return;
+
+    unawaited(MobileNotificationService.instance.show(
+      title: 'Botlly',
+      body: 'تم تحديث طلبك: ${changed.productTitle}',
+      id: changed.id.hashCode & 0x7fffffff,
+    ));
+  }
+
+  String _signature(CustomerOrder order) {
+    return [
+      order.status,
+      order.merchantStatus,
+      order.requesterStatus,
+      order.finalStatus,
+      order.price.toStringAsFixed(2),
+      order.currency,
+      order.merchantStoreName,
+      order.merchantWhatsapp,
+      order.merchantNote,
+      order.updatedAt,
+    ].join('|');
+  }
+
+  @override
+  void dispose() {
+    _ordersTimer?.cancel();
+    super.dispose();
   }
 }

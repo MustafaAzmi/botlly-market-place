@@ -53,8 +53,10 @@ class NotificationService {
 
   static final instance = NotificationService._();
   final _plugin = FlutterLocalNotificationsPlugin();
+  var _initialized = false;
 
   Future<void> initialize() async {
+    if (_initialized) return;
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -63,6 +65,38 @@ class NotificationService {
     );
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
+    );
+    await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+    _initialized = true;
+  }
+
+  Future<void> show({
+    required String title,
+    required String body,
+    int id = 2001,
+  }) async {
+    await initialize();
+    const android = AndroidNotificationDetails(
+      'botlly_merchant_order_updates',
+      'Botlly merchant order updates',
+      channelDescription: 'Order updates for Botlly merchant inbox.',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    const ios = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    await _plugin.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(android: android, iOS: ios),
     );
   }
 }
@@ -240,6 +274,12 @@ class _BotlyMerchantAppState extends State<BotlyMerchantApp> {
     setState(() => language = next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_language', next.code);
+  }
+
+  @override
+  void dispose() {
+    repository.dispose();
+    super.dispose();
   }
 
   @override
@@ -666,6 +706,8 @@ Map<String, dynamic> _withoutNull(Map<String, dynamic> input) {
 }
 
 class MerchantRepository extends ChangeNotifier {
+  static const _orderPollInterval = Duration(seconds: 30);
+
   MerchantProfile? _profile;
   String? _token;
   final _products = <MerchantProduct>[];
@@ -673,6 +715,10 @@ class MerchantRepository extends ChangeNotifier {
   MerchantCatalogue? _catalogue;
   bool _productsLoaded = false;
   bool _ordersLoaded = false;
+  Timer? _ordersTimer;
+  var _ordersSnapshotReady = false;
+  var _suppressNextOrderNotification = false;
+  final _orderSignatures = <String, String>{};
 
   MerchantProfile? get profile => _profile;
   String? get token => _token;
@@ -695,6 +741,7 @@ class MerchantRepository extends ChangeNotifier {
       address: prefs.getString('merchant_address'),
       deliveryPhone: prefs.getString('merchant_delivery_phone'),
     );
+    startOrderUpdates();
   }
 
   Future<MerchantProfile> login({
@@ -711,6 +758,7 @@ class MerchantRepository extends ChangeNotifier {
     _token = _string(result['token']);
     _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
+    startOrderUpdates();
     notifyListeners();
     return _profile!;
   }
@@ -741,6 +789,7 @@ class MerchantRepository extends ChangeNotifier {
     _token = _string(result['token']);
     _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
+    startOrderUpdates();
     notifyListeners();
     return _profile!;
   }
@@ -776,6 +825,11 @@ class MerchantRepository extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _ordersTimer?.cancel();
+    _ordersTimer = null;
+    _ordersSnapshotReady = false;
+    _suppressNextOrderNotification = false;
+    _orderSignatures.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('merchant_token');
     _token = null;
@@ -786,6 +840,23 @@ class MerchantRepository extends ChangeNotifier {
     _orders.clear();
     _catalogue = null;
     notifyListeners();
+  }
+
+  void startOrderUpdates() {
+    if (!isSignedIn) return;
+    _ordersTimer?.cancel();
+    _ordersTimer = Timer.periodic(_orderPollInterval, (_) {
+      unawaited(_refreshOrdersInBackground());
+    });
+  }
+
+  Future<void> _refreshOrdersInBackground() async {
+    if (!isSignedIn) return;
+    try {
+      await listOrders(force: true);
+    } catch (_) {
+      // Background refresh is best-effort; the visible screen keeps its current state.
+    }
   }
 
   Future<MerchantDashboard> getDashboard() async {
@@ -823,10 +894,18 @@ class MerchantRepository extends ChangeNotifier {
     _requireSession();
     if (!force && _ordersLoaded) return List.unmodifiable(_orders);
     final rows = await _postList('listOrders', {'token': _token});
+    final nextOrders = rows.map((item) => MerchantOrder.fromJson(_map(item))).toList();
+    if (_suppressNextOrderNotification) {
+      _suppressNextOrderNotification = false;
+      _rememberOrderSnapshot(nextOrders);
+    } else {
+      _notifyChangedOrders(nextOrders);
+    }
     _orders
       ..clear()
-      ..addAll(rows.map((item) => MerchantOrder.fromJson(_map(item))));
+      ..addAll(nextOrders);
     _ordersLoaded = true;
+    notifyListeners();
     return List.unmodifiable(_orders);
   }
 
@@ -844,6 +923,7 @@ class MerchantRepository extends ChangeNotifier {
       'currency': currency,
       'merchantNote': merchantNote,
     });
+    _suppressNextOrderNotification = true;
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -851,6 +931,7 @@ class MerchantRepository extends ChangeNotifier {
   Future<void> markOrderUnavailable(String orderId) async {
     _requireSession();
     await _post('markUnavailable', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -858,6 +939,7 @@ class MerchantRepository extends ChangeNotifier {
   Future<void> markOrderSold(String orderId) async {
     _requireSession();
     await _post('markSold', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -865,6 +947,7 @@ class MerchantRepository extends ChangeNotifier {
   Future<void> markOrderCancelled(String orderId) async {
     _requireSession();
     await _post('markCancelled', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
     _ordersLoaded = false;
     notifyListeners();
   }
@@ -926,6 +1009,63 @@ class MerchantRepository extends ChangeNotifier {
     if (!isSignedIn) throw StateError('انتهت الجلسة. سجل دخول مرة ثانية.');
   }
 
+  void _notifyChangedOrders(List<MerchantOrder> nextOrders) {
+    final nextSignatures = _orderSnapshot(nextOrders);
+    if (!_ordersSnapshotReady) {
+      _orderSignatures
+        ..clear()
+        ..addAll(nextSignatures);
+      _ordersSnapshotReady = true;
+      return;
+    }
+
+    MerchantOrder? changed;
+    for (final order in nextOrders) {
+      if (_orderSignatures[order.id] != nextSignatures[order.id]) {
+        changed = order;
+        break;
+      }
+    }
+    _orderSignatures
+      ..clear()
+      ..addAll(nextSignatures);
+    if (changed == null) return;
+
+    unawaited(NotificationService.instance.show(
+      title: 'Botlly Merchant',
+      body: 'تم تحديث طلب: ${changed.productTitle}',
+      id: changed.id.hashCode & 0x7fffffff,
+    ));
+  }
+
+  void _rememberOrderSnapshot(List<MerchantOrder> nextOrders) {
+    _orderSignatures
+      ..clear()
+      ..addAll(_orderSnapshot(nextOrders));
+    _ordersSnapshotReady = true;
+  }
+
+  Map<String, String> _orderSnapshot(List<MerchantOrder> nextOrders) {
+    return {
+      for (final order in nextOrders) order.id: _orderSignature(order),
+    };
+  }
+
+  String _orderSignature(MerchantOrder order) {
+    return [
+      order.status,
+      order.merchantStatus,
+      order.requesterStatus,
+      order.finalStatus,
+      order.productPrice.toStringAsFixed(2),
+      order.currency,
+      order.customerDetails,
+      order.merchantNote,
+      order.sentToDelivery.toString(),
+      order.createdAt.toIso8601String(),
+    ].join('|');
+  }
+
   Future<dynamic> _post(String action, Map<String, dynamic> data) async {
     final uri = Uri.parse('${apiBaseUrl.replaceAll(RegExp(r'/$'), '')}/api/merchant/mobile');
     final response = await http
@@ -970,6 +1110,12 @@ class MerchantRepository extends ChangeNotifier {
     await prefs.setString('merchant_bio', profile.bio ?? '');
     await prefs.setString('merchant_address', profile.address ?? '');
     await prefs.setString('merchant_delivery_phone', profile.deliveryPhone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _ordersTimer?.cancel();
+    super.dispose();
   }
 }
 
@@ -1586,6 +1732,7 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   late Future<List<MerchantOrder>> _ordersFuture;
+  MerchantRepository? _repository;
   final Map<String, String> _offerPrices = {};
   final Map<String, String> _offerCurrencies = {};
   final Map<String, String> _offerNotes = {};
@@ -1593,7 +1740,26 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _ordersFuture = MerchantScope.of(context).listOrders(force: true);
+    final nextRepository = MerchantScope.of(context);
+    if (_repository != nextRepository) {
+      _repository?.removeListener(_handleRepositoryChanged);
+      _repository = nextRepository;
+      _repository!.addListener(_handleRepositoryChanged);
+    }
+    _ordersFuture = nextRepository.listOrders(force: true);
+  }
+
+  @override
+  void dispose() {
+    _repository?.removeListener(_handleRepositoryChanged);
+    super.dispose();
+  }
+
+  void _handleRepositoryChanged() {
+    if (!mounted) return;
+    setState(() {
+      _ordersFuture = MerchantScope.of(context).listOrders();
+    });
   }
 
   void _refresh() {
