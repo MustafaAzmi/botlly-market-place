@@ -77,7 +77,13 @@ async function callServerFn<TData, TResult>(
   return fn({ data });
 }
 
-function webRequesterNotificationToFitterOrder(order: WebOrderNotification) {
+function calculateCommission(price: number, percent: number) {
+  return Number(((price * percent) / 100).toFixed(2));
+}
+
+function webRequesterNotificationToFitterOrder(order: WebOrderNotification, commissionPercent: number) {
+  const isCompleted = order.merchantStatus === "Sold" && order.requesterStatus === "Purchased";
+  const commissionAmount = isCompleted ? calculateCommission(order.price, commissionPercent) : 0;
   return {
     id: order.orderId,
     productTitle: order.productTitle,
@@ -87,7 +93,8 @@ function webRequesterNotificationToFitterOrder(order: WebOrderNotification) {
     merchantWhatsapp: order.merchantWhatsapp,
     merchantAddress: "",
     merchantGovernorate: order.merchantGovernorate,
-    commissionAmount: 0,
+    commissionPercent: isCompleted ? commissionPercent : 0,
+    commissionAmount,
     status: order.finalStatus || order.requesterStatus,
     merchantStatus: order.merchantStatus,
     requesterStatus: order.requesterStatus,
@@ -106,10 +113,16 @@ async function getMobileFitterSummary(data: unknown) {
       limit: 100,
     });
     if (page.items.length > 0) {
-      const webOrders = page.items.map(webRequesterNotificationToFitterOrder);
+      const webOrders = page.items.map((order) =>
+        webRequesterNotificationToFitterOrder(order, summary.fitter.commissionPercent),
+      );
       const webOrderIds = new Set(webOrders.map((order) => order.id));
+      const confirmedWebOrders = webOrders.filter((order) => order.finalStatus === "completed");
+      const webProfit = Number(confirmedWebOrders.reduce((sum, order) => sum + order.commissionAmount, 0).toFixed(2));
       return {
         ...summary,
+        totalProfit: Number((summary.totalProfit + webProfit).toFixed(2)),
+        salesCount: summary.salesCount + confirmedWebOrders.length,
         orders: [
           ...webOrders,
           ...summary.orders.filter((order) => !webOrderIds.has(order.id)),

@@ -706,7 +706,7 @@ Map<String, dynamic> _withoutNull(Map<String, dynamic> input) {
 }
 
 class MerchantRepository extends ChangeNotifier {
-  static const _orderPollInterval = Duration(seconds: 30);
+  static const _orderPollInterval = Duration(seconds: 10);
 
   MerchantProfile? _profile;
   String? _token;

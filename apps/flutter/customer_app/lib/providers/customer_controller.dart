@@ -4,7 +4,7 @@ import 'package:botlly_mobile_shared/botlly_mobile_shared.dart';
 import 'package:flutter/foundation.dart';
 
 class CustomerController extends ChangeNotifier {
-  static const _pollInterval = Duration(seconds: 30);
+  static const _pollInterval = Duration(seconds: 10);
 
   final session = const SessionStore('customer');
 
@@ -118,7 +118,7 @@ class CustomerController extends ChangeNotifier {
     final current = profile;
     if (current == null) throw const ApiException('سجل دخولك أولاً.');
     await _run(() async {
-      await customerApi.post('submitSmartRequest', {
+      final result = Map<String, dynamic>.from(await customerApi.post('submitSmartRequest', {
         'productName': productName.trim().isEmpty ? description.trim() : productName.trim(),
         'requestDetails': description.trim(),
         'carMake': carMake,
@@ -129,7 +129,10 @@ class CustomerController extends ChangeNotifier {
         'requesterName': current.name.trim().isEmpty ? 'زبون' : current.name.trim(),
         'requesterPhone': current.whatsapp,
         'searchScope': 'governorate',
-      });
+      }) as Map);
+      if ((result['targetMerchantCount'] as num? ?? 0).toInt() == 0) {
+        throw ApiException('لا يتوفر تاجر لبيع قطع $carModel في الوقت الحالي، حاول في محافظة أخرى.');
+      }
       await refreshOrders(notifyChanges: false);
     });
   }

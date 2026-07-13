@@ -225,6 +225,7 @@ class FitterOrder {
     required this.merchantWhatsapp,
     required this.merchantAddress,
     required this.merchantGovernorate,
+    required this.commissionPercent,
     required this.commissionAmount,
     required this.status,
     required this.merchantStatus,
@@ -240,6 +241,7 @@ class FitterOrder {
   final String merchantWhatsapp;
   final String merchantAddress;
   final String merchantGovernorate;
+  final double commissionPercent;
   final double commissionAmount;
   final String status;
   final String merchantStatus;
@@ -258,6 +260,7 @@ class FitterOrder {
         merchantWhatsapp: readString(json, 'merchantWhatsapp'),
         merchantAddress: readString(json, 'merchantAddress'),
         merchantGovernorate: readString(json, 'merchantGovernorate'),
+        commissionPercent: readDouble(json, 'commissionPercent'),
         commissionAmount: readDouble(json, 'commissionAmount'),
         status: readString(json, 'status', 'requested'),
         merchantStatus: readString(json, 'merchantStatus', 'Pending'),

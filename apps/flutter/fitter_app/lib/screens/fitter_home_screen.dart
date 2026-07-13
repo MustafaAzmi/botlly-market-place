@@ -229,6 +229,7 @@ class _OrdersTab extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text('الحالة: ${readableStatus(order.status)}'),
                         Text('السعر: ${money(order.productPrice, order.currency)}'),
+                        Text('نسبة الفيتر: ${order.commissionPercent.toStringAsFixed(order.commissionPercent.truncateToDouble() == order.commissionPercent ? 0 : 2)}%'),
                         Text('العمولة: ${money(order.commissionAmount, order.currency)}'),
                         if (order.merchantStoreName.isNotEmpty) Text('التاجر: ${order.merchantStoreName}'),
                         if (order.merchantAddress.isNotEmpty) Text('العنوان: ${order.merchantAddress}'),
