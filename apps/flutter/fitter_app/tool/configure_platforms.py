@@ -33,6 +33,20 @@ def configure_android() -> None:
             f'applicationId = "{ANDROID_PACKAGE}"',
             build_gradle,
         )
+        if "isCoreLibraryDesugaringEnabled = true" not in build_gradle:
+            build_gradle = build_gradle.replace(
+                "compileOptions {\n",
+                "compileOptions {\n"
+                "        isCoreLibraryDesugaringEnabled = true\n",
+                1,
+            )
+        if "coreLibraryDesugaring(" not in build_gradle:
+            build_gradle = (
+                f"{build_gradle.rstrip()}\n\n"
+                "dependencies {\n"
+                '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+                "}\n"
+            )
         build_gradle_path.write_text(build_gradle, encoding="utf-8")
 
     if manifest_path.exists():
@@ -40,6 +54,7 @@ def configure_android() -> None:
         permissions = [
             '<uses-permission android:name="android.permission.INTERNET" />',
             '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+            '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
         ]
         missing = [permission for permission in permissions if permission not in manifest]
         if missing:
