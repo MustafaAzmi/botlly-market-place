@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { WebOrderNotifications } from "@/components/orders/WebOrderNotifications";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/LanguageProvider";
 import { listMerchantOrders, type MerchantOrder } from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
@@ -21,6 +23,9 @@ function OrdersPage() {
   const listMerchantOrdersFn = useServerFn(listMerchantOrders);
   const [orders, setOrders] = useState<MerchantOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [merchantToken, setMerchantToken] = useState("");
 
   useEffect(() => {
     const merchantSession = readMerchantSession();
@@ -28,17 +33,30 @@ function OrdersPage() {
       navigate({ to: "/auth" });
       return;
     }
+    setMerchantToken(merchantSession.token);
 
-    listMerchantOrdersFn({ data: { token: merchantSession.token } })
-      .then(setOrders)
+    listMerchantOrdersFn({ data: { token: merchantSession.token, page, limit: 20 } })
+      .then((result) => {
+        setOrders(result.items);
+        setHasMore(result.hasMore);
+      })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل الطلبات");
       })
       .finally(() => setLoading(false));
-  }, [listMerchantOrdersFn, navigate]);
+  }, [listMerchantOrdersFn, navigate, page]);
 
   return (
     <DashboardLayout title={t("orders.title")} subtitle={t("orders.subtitle")}>
+      {merchantToken ? (
+        <div className="mb-6">
+          <WebOrderNotifications
+            role="merchant"
+            token={merchantToken}
+          />
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="rounded-2xl border border-border bg-card p-10 text-center text-muted-foreground shadow-soft">
           <Loader2 className="mx-auto h-6 w-6 animate-spin" />
@@ -53,6 +71,15 @@ function OrdersPage() {
           ))}
         </div>
       )}
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => { setLoading(true); setPage((value) => value - 1); }}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={loading || !hasMore} onClick={() => { setLoading(true); setPage((value) => value + 1); }}>
+          التالي
+        </Button>
+      </div>
     </DashboardLayout>
   );
 }

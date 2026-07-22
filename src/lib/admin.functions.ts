@@ -3,7 +3,15 @@ import { z } from "zod";
 
 import {
   appendEvent,
+  deleteEventsByPayloadField,
+  getEventById,
   listEvents,
+  listEventsForAdminExport,
+  listEventsByPayloadField,
+  listEventsByPayloadFieldPage,
+  listEventsPage,
+  latestEventWhere,
+  normalizePageRequest,
   getString,
   getNumber,
   eventTime,
@@ -12,6 +20,7 @@ import {
   normalizePhone,
   phoneKey,
   type EventRow,
+  type PageResult,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -20,6 +29,12 @@ import {
   parseCatalogueConfig,
   type CatalogueConfig,
 } from "@/lib/car-data";
+import { normalizeGovernorate } from "@/lib/governorates";
+import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+} from "@/lib/egress-diagnostics.server";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +52,10 @@ export interface MerchantSaleDetail {
   currency: string;
   customerName: string;
   customerPhone: string;
+  commissionPercent: number;
+  commissionAmount: number;
+  merchantNet: number;
+  operationStatus: "مكتملة" | "ملغاة" | "قيد المراجعة";
   createdAt: string;
 }
 
@@ -53,11 +72,14 @@ export interface MerchantAdminView {
   merchantId: string;
   storeName: string;
   whatsapp: string;
+  governorate: string;
   email?: string;
   subscriptionStatus: string; // active | expired | trial | none
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
   packageExpiry: string | null;
   isActive: boolean;
   visibilityEnabled: boolean;
+  showPhoneToRequesters: boolean;
   suspended: boolean;
   bannedFromBot: boolean;
   // Effective customer-facing visibility (false = hidden from search/bot).
@@ -67,6 +89,39 @@ export interface MerchantAdminView {
   salesTotals: MerchantSalesTotal[];
   sales: MerchantSaleDetail[];
   createdAt: string;
+}
+
+export interface MerchantFilterMigrationReport {
+  merchantsScanned: number;
+  merchantsUpdated: number;
+  productEventsScanned: number;
+  productsUsedForFilters: number;
+  productEventsWithImages: number;
+  productEventsCleaned: number;
+  removedImageBytes: number;
+}
+
+export interface AdminMerchantProductView {
+  id: string;
+  title: string;
+  imageUrl: string;
+  currentPrice: number;
+  discountPrice?: number;
+  currency: string;
+  carMake: string;
+  carModel: string;
+  carYear: string;
+  color: string;
+  quantity?: number;
+  createdAt: string;
+}
+
+export interface SalesConfirmationSummary {
+  confirmedByBoth: number;
+  customerOnly: number;
+  merchantOnly: number;
+  conflicts: number;
+  pending: number;
 }
 
 export interface AdminMessageRecord {
@@ -79,6 +134,17 @@ export interface AdminMessageRecord {
   createdAt: string;
 }
 
+export interface PopularSmartSearchProduct {
+  productKey: string;
+  productName: string;
+  requestCount: number;
+  customerCount: number;
+  fitterCount: number;
+  carMakes: string[];
+  governorates: string[];
+  lastRequestedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -89,12 +155,27 @@ const loginInput = z.object({
 });
 
 const tokenInput = z.object({ token: z.string().trim().min(20).max(300) });
+const paginatedTokenInput = tokenInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 const merchantActionInput = tokenInput.extend({
   merchantId: z.string().trim().min(1).max(100),
 });
+const paginatedMerchantInput = merchantActionInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
+
+const merchantProductActionInput = merchantActionInput.extend({
+  productId: z.string().trim().min(1).max(160),
+});
 
 const visibilityInput = merchantActionInput.extend({ enabled: z.boolean() });
+const phoneVisibilityInput = merchantActionInput.extend({ enabled: z.boolean() });
 const suspendInput = merchantActionInput.extend({ suspended: z.boolean() });
 const subscriptionInput = merchantActionInput.extend({
   status: z.enum(["active", "expired", "trial", "none"]),
@@ -131,11 +212,6 @@ const directMessageInput = merchantActionInput.extend({
 // ---------------------------------------------------------------------------
 
 const ADMIN_SESSION_TTL_DAYS = 7;
-const DEFAULT_ADMIN_SEED_VERSION = "owner-admin-2026-06-13";
-
-// Bootstrap credentials. Seeded into the DB on first login if no admin exists,
-// then editable via changeAdminPassword. NOT used for auth after seeding.
-const DEFAULT_ADMIN = { whatsapp: "07836635435", password: "ma@MA769667" };
 
 async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
@@ -145,50 +221,28 @@ function adminIdentity(row: EventRow) {
   return getString(row.payload?.adminId) || row.id;
 }
 
-// Seed/update the owner admin. This intentionally keeps the requested owner
-// login available even when older admin rows already exist in the event store.
+function adminBootstrapCredentials() {
+  const whatsapp = process.env.ADMIN_BOOTSTRAP_WHATSAPP?.trim() ?? "";
+  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD?.trim() ?? "";
+  return whatsapp && password ? { whatsapp, password } : null;
+}
+
+// Existing accounts and changed passwords are never overwritten by bootstrap.
 async function ensureAdminSeed(): Promise<void> {
+  const credentials = adminBootstrapCredentials();
+  if (!credentials) return;
+
   const admins = await listEvents("botly_admin");
-  const normalized = normalizePhone(DEFAULT_ADMIN.whatsapp);
-  const existing = admins.find((row) => getString(row.payload?.whatsappNormalized) === normalized);
-  if (existing) {
-    if (getString(existing.payload?.ownerSeedVersion) === DEFAULT_ADMIN_SEED_VERSION) return;
-
-    const salt = getString(existing.payload?.passwordSalt);
-    const expectedHash = getString(existing.payload?.passwordHash);
-    const defaultHash = salt ? await hashPassword(DEFAULT_ADMIN.password, salt) : "";
-    if (salt && expectedHash === defaultHash) {
-      await appendEvent("botly_admin", {
-        ...(existing.payload ?? {}),
-        adminId: adminIdentity(existing),
-        ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
-        updatedAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    const newSalt = randomToken();
-    await appendEvent("botly_admin", {
-      ...(existing.payload ?? {}),
-      adminId: adminIdentity(existing),
-      whatsapp: DEFAULT_ADMIN.whatsapp,
-      whatsappNormalized: normalized,
-      passwordSalt: newSalt,
-      passwordHash: await hashPassword(DEFAULT_ADMIN.password, newSalt),
-      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
-      updatedAt: new Date().toISOString(),
-    });
-    return;
-  }
+  if (admins.length > 0) return;
 
   const salt = randomToken();
   await appendEvent("botly_admin", {
     adminId: crypto.randomUUID(),
-    whatsapp: DEFAULT_ADMIN.whatsapp,
-    whatsappNormalized: normalizePhone(DEFAULT_ADMIN.whatsapp),
+    whatsapp: credentials.whatsapp,
+    whatsappNormalized: normalizePhone(credentials.whatsapp),
     passwordSalt: salt,
-    passwordHash: await hashPassword(DEFAULT_ADMIN.password, salt),
-    ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
+    passwordHash: await hashPassword(credentials.password, salt),
+    bootstrapSource: "environment",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -207,19 +261,28 @@ async function latestAdmins(): Promise<EventRow[]> {
 
 async function findAdminByPhone(whatsapp: string): Promise<EventRow | null> {
   const normalized = normalizePhone(whatsapp);
-  const admins = await latestAdmins();
-  return admins.find((row) => getString(row.payload?.whatsappNormalized) === normalized) ?? null;
+  const rows = await listEventsByPayloadField(
+    "botly_admin",
+    "whatsappNormalized",
+    normalized,
+    1,
+  );
+  return rows[0] ?? null;
 }
 
 async function findAdminById(adminId: string): Promise<EventRow | null> {
-  const admins = await latestAdmins();
-  return admins.find((row) => adminIdentity(row) === adminId) ?? null;
+  return latestEventWhere("botly_admin", "adminId", adminId);
 }
 
 // Validate an admin session token -> adminId. Throws if invalid/expired.
-async function authorizeAdmin(token: string): Promise<string> {
+export async function authorizeAdmin(token: string): Promise<string> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_admin_session");
+  const sessions = await listEventsByPayloadField(
+    "botly_admin_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const session = sessions.find((row) => {
     const p = row.payload ?? {};
     return (
@@ -250,10 +313,6 @@ export const loginAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => loginInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الأدمن غير صحيح.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -316,10 +375,6 @@ export const requestAdminPasswordReset = createServerFn({ method: "POST" })
   .inputValidator((d) => passwordResetRequestInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الهاتف غير مسجل كأدمن.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -331,14 +386,14 @@ export const requestAdminPasswordReset = createServerFn({ method: "POST" })
     await appendEvent("botly_admin_password_reset", {
       resetId,
       adminId,
-      whatsapp: getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp,
+      whatsapp: getString(row.payload?.whatsapp),
       codeHash: await hashResetCode(resetId, code),
       used: false,
       expiresAt,
       createdAt: new Date().toISOString(),
     });
 
-    const recipient = toWhatsAppRecipient(getString(row.payload?.whatsapp) || DEFAULT_ADMIN.whatsapp);
+    const recipient = toWhatsAppRecipient(getString(row.payload?.whatsapp));
     const message = `رمز تغيير كلمة مرور لوحة أدمن Botly هو: ${code}\nينتهي خلال 15 دقيقة.`;
     const result = await sendWhatsAppText(recipient, message);
     if (!result.ok) {
@@ -352,10 +407,6 @@ export const resetAdminPassword = createServerFn({ method: "POST" })
   .inputValidator((d) => passwordResetInput.parse(d))
   .handler(async ({ data }) => {
     await ensureAdminSeed();
-    if (phoneKey(data.whatsapp) !== phoneKey(DEFAULT_ADMIN.whatsapp)) {
-      throw new Error("رقم الهاتف غير مسجل كأدمن.");
-    }
-
     const row = await findAdminByPhone(data.whatsapp);
     if (!row) throw new Error("رقم الهاتف غير مسجل كأدمن.");
 
@@ -391,7 +442,6 @@ export const resetAdminPassword = createServerFn({ method: "POST" })
       adminId,
       passwordSalt: newSalt,
       passwordHash: await hashPassword(data.newPassword, newSalt),
-      ownerSeedVersion: DEFAULT_ADMIN_SEED_VERSION,
       updatedAt: new Date().toISOString(),
     });
     await appendEvent("botly_admin_password_reset", {
@@ -411,15 +461,62 @@ function merchantIdentity(row: EventRow) {
   return getString(row.payload?.merchantId) || row.id;
 }
 
+function productIdentity(row: EventRow) {
+  return getString(row.payload?.productId) || row.id;
+}
+
+function isDeletedProduct(row: EventRow) {
+  return getString(row.payload?.status) === "deleted";
+}
+
+function merchantPhoneIdentity(row: EventRow) {
+  const payload = row.payload ?? {};
+  return phoneKey(
+    getString(payload.whatsappNormalized) ||
+      getString(payload.whatsapp) ||
+      getString(payload.phone),
+  );
+}
+
+function toAdminMerchantProduct(row: EventRow): AdminMerchantProductView {
+  const p = row.payload ?? {};
+  const primaryImage = getString(p.imageUrl);
+  const extraImages = Array.isArray(p.imageUrls)
+    ? (p.imageUrls as unknown[]).filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+  return {
+    id: productIdentity(row),
+    title: getString(p.title) || getString(p.description) || "منتج",
+    imageUrl: /^data:image\//i.test(primaryImage || extraImages[0] || "")
+      ? `/api/product-image/${encodeURIComponent(productIdentity(row))}?index=0`
+      : primaryImage || extraImages[0] || "",
+    currentPrice: getNumber(p.currentPrice) ?? getNumber(p.price) ?? 0,
+    discountPrice: getNumber(p.discountPrice),
+    currency: getString(p.currency) || "IQD",
+    carMake: getString(p.carMake),
+    carModel: getString(p.carModel),
+    carYear: getString(p.carYear),
+    color: getString(p.color),
+    quantity: getNumber(p.quantity),
+    createdAt: getString(p.createdAt) || eventTime(row),
+  };
+}
+
 // Latest merchant event per merchantId.
-async function latestMerchants(): Promise<EventRow[]> {
-  const rows = await listEvents("botly_merchant");
+async function latestMerchants(sourceRows?: EventRow[]): Promise<EventRow[]> {
+  const rows = sourceRows ?? await listEvents("botly_merchant");
   const seen = new Map<string, EventRow>();
   for (const row of rows) {
     const id = merchantIdentity(row);
     if (!seen.has(id)) seen.set(id, row);
   }
-  return [...seen.values()];
+  const uniqueByPhone = new Map<string, EventRow>();
+  for (const row of seen.values()) {
+    const phone = merchantPhoneIdentity(row);
+    const key = phone ? `phone:${phone}` : `id:${merchantIdentity(row)}`;
+    if (!uniqueByPhone.has(key)) uniqueByPhone.set(key, row);
+  }
+  return [...uniqueByPhone.values()];
 }
 
 // Compute effective customer-facing visibility from the control flags.
@@ -444,22 +541,23 @@ async function loadMerchantMetrics(): Promise<{
   const salesByMerchant = new Map<string, MerchantSaleDetail[]>();
   const salesTotalsByMerchant = new Map<string, MerchantSalesTotal[]>();
   const salesResetAtByMerchant = new Map<string, string>();
+  const platformCommissionPercent = await getPlatformCommissionPercent();
 
-  // Products: count latest-per-productId, non-rejected.
-  const productRows = await listEvents("botly_product");
+  // Products: count latest-per-productId, visible in merchant dashboards.
+  const productRows = await listEvents("botly_product", 100);
   const seenProduct = new Set<string>();
   for (const row of productRows) {
-    const pid = getString(row.payload?.productId) || row.id;
+    const pid = productIdentity(row);
     if (seenProduct.has(pid)) continue;
     seenProduct.add(pid);
     const status = getString(row.payload?.status) || "active";
-    if (status === "rejected") continue;
+    if (status === "rejected" || status === "deleted") continue;
     const mId = getString(row.payload?.merchantId);
     if (!mId) continue;
     productCounts.set(mId, (productCounts.get(mId) ?? 0) + 1);
   }
 
-  const resetRows = await listEvents("botly_merchant_sales_reset");
+  const resetRows = await listEvents("botly_merchant_sales_reset", 100);
   for (const row of resetRows) {
     const merchantId = getString(row.payload?.merchantId);
     if (merchantId && !salesResetAtByMerchant.has(merchantId)) {
@@ -467,10 +565,10 @@ async function loadMerchantMetrics(): Promise<{
     }
   }
 
-  const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
+  const orderRows = latestByPayloadId(await listEvents("botly_order", 100), "orderId");
   for (const row of orderRows) {
     const p = row.payload ?? {};
-    if (getString(p.status) !== "purchased") continue;
+    if (getString(p.merchantStatus) !== "Sold" || getString(p.requesterStatus) !== "Purchased") continue;
     const merchantId = getString(p.merchantId);
     if (!merchantId) continue;
     const saleCreatedAt = getString(p.updatedAt) || getString(p.createdAt) || eventTime(row);
@@ -478,13 +576,19 @@ async function loadMerchantMetrics(): Promise<{
     if (resetAt && saleCreatedAt <= resetAt) continue;
     const price = getNumber(p.price) ?? getNumber(p.currentPrice) ?? 0;
     const currency = getString(p.currency) || "IQD";
+    const commissionPercent = getNumber(p.commissionPercent) ?? platformCommissionPercent;
+    const commissionAmount = Number(((price * commissionPercent) / 100).toFixed(2));
     const sale: MerchantSaleDetail = {
       orderId: getString(p.orderId) || row.id,
       productTitle: getString(p.productTitle) || "منتج",
       price,
       currency,
-      customerName: getString(p.customerName),
-      customerPhone: getString(p.customerPhone) || getString(p.customerNumber),
+      customerName: getString(p.customerName) || getString(p.requesterName),
+      customerPhone: getString(p.customerPhone) || getString(p.customerNumber) || getString(p.requesterPhone),
+      commissionPercent,
+      commissionAmount,
+      merchantNet: Number((price - commissionAmount).toFixed(2)),
+      operationStatus: "مكتملة",
       createdAt: saleCreatedAt,
     };
     const merchantSales = salesByMerchant.get(merchantId) ?? [];
@@ -507,14 +611,229 @@ async function loadMerchantMetrics(): Promise<{
   return { productCounts, salesByMerchant, salesTotalsByMerchant };
 }
 
-export const listMerchants = createServerFn({ method: "POST" })
+const PRODUCT_IMAGE_FIELDS = [
+  "imageUrl",
+  "imageUrls",
+  "imageDataUrl",
+  "images",
+  "photo",
+  "photos",
+  "photoUrl",
+  "photoUrls",
+] as const;
+
+function nonEmptyStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => getString(item).trim())
+    .filter(Boolean);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function classifyProductSpecialty(payload: Record<string, unknown>): string {
+  const text = [
+    getString(payload.category),
+    getString(payload.title),
+    getString(payload.description),
+    getString(payload.searchText),
+  ].join(" ").toLowerCase();
+
+  const groups: Array<[string, RegExp]> = [
+    ["كهربائيات", /كهرب|لايت|مصباح|لمب|بطاري|دينمو|سلف|حساس|ضفير|فيوز|سويتش/],
+    ["إكسسوارات", /اكسسوار|إكسسوار|زينة|فرش|شاشة|كفر|مسجل|كاميرا|عدة/],
+    ["فرامل", /فرامل|بريك|دسك|ديسك|سفايف/],
+    ["تبريد وتكييف", /تبريد|مكيف|تكييف|راديتر|رادييت|كمبريسر|ثرموستات/],
+    ["تعليق وتوجيه", /تعليق|توجيه|مساعد|مقص|دركسون|ستيرن|جامبينه|صليب/],
+    ["هيكل وبدن", /هيكل|بدن|صدام|بمبر|باب|رفرف|مراي|مرآ|غطاء|دعامي|شبك/],
+    ["محرك", /محرك|مكين|مكينة|بستم|توربو|كاسكيت|رأس|فلتر|جير|قير/],
+  ];
+  return groups.find(([, pattern]) => pattern.test(text))?.[0] ?? "أخرى";
+}
+
+function imageBytes(payload: Record<string, unknown>): number {
+  return PRODUCT_IMAGE_FIELDS.reduce((total, field) => {
+    const value = payload[field];
+    if (typeof value === "string") return total + Buffer.byteLength(value, "utf8");
+    if (Array.isArray(value)) {
+      return total + value.reduce(
+        (sum, item) => sum + (typeof item === "string" ? Buffer.byteLength(item, "utf8") : 0),
+        0,
+      );
+    }
+    return total;
+  }, 0);
+}
+
+function withoutProductImages(payload: Record<string, unknown>) {
+  const cleaned = { ...payload };
+  for (const field of PRODUCT_IMAGE_FIELDS) delete cleaned[field];
+  return cleaned;
+}
+
+export async function migrateExistingMerchantFiltersAndImages(): Promise<MerchantFilterMigrationReport> {
+  const [merchantRows, productRows] = await Promise.all([
+    listEventsForAdminExport("botly_merchant", 20_000),
+    listEventsForAdminExport("botly_product", 50_000),
+  ]);
+  const merchants = await latestMerchants(merchantRows);
+  const latestProducts = new Map<string, EventRow>();
+  for (const row of productRows) {
+    const id = productIdentity(row);
+    if (!latestProducts.has(id)) latestProducts.set(id, row);
+  }
+
+  const filtersByMerchant = new Map<string, {
+    carMakes: string[];
+    carModels: string[];
+    specialties: string[];
+  }>();
+  let productsUsedForFilters = 0;
+  for (const row of latestProducts.values()) {
+    const payload = row.payload ?? {};
+    const status = getString(payload.status) || "active";
+    if (status === "deleted" || status === "rejected") continue;
+    const merchantId = getString(payload.merchantId);
+    if (!merchantId) continue;
+    productsUsedForFilters += 1;
+    const current = filtersByMerchant.get(merchantId) ?? {
+      carMakes: [],
+      carModels: [],
+      specialties: [],
+    };
+    const category = getString(payload.category);
+    current.carMakes.push(
+      getString(payload.carMake),
+      getString(payload.vehicleMake),
+      getString(payload.brand),
+    );
+    current.carModels.push(
+      getString(payload.carModel),
+      getString(payload.vehicleModel),
+      getString(payload.model),
+    );
+    current.specialties.push(classifyProductSpecialty(payload));
+    if (category) current.specialties.push(category);
+    filtersByMerchant.set(merchantId, current);
+  }
+
+  let merchantsUpdated = 0;
+  for (const merchant of merchants) {
+    const payload = merchant.payload ?? {};
+    const merchantId = merchantIdentity(merchant);
+    const derived = filtersByMerchant.get(merchantId);
+    if (!derived || getNumber(payload.filtersBackfillVersion) === 1) continue;
+    const carMakes = uniqueStrings([
+      ...nonEmptyStrings(payload.carMakes),
+      ...derived.carMakes,
+    ]);
+    const carModels = uniqueStrings([
+      ...nonEmptyStrings(payload.carModels),
+      ...derived.carModels,
+    ]);
+    const specialties = uniqueStrings([
+      ...nonEmptyStrings(payload.specialties),
+      ...derived.specialties,
+    ]);
+    await appendEvent("botly_merchant", {
+      ...payload,
+      merchantId,
+      carMakes,
+      carModels,
+      specialties,
+      status: getString(payload.status) || (payload.isActive === false ? "inactive" : "active"),
+      isActive: payload.isActive !== false,
+      filtersBackfilledAt: new Date().toISOString(),
+      filtersBackfillVersion: 1,
+      updatedAt: new Date().toISOString(),
+    });
+    merchantsUpdated += 1;
+  }
+
+  const rowsWithImages = productRows
+    .map((row) => ({ row, bytes: imageBytes(row.payload ?? {}) }))
+    .filter(({ bytes }) => bytes > 0);
+  let productEventsCleaned = 0;
+  const concurrency = 8;
+  for (let index = 0; index < rowsWithImages.length; index += concurrency) {
+    const batch = rowsWithImages.slice(index, index + concurrency);
+    const results = await Promise.all(
+      batch.map(({ row }) =>
+        supabaseAdmin
+          .from("whatsapp_webhook_events")
+          .update({ payload: withoutProductImages(row.payload ?? {}) as never })
+          .eq("id", row.id)
+          .select("id"),
+      ),
+    );
+    for (const result of results) {
+      if (result.error) throw new Error(`تعذر حذف صور المنتجات: ${result.error.message}`);
+      if (!result.data?.length) {
+        throw new Error("تعذر التحقق من حذف صورة أحد سجلات المنتجات.");
+      }
+      productEventsCleaned += result.data.length;
+    }
+  }
+
+  for (let index = 0; index < rowsWithImages.length; index += 100) {
+    const ids = rowsWithImages.slice(index, index + 100).map(({ row }) => row.id);
+    const verification = await supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload")
+      .in("id", ids);
+    if (verification.error) {
+      throw new Error(`تعذر التحقق من حذف صور المنتجات: ${verification.error.message}`);
+    }
+    const remaining = (verification.data ?? []).filter((row) =>
+      imageBytes(((row as { payload?: Record<string, unknown> }).payload ?? {})) > 0,
+    );
+    if (remaining.length > 0) {
+      throw new Error(`بقيت صور في ${remaining.length} من سجلات المنتجات بعد محاولة الحذف.`);
+    }
+  }
+
+  return {
+    merchantsScanned: merchants.length,
+    merchantsUpdated,
+    productEventsScanned: productRows.length,
+    productsUsedForFilters,
+    productEventsWithImages: rowsWithImages.length,
+    productEventsCleaned,
+    removedImageBytes: rowsWithImages.reduce((sum, item) => sum + item.bytes, 0),
+  };
+}
+
+export const migrateMerchantFiltersAndDeleteProductImages = createServerFn({ method: "POST" })
   .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<MerchantAdminView[]> => {
+  .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchants = await latestMerchants();
+    return await migrateExistingMerchantFiltersAndImages();
+  });
+
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings");
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
+}
+
+export const listMerchants = createServerFn({ method: "POST" })
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<MerchantAdminView>> => {
+    await authorizeAdmin(data.token);
+    const pagination = normalizePageRequest(data);
+    const merchantPage = await listEventsPage("botly_merchant", pagination);
+    const merchants = await latestMerchants(merchantPage.items);
     const { productCounts, salesByMerchant, salesTotalsByMerchant } = await loadMerchantMetrics();
 
-    return merchants
+    const items = merchants
       .map((row) => {
         const p = row.payload ?? {};
         const mId = merchantIdentity(row);
@@ -522,11 +841,26 @@ export const listMerchants = createServerFn({ method: "POST" })
           merchantId: mId,
           storeName: getString(p.storeName) || "متجر",
           whatsapp: getString(p.whatsapp),
+          governorate:
+            normalizeGovernorate(
+              getString(p.city) ||
+                getString(p.governorate) ||
+                getString(p.merchantGovernorate),
+            ) || "غير محدد",
           email: getString(p.email) || undefined,
           subscriptionStatus: getString(p.subscriptionStatus) || "none",
+          accountStatus:
+            getString(p.status) === "pending" ||
+            getString(p.status) === "inactive" ||
+            getString(p.status) === "suspended"
+              ? getString(p.status) as "pending" | "inactive" | "suspended"
+              : p.isActive === false
+                ? "inactive"
+                : "active",
           packageExpiry: getString(p.packageExpiry) || null,
           isActive: p.isActive !== false,
           visibilityEnabled: p.visibilityEnabled !== false,
+          showPhoneToRequesters: p.showPhoneToRequesters === true,
           suspended: Boolean(getString(p.suspendedAt)),
           bannedFromBot: p.bannedFromBot === true,
           visibleInSearch: isVisibleInSearch(p),
@@ -538,6 +872,131 @@ export const listMerchants = createServerFn({ method: "POST" })
         } satisfies MerchantAdminView;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return diagnoseServerResult("api:admin:listMerchants", {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: merchantPage.nextCursor,
+      hasMore: merchantPage.hasMore,
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
+  });
+
+export const listMerchantProductsForAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => paginatedMerchantInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<AdminMerchantProductView>> => {
+    await authorizeAdmin(data.token);
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(merchant);
+    const pagination = normalizePageRequest(data);
+    const productPage = await listEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      pagination,
+    );
+    const rows = productPage.items;
+    const seen = new Set<string>();
+    const products: AdminMerchantProductView[] = [];
+    for (const row of rows) {
+      if (getString(row.payload?.merchantId) !== merchantId) continue;
+      const productId = productIdentity(row);
+      if (seen.has(productId)) continue;
+      seen.add(productId);
+      if (isDeletedProduct(row)) continue;
+      const status = getString(row.payload?.status) || "active";
+      if (status === "rejected") continue;
+      products.push(toAdminMerchantProduct(row));
+    }
+    return diagnoseServerResult("api:admin:listMerchantProducts", {
+      items: products.slice(0, pagination.limit),
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: productPage.nextCursor,
+      hasMore: productPage.hasMore,
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
+  });
+
+export const deleteMerchantProductForAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantProductActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const merchantId = merchantIdentity(merchant);
+    const row = await latestEventWhere("botly_product", "productId", data.productId);
+    if (!row || getString(row.payload?.merchantId) !== merchantId) {
+      throw new Error("لم يتم العثور على المنتج.");
+    }
+
+    const p = row.payload ?? {};
+    const productId = productIdentity(row);
+    await appendEvent("botly_product", {
+      ...p,
+      productId,
+      merchantId,
+      title: getString(p.title) || getString(p.description),
+      imageUrl: getString(p.imageUrl),
+      currentPrice: getNumber(p.currentPrice) ?? getNumber(p.price) ?? 0,
+      currency: getString(p.currency) || "IQD",
+      status: "deleted",
+      deletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdAt: getString(p.createdAt) || eventTime(row),
+    });
+
+    return { ok: true };
+  });
+
+export const getSalesConfirmationSummary = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }): Promise<SalesConfirmationSummary> => {
+    await authorizeAdmin(data.token);
+    const orders = latestByPayloadId(await listEvents("botly_order"), "orderId");
+    const summary: SalesConfirmationSummary = {
+      confirmedByBoth: 0,
+      customerOnly: 0,
+      merchantOnly: 0,
+      conflicts: 0,
+      pending: 0,
+    };
+
+    for (const row of orders) {
+      const p = row.payload ?? {};
+      if (getString(p.sourceContext) !== "missing_product_request" && !getString(p.merchantStatus) && !getString(p.requesterStatus)) continue;
+      const merchantStatus = getString(p.merchantStatus) || "Pending";
+      const requesterStatus = getString(p.requesterStatus) || "Pending";
+      if (merchantStatus === "Sold" && requesterStatus === "Purchased") summary.confirmedByBoth += 1;
+      else if (
+        (merchantStatus === "Sold" && requesterStatus === "Cancelled") ||
+        (merchantStatus === "Cancelled" && requesterStatus === "Purchased")
+      ) summary.conflicts += 1;
+      else if (merchantStatus === "Sold" && requesterStatus === "Pending") summary.merchantOnly += 1;
+      else if (
+        (merchantStatus === "Pending" || merchantStatus === "Available") &&
+        requesterStatus === "Purchased"
+      ) summary.customerOnly += 1;
+      else summary.pending += 1;
+    }
+
+    return summary;
   });
 
 export const resetMerchantSalesReport = createServerFn({ method: "POST" })
@@ -552,11 +1011,92 @@ export const resetMerchantSalesReport = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const getMerchantSalesExport = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantActionInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const merchant = await latestEventWhere(
+      "botly_merchant",
+      "merchantId",
+      data.merchantId,
+    );
+    if (!merchant) throw new Error("لم يتم العثور على المتجر.");
+
+    const [orderRows, resetRows] = await Promise.all([
+      listEventsForAdminExport("botly_order"),
+      listEventsByPayloadField(
+        "botly_merchant_sales_reset",
+        "merchantId",
+        data.merchantId,
+        1,
+      ),
+    ]);
+    const resetAt = resetRows[0] ? salesReportResetTime(resetRows[0]) : "";
+    const commissionPercent = await getPlatformCommissionPercent();
+    const sales = latestByPayloadId(orderRows, "orderId")
+      .filter((row) => {
+        const payload = row.payload ?? {};
+        const createdAt =
+          getString(payload.updatedAt) ||
+          getString(payload.createdAt) ||
+          eventTime(row);
+        return (
+          getString(payload.merchantId) === data.merchantId &&
+          getString(payload.merchantStatus) === "Sold" &&
+          getString(payload.requesterStatus) === "Purchased" &&
+          (!resetAt || createdAt > resetAt)
+        );
+      })
+      .map((row): MerchantSaleDetail => {
+        const payload = row.payload ?? {};
+        const price =
+          getNumber(payload.price) ?? getNumber(payload.currentPrice) ?? 0;
+        const appliedPercent =
+          getNumber(payload.commissionPercent) ?? commissionPercent;
+        const commissionAmount = Number(
+          ((price * appliedPercent) / 100).toFixed(2),
+        );
+        return {
+          orderId: getString(payload.orderId) || row.id,
+          productTitle: getString(payload.productTitle) || "منتج",
+          price,
+          currency: getString(payload.currency) || "IQD",
+          customerName:
+            getString(payload.customerName) ||
+            getString(payload.requesterName),
+          customerPhone:
+            getString(payload.customerPhone) ||
+            getString(payload.customerNumber) ||
+            getString(payload.requesterPhone),
+          commissionPercent: appliedPercent,
+          commissionAmount,
+          merchantNet: Number((price - commissionAmount).toFixed(2)),
+          operationStatus: "مكتملة",
+          createdAt:
+            getString(payload.updatedAt) ||
+            getString(payload.createdAt) ||
+            eventTime(row),
+        };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const totals = new Map<string, number>();
+    for (const sale of sales) {
+      totals.set(sale.currency, (totals.get(sale.currency) ?? 0) + sale.price);
+    }
+    return {
+      sales,
+      salesCount: sales.length,
+      salesTotals: [...totals.entries()].map(([currency, amount]) => ({
+        currency,
+        amount,
+      })),
+    };
+  });
+
 // Append a merchant event with merged control flags. Preserves credentials and
 // profile fields so merchant login keeps working.
 async function applyMerchantControl(merchantId: string, changes: Record<string, unknown>) {
-  const merchants = await listEvents("botly_merchant");
-  const row = merchants.find((r) => merchantIdentity(r) === merchantId);
+  const row = await latestEventWhere("botly_merchant", "merchantId", merchantId);
   if (!row) throw new Error("لم يتم العثور على المتجر.");
 
   await appendEvent("botly_merchant", {
@@ -573,7 +1113,25 @@ export const setMerchantVisibility = createServerFn({ method: "POST" })
   .inputValidator((d) => visibilityInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    return applyMerchantControl(data.merchantId, { visibilityEnabled: data.enabled });
+    return applyMerchantControl(
+      data.merchantId,
+      data.enabled
+        ? {
+            visibilityEnabled: true,
+            isActive: true,
+            status: "active",
+            suspendedAt: "",
+          }
+        : { visibilityEnabled: false },
+    );
+  });
+
+// Enable/disable exposing the merchant WhatsApp number to customers/fitters.
+export const setMerchantPhoneVisibility = createServerFn({ method: "POST" })
+  .inputValidator((d) => phoneVisibilityInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    return applyMerchantControl(data.merchantId, { showPhoneToRequesters: data.enabled });
   });
 
 // Suspend / reactivate a merchant entirely.
@@ -584,6 +1142,8 @@ export const setMerchantSuspended = createServerFn({ method: "POST" })
     return applyMerchantControl(data.merchantId, {
       suspendedAt: data.suspended ? new Date().toISOString() : "",
       isActive: !data.suspended,
+      status: data.suspended ? "suspended" : "active",
+      visibilityEnabled: data.suspended ? false : true,
     });
   });
 
@@ -600,52 +1160,67 @@ export const setMerchantSubscription = createServerFn({ method: "POST" })
 
 // Hard delete a merchant store and all its data (products, orders, sessions).
 //
-// Deletes by row id rather than a payload->>merchantId filter: merchants
-// created before the merchantId payload field existed are identified by their
-// row id (see merchantIdentity), so a JSON-path filter matches nothing for
-// them and the store silently survives. Collecting ids via listEvents also
-// works on both the source/event_type and legacy provider column schemas.
+// Delete by merchantId so the operation remains complete regardless of list
+// pagination. Legacy profiles without merchantId are removed by exact row id.
 export const deleteMerchantStore = createServerFn({ method: "POST" })
   .inputValidator((d) => merchantActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchants = await listEvents("botly_merchant");
-    const target = merchants.find(
-      (r) => merchantIdentity(r) === data.merchantId || r.id === data.merchantId,
-    );
+    const target =
+      await latestEventWhere("botly_merchant", "merchantId", data.merchantId)
+      ?? await getEventById("botly_merchant", data.merchantId);
     if (!target) throw new Error("لم يتم العثور على المتجر.");
 
-    const merchantId = merchantIdentity(target);
+    const targetPhone = merchantPhoneIdentity(target);
+    const merchantRows = targetPhone
+      ? (await listEventsForAdminExport("botly_merchant", 20_000)).filter(
+          (row) => merchantPhoneIdentity(row) === targetPhone,
+        )
+      : [target];
+    const merchantIds = [
+      ...new Set(merchantRows.map((row) => merchantIdentity(row)).filter(Boolean)),
+    ];
+    const merchantPhones = [
+      ...new Set(
+        merchantRows
+          .flatMap((row) => [
+            getString(row.payload?.whatsapp),
+            getString(row.payload?.whatsappNormalized),
+            normalizePhone(getString(row.payload?.whatsapp)),
+          ])
+          .filter(Boolean),
+      ),
+    ];
 
-    const [products, orders, sessions] = await Promise.all([
-      listEvents("botly_product"),
-      listEvents("botly_order"),
-      listEvents("botly_session"),
-    ]);
-
-    const ids = new Set<string>();
-    // Every profile event in the merchant's append-only history.
-    for (const r of merchants) {
-      if (merchantIdentity(r) === merchantId || r.id === data.merchantId) ids.add(r.id);
+    const deleted: number[] = [];
+    for (const merchantId of merchantIds) {
+      deleted.push(
+        await deleteEventsByPayloadField("botly_product", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_order", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_session", "merchantId", merchantId),
+        await deleteEventsByPayloadField("botly_merchant", "merchantId", merchantId),
+      );
     }
-    const belongsToMerchant = (r: EventRow) => getString(r.payload?.merchantId) === merchantId;
-    for (const r of products) if (belongsToMerchant(r)) ids.add(r.id);
-    for (const r of orders) if (belongsToMerchant(r)) ids.add(r.id);
-    for (const r of sessions) if (belongsToMerchant(r)) ids.add(r.id);
+    for (const phone of merchantPhones) {
+      deleted.push(
+        await deleteEventsByPayloadField("botly_session", "merchantPhone", phone),
+        await deleteEventsByPayloadField("botly_merchant", "whatsapp", phone),
+        await deleteEventsByPayloadField("botly_merchant", "whatsappNormalized", phone),
+      );
+    }
 
-    const all = [...ids];
-    for (let i = 0; i < all.length; i += 200) {
-      const chunk = all.slice(i, i + 200);
+    const merchantRowIds = [...new Set(merchantRows.map((row) => row.id).filter(Boolean))];
+    if (merchantRowIds.length > 0) {
       const result = await supabaseAdmin
         .from("whatsapp_webhook_events")
         .delete()
-        .in("id", chunk as never[]);
+        .in("id", merchantRowIds);
       if (result.error) {
         throw new Error(`تعذر حذف المتجر من قاعدة البيانات: ${result.error.message}`);
       }
     }
 
-    return { ok: true, deleted: all.length };
+    return { ok: true, deleted: deleted.reduce((sum, count) => sum + count, 0) };
   });
 
 // ---------------------------------------------------------------------------
@@ -675,7 +1250,9 @@ export const sendAdminBroadcast = createServerFn({ method: "POST" })
   .inputValidator((d) => broadcastInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const merchants = await latestMerchants();
+    const merchants = await latestMerchants(
+      await listEventsForAdminExport("botly_merchant"),
+    );
 
     const targets = merchants.filter((row) => {
       const phone = getString(row.payload?.whatsapp);
@@ -721,11 +1298,12 @@ export const sendMerchantMessage = createServerFn({ method: "POST" })
 
 // Recent admin message history (delivery stats).
 export const listAdminMessages = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<AdminMessageRecord[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<AdminMessageRecord>> => {
     await authorizeAdmin(data.token);
-    const rows = await listEvents("botly_admin_message");
-    return rows.slice(0, 50).map((row) => {
+    const pagination = normalizePageRequest(data);
+    const page = await listEventsPage("botly_admin_message", pagination);
+    const items = page.items.map((row) => {
       const p = row.payload ?? {};
       return {
         id: getString(p.messageId) || row.id,
@@ -737,6 +1315,14 @@ export const listAdminMessages = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+    return diagnoseServerResult(
+      "api:admin:listAdminMessages",
+      { ...page, items },
+      {
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
 
 // ---------------------------------------------------------------------------
@@ -1017,6 +1603,8 @@ export interface MediatorContact {
   city: string;
 }
 
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
+
 export interface FitterAdminView {
   fitterId: string;
   name: string;
@@ -1027,6 +1615,7 @@ export interface FitterAdminView {
   longitude?: number;
   visaNumber: string;
   commissionPercent: number;
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
   totalProfit: number;
   salesCount: number;
   createdAt: string;
@@ -1037,11 +1626,12 @@ function customerIdentity(row: EventRow) {
 }
 
 export const listCustomers = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<CustomerAdminView[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<CustomerAdminView>> => {
     await authorizeAdmin(data.token);
-
-    const customerRows = await listEvents("botly_customer");
+    const pagination = normalizePageRequest(data);
+    const customerPage = await listEventsPage("botly_customer", pagination);
+    const customerRows = customerPage.items;
 
     // Latest profile per customer.
     const seen = new Map<string, EventRow>();
@@ -1050,7 +1640,7 @@ export const listCustomers = createServerFn({ method: "POST" })
       if (!seen.has(id)) seen.set(id, row);
     }
 
-    return [...seen.values()].map((row) => {
+    const items = [...seen.values()].map((row) => {
       const p = row.payload ?? {};
       return {
         customerId: customerIdentity(row),
@@ -1061,6 +1651,16 @@ export const listCustomers = createServerFn({ method: "POST" })
         createdAt: getString(p.createdAt) || eventTime(row),
       };
     });
+    return diagnoseServerResult("api:admin:listCustomers", {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: customerPage.nextCursor,
+      hasMore: customerPage.hasMore,
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +1669,10 @@ export const listCustomers = createServerFn({ method: "POST" })
 
 const fitterAdminActionInput = tokenInput.extend({
   fitterId: z.string().trim().min(1),
+});
+
+const fitterStatusInput = fitterAdminActionInput.extend({
+  active: z.boolean(),
 });
 
 const fitterAdminUpdateInput = fitterAdminActionInput.extend({
@@ -1093,11 +1697,21 @@ function latestFitterRows(rows: EventRow[]) {
   return [...seen.values()].filter((row) => !getString(row.payload?.deletedAt));
 }
 
-async function currentFitterProfit(fitterId: string) {
-  const resetRows = await listEvents("botly_fitter_reset");
+async function currentFitterProfit(fitterId: string, fallbackCommissionPercent = 0) {
+  const resetRows = await listEventsByPayloadField(
+    "botly_fitter_reset",
+    "fitterId",
+    fitterId,
+    100,
+  );
   const reset = resetRows.find((row) => getString(row.payload?.fitterId) === fitterId);
   const resetAt = reset ? new Date(getString(reset.payload?.createdAt) || eventTime(reset)).getTime() : 0;
-  const orderRows = await listEvents("botly_fitter_order");
+  const orderRows = await listEventsByPayloadField(
+    "botly_fitter_order",
+    "fitterId",
+    fitterId,
+    100,
+  );
   const latestOrders = new Map<string, EventRow>();
   for (const row of orderRows) {
     if (getString(row.payload?.fitterId) !== fitterId) continue;
@@ -1108,7 +1722,12 @@ async function currentFitterProfit(fitterId: string) {
     if (getString(row.payload?.status) !== "confirmed") return false;
     return new Date(getString(row.payload?.updatedAt) || getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
   });
-  const legacySales = (await listEvents("botly_fitter_sale")).filter((row) => {
+  const legacySales = (await listEventsByPayloadField(
+    "botly_fitter_sale",
+    "fitterId",
+    fitterId,
+    100,
+  )).filter((row) => {
     if (getString(row.payload?.fitterId) !== fitterId) return false;
     if (getString(row.payload?.orderId)) return false;
     return new Date(getString(row.payload?.createdAt) || eventTime(row)).getTime() > resetAt;
@@ -1116,7 +1735,12 @@ async function currentFitterProfit(fitterId: string) {
   return {
     totalProfit: Number(
       [...confirmedOrders, ...legacySales]
-        .reduce((sum, row) => sum + (getNumber(row.payload?.commissionAmount) ?? 0), 0)
+        .reduce((sum, row) => {
+          const storedCommission = getNumber(row.payload?.commissionAmount) ?? 0;
+          if (storedCommission > 0) return sum + storedCommission;
+          const productPrice = getNumber(row.payload?.productPrice) ?? getNumber(row.payload?.price) ?? 0;
+          return sum + Number(((productPrice * fallbackCommissionPercent) / 100).toFixed(2));
+        }, 0)
         .toFixed(2),
     ),
     salesCount: confirmedOrders.length + legacySales.length,
@@ -1124,15 +1748,25 @@ async function currentFitterProfit(fitterId: string) {
 }
 
 export const listFitters = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }): Promise<FitterAdminView[]> => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<FitterAdminView>> => {
     await authorizeAdmin(data.token);
-    const fitters = latestFitterRows(await listEvents("botly_fitter"));
-    return Promise.all(
+    const pagination = normalizePageRequest(data);
+    const fitterPage = await listEventsPage("botly_fitter", pagination);
+    const fitters = latestFitterRows(fitterPage.items);
+    const items = await Promise.all(
       fitters.map(async (row) => {
         const p = row.payload ?? {};
         const fitterId = fitterIdentity(row);
-        const profit = await currentFitterProfit(fitterId);
+        const commissionPercent = getNumber(p.commissionPercent) ?? 0;
+        const storedStatus = getString(p.status);
+        const accountStatus: FitterAdminView["accountStatus"] =
+          storedStatus === "pending" ||
+          storedStatus === "inactive" ||
+          storedStatus === "suspended"
+            ? storedStatus
+            : "active";
+        const profit = await currentFitterProfit(fitterId, commissionPercent);
         return {
           fitterId,
           name: getString(p.name) || "فيتر",
@@ -1142,21 +1776,48 @@ export const listFitters = createServerFn({ method: "POST" })
           latitude: getNumber(p.latitude),
           longitude: getNumber(p.longitude),
           visaNumber: getString(p.visaNumber),
-          commissionPercent: getNumber(p.commissionPercent) ?? 0,
+          commissionPercent,
+          accountStatus,
           totalProfit: profit.totalProfit,
           salesCount: profit.salesCount,
           createdAt: getString(p.createdAt) || eventTime(row),
         };
       }),
     );
+    return diagnoseServerResult("api:admin:listFitters", {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: fitterPage.nextCursor,
+      hasMore: fitterPage.hasMore,
+    }, {
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
+  });
+
+export const setFitterActiveByAdmin = createServerFn({ method: "POST" })
+  .inputValidator((d) => fitterStatusInput.parse(d))
+  .handler(async ({ data }) => {
+    await authorizeAdmin(data.token);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
+    if (!row) throw new Error("لم يتم العثور على الفيتر.");
+    await appendEvent("botly_fitter", {
+      ...(row.payload ?? {}),
+      fitterId: data.fitterId,
+      status: data.active ? "active" : "inactive",
+      isActive: data.active,
+      activatedAt: data.active ? new Date().toISOString() : getString(row.payload?.activatedAt),
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
   });
 
 export const updateFitterByAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => fitterAdminUpdateInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const rows = latestFitterRows(await listEvents("botly_fitter"));
-    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
     if (!row) throw new Error("لم يتم العثور على الفيتر.");
     await appendEvent("botly_fitter", {
       ...(row.payload ?? {}),
@@ -1176,8 +1837,7 @@ export const deleteFitterByAdmin = createServerFn({ method: "POST" })
   .inputValidator((d) => fitterAdminActionInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
-    const rows = latestFitterRows(await listEvents("botly_fitter"));
-    const row = rows.find((item) => fitterIdentity(item) === data.fitterId);
+    const row = await latestEventWhere("botly_fitter", "fitterId", data.fitterId);
     if (!row) throw new Error("لم يتم العثور على الفيتر.");
     await appendEvent("botly_fitter", {
       ...(row.payload ?? {}),
@@ -1208,6 +1868,12 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
     const rows = await listEvents("botly_settings");
+    const latestSettings = rows[0]?.payload ?? {};
+    const platformCommissionPercent =
+      getNumber(latestSettings.platformCommissionPercent) ??
+      getNumber(latestSettings.merchantCommissionPercent) ??
+      getNumber(latestSettings.commissionPercent) ??
+      DEFAULT_PLATFORM_COMMISSION_PERCENT;
     for (const row of rows) {
       const mediatorContacts = normalizeMediatorContacts(row.payload?.mediatorContacts);
       const storedPhones = Array.isArray(row.payload?.mediatorPhones)
@@ -1228,6 +1894,7 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
           mediatorPhone: contacts[0].phone,
           mediatorPhones: contacts.map((contact) => contact.phone),
           mediatorContacts: contacts,
+          platformCommissionPercent,
         };
       }
     }
@@ -1235,12 +1902,120 @@ export const getPlatformSettings = createServerFn({ method: "POST" })
       mediatorPhone: "",
       mediatorPhones: [] as string[],
       mediatorContacts: [] as MediatorContact[],
+      platformCommissionPercent,
     };
+  });
+
+function normalizeSmartSearchProductName(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ar")
+    .replace(/\u0640|\p{M}/gu, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export const listPopularSmartSearchProducts = createServerFn({ method: "POST" })
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<PopularSmartSearchProduct>> => {
+    await authorizeAdmin(data.token);
+    const pagination = normalizePageRequest(data);
+    const eventPage = await listEventsByPayloadFieldPage(
+      "botly_order",
+      "sourceContext",
+      "missing_product_request",
+      pagination,
+    );
+    const rows = eventPage.items;
+    const seenRequests = new Set<string>();
+    const products = new Map<
+      string,
+      PopularSmartSearchProduct & {
+        carMakeSet: Set<string>;
+        governorateSet: Set<string>;
+      }
+    >();
+
+    for (const row of rows) {
+      const payload = row.payload ?? {};
+      if (getString(payload.sourceContext) !== "missing_product_request") continue;
+      if (getString(payload.eventName) !== "missing_request_created") continue;
+
+      const requestId =
+        getString(payload.missingRequestId) || getString(payload.orderId) || row.id;
+      if (seenRequests.has(requestId)) continue;
+      seenRequests.add(requestId);
+
+      const productName = getString(payload.productTitle).trim();
+      const productKey = normalizeSmartSearchProductName(productName);
+      if (!productKey) continue;
+
+      const requestedAt =
+        getString(payload.eventAt) ||
+        getString(payload.createdAt) ||
+        eventTime(row);
+      const requesterType = getString(payload.requesterType);
+      const carMake = getString(payload.carMake).trim();
+      const governorate = normalizeGovernorate(
+        getString(payload.requesterGovernorate) || getString(payload.governorate),
+      );
+      const current = products.get(productKey);
+
+      if (current) {
+        current.requestCount += 1;
+        if (requesterType === "fitter") current.fitterCount += 1;
+        else current.customerCount += 1;
+        if (carMake) current.carMakeSet.add(carMake);
+        if (governorate) current.governorateSet.add(governorate);
+        if (requestedAt > current.lastRequestedAt) {
+          current.productName = productName;
+          current.lastRequestedAt = requestedAt;
+        }
+        continue;
+      }
+
+      products.set(productKey, {
+        productKey,
+        productName,
+        requestCount: 1,
+        customerCount: requesterType === "fitter" ? 0 : 1,
+        fitterCount: requesterType === "fitter" ? 1 : 0,
+        carMakes: [],
+        governorates: [],
+        lastRequestedAt: requestedAt,
+        carMakeSet: new Set(carMake ? [carMake] : []),
+        governorateSet: new Set(governorate ? [governorate] : []),
+      });
+    }
+
+    const items = [...products.values()]
+      .map(({ carMakeSet, governorateSet, ...product }) => ({
+        ...product,
+        carMakes: [...carMakeSet].sort((a, b) => a.localeCompare(b, "ar")),
+        governorates: [...governorateSet].sort((a, b) => a.localeCompare(b, "ar")),
+      }))
+      .sort(
+        (a, b) =>
+          b.requestCount - a.requestCount ||
+          b.lastRequestedAt.localeCompare(a.lastRequestedAt),
+      );
+    return diagnoseServerResult(
+      "api:admin:listPopularSmartSearchProducts",
+      { ...eventPage, items },
+      {
+        session: diagnosticSession(data.token),
+        params: pagination,
+      },
+    );
   });
 
 const mediatorPhoneInput = tokenInput.extend({
   mediatorPhone: z.string().trim().max(40).optional().or(z.literal("")),
   mediatorPhones: z.array(z.string().trim().min(3).max(40)).max(20).optional(),
+  platformCommissionPercent: z.number().min(0).max(100).optional(),
   mediatorContacts: z
     .array(
       z.object({
@@ -1287,6 +2062,7 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
   .inputValidator((d) => mediatorPhoneInput.parse(d))
   .handler(async ({ data }) => {
     await authorizeAdmin(data.token);
+    const existingCommissionPercent = await getPlatformCommissionPercent();
     const mediatorContacts = normalizeMediatorContacts(data.mediatorContacts ?? []);
     const mediatorPhones = normalizeMediatorPhones([
       ...mediatorContacts.map((contact) => contact.phone),
@@ -1300,6 +2076,7 @@ export const setMediatorPhone = createServerFn({ method: "POST" })
         mediatorContacts.length > 0
           ? mediatorContacts
           : mediatorPhones.map((phone) => ({ phone, city: "" })),
+      platformCommissionPercent: data.platformCommissionPercent ?? existingCommissionPercent,
       updatedAt: new Date().toISOString(),
     });
     return { ok: true };

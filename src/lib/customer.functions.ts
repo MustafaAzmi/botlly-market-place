@@ -15,13 +15,19 @@ import { z } from "zod";
 import {
   appendEvent,
   listEvents,
+  listEventsByPayloadField,
+  listProjectedEventsPage,
+  latestEventWhere,
   getString,
   getNumber,
+  normalizePageRequest,
   eventTime,
   phoneKey,
   normalizePhone,
   type EventRow,
+  type PageResult,
 } from "@/lib/eventStore.server";
+import { diagnoseServerResult } from "@/lib/egress-diagnostics.server";
 import {
   CAR_COLORS,
   CAR_MAKES,
@@ -30,11 +36,8 @@ import {
   toEnabledCatalogue,
   type CarMake,
 } from "@/lib/car-data";
-import {
-  buildAvailabilityButtons,
-  sendWhatsAppButtons,
-  sendWhatsAppText,
-} from "@/lib/whatsapp/send.server";
+import { normalizeGovernorate } from "@/lib/governorates";
+import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const CUSTOMER_PROVIDER = "botly_customer" as const;
 
@@ -101,7 +104,14 @@ function toCustomer(row: EventRow): CustomerProfile {
 async function findCustomerByPhone(whatsapp: string): Promise<EventRow | null> {
   const key = phoneKey(whatsapp);
   if (!key) return null;
-  const rows = await listEvents(CUSTOMER_PROVIDER);
+  const variants = [...new Set([whatsapp, normalizePhone(whatsapp)])].filter(Boolean);
+  const rows = (
+    await Promise.all(
+      variants.map((variant) =>
+        listEventsByPayloadField(CUSTOMER_PROVIDER, "whatsapp", variant, 1),
+      ),
+    )
+  ).flat();
   return rows.find((row) => phoneKey(getString(row.payload?.whatsapp)) === key) ?? null;
 }
 
@@ -129,12 +139,13 @@ export const signupCustomer = createServerFn({ method: "POST" })
     }
 
     const now = new Date().toISOString();
+    const governorate = normalizeGovernorate(data.governorate);
     const row = await appendEvent(CUSTOMER_PROVIDER, {
       customerId: crypto.randomUUID(),
       whatsapp: data.whatsapp,
       name: data.name,
       landmark: data.landmark,
-      governorate: data.governorate,
+      governorate,
       createdAt: now,
       updatedAt: now,
     });
@@ -148,13 +159,14 @@ export const updateCustomerProfile = createServerFn({ method: "POST" })
     if (!existing) throw new Error("الحساب غير موجود.");
 
     const now = new Date().toISOString();
+    const governorate = normalizeGovernorate(data.governorate);
     const row = await appendEvent(CUSTOMER_PROVIDER, {
       ...(existing.payload ?? {}),
       customerId: customerIdentity(existing),
       whatsapp: data.whatsapp,
       name: data.name,
       landmark: data.landmark,
-      governorate: data.governorate,
+      governorate,
       updatedAt: now,
     });
     return { customer: toCustomer(row) };
@@ -170,6 +182,10 @@ const browseInput = z.object({
   carYear: z.string().trim().max(10).optional().or(z.literal("")),
   color: z.string().trim().max(60).optional().or(z.literal("")),
   governorate: z.string().trim().max(100).optional().or(z.literal("")),
+  searchScope: z.enum(["governorate", "all"]).optional(),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 // Does this product fit the requested manufacture year?
@@ -197,46 +213,46 @@ function liveCatalogueFallback(): CustomerCarCatalogue {
 
 // Merchants hidden from customers (banned / suspended / expired) — same rules
 // as the WhatsApp search path.
-async function loadHiddenMerchants(): Promise<Set<string>> {
+async function loadSearchMerchantMetadata(): Promise<{
+  hidden: Set<string>;
+  governorates: Map<string, string>;
+}> {
   const hidden = new Set<string>();
-  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+  const governorates = new Map<string, string>();
+  const page = await listProjectedEventsPage(
+    "botly_merchant",
+    [
+      "merchant_id:payload->>merchantId",
+      "city:payload->>city",
+      "governorate:payload->>governorate",
+      "banned:payload->>bannedFromBot",
+      "visibility:payload->>visibilityEnabled",
+      "active:payload->>isActive",
+      "suspended_at:payload->>suspendedAt",
+      "subscription_status:payload->>subscriptionStatus",
+      "package_expiry:payload->>packageExpiry",
+    ].join(","),
+    { limit: 100 },
+  ).catch(() => ({ items: [] }));
   const seen = new Set<string>();
-  for (const row of rows) {
-    const p = row.payload ?? {};
-    const id = getString(p.merchantId) || row.id;
+  for (const row of page.items) {
+    const id = getString(row.merchant_id) || row.id;
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    governorates.set(id, getString(row.city) || getString(row.governorate));
     if (
-      p.bannedFromBot === true ||
-      p.bannedFromBot === "true" ||
-      p.visibilityEnabled === "false" ||
-      p.visibilityEnabled === false ||
-      p.isActive === "false" ||
-      p.isActive === false ||
-      (p.suspendedAt && String(p.suspendedAt).trim() !== "") ||
-      p.subscriptionStatus === "expired" ||
-      (p.packageExpiry &&
-        String(p.packageExpiry).trim() !== "" &&
-        new Date(String(p.packageExpiry)) < new Date())
+      getString(row.banned) === "true" ||
+      getString(row.visibility) === "false" ||
+      getString(row.active) === "false" ||
+      Boolean(getString(row.suspended_at).trim()) ||
+      getString(row.subscription_status) === "expired" ||
+      (getString(row.package_expiry).trim() &&
+        new Date(getString(row.package_expiry)) < new Date())
     ) {
       hidden.add(id);
     }
   }
-  return hidden;
-}
-
-async function loadMerchantGovernorates(): Promise<Map<string, string>> {
-  const merchantGovernorates = new Map<string, string>();
-  const rows = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const p = row.payload ?? {};
-    const id = getString(p.merchantId) || row.id;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    merchantGovernorates.set(id, getString(p.city) || getString(p.governorate));
-  }
-  return merchantGovernorates;
+  return { hidden, governorates };
 }
 
 function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
@@ -244,48 +260,95 @@ function estimateDelivery(fromGovernorate: string, toGovernorate: string) {
   return fromGovernorate === toGovernorate ? "تقريباً خلال 24-48 ساعة" : "تقريباً خلال 2-4 أيام";
 }
 
+function projectedNumber(value: unknown): number | undefined {
+  const text = getString(value).trim();
+  if (!text) return undefined;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export const browseCarProducts = createServerFn({ method: "POST" })
   .inputValidator((d) => browseInput.parse(d))
-  .handler(async ({ data }): Promise<CustomerProduct[]> => {
-    const [rows, hiddenMerchants, merchantGovernorates] = await Promise.all([
-      listEvents("botly_product"),
-      loadHiddenMerchants(),
-      loadMerchantGovernorates(),
+  .handler(async ({ data }): Promise<PageResult<CustomerProduct>> => {
+    const pagination = normalizePageRequest(data);
+    const finish = (result: PageResult<CustomerProduct>) =>
+      diagnoseServerResult("api:browseCarProducts", result, {
+        params: pagination,
+      });
+    const [productPage, merchantMetadata] = await Promise.all([
+      listProjectedEventsPage("botly_product", [
+        "product_id:payload->>productId",
+        "title:payload->>title",
+        "description:payload->>description",
+        "discount_price:payload->>discountPrice",
+        "current_price:payload->>currentPrice",
+        "currency:payload->>currency",
+        "merchant_id:payload->>merchantId",
+        "status:payload->>status",
+        "availability:payload->>availability",
+        "quantity:payload->>quantity",
+        "car_make:payload->>carMake",
+        "car_model:payload->>carModel",
+        "car_year:payload->>carYear",
+        "color:payload->>color",
+        "size:payload->>size",
+        "merchant_city:payload->>merchantCity",
+      ].join(","), {
+        page: pagination.page,
+        cursor: pagination.cursor,
+        limit: 100,
+      }),
+      loadSearchMerchantMetadata(),
     ]);
+    const hiddenMerchants = merchantMetadata.hidden;
+    const merchantGovernorates = merchantMetadata.governorates;
+    const rows = productPage.items;
 
     const wantMake = (data.carMake ?? "").trim();
     const wantModel = (data.carModel ?? "").trim();
     const wantYear = (data.carYear ?? "").trim();
     const wantColor = (data.color ?? "").trim();
-    const wantGovernorate = (data.governorate ?? "").trim();
+    const wantGovernorate = normalizeGovernorate(data.governorate ?? "");
+    const searchScope = data.searchScope ?? "governorate";
 
-    if (!wantGovernorate || !wantMake || !wantModel) {
-      return [];
+    if (!wantMake || (searchScope === "governorate" && !wantGovernorate)) {
+      return finish({
+        items: [],
+        page: pagination.page,
+        limit: pagination.limit,
+        nextCursor: null,
+        hasMore: false,
+      });
     }
 
     const results: CustomerProduct[] = [];
     const seen = new Set<string>();
+    let resultCursor: string | null = null;
 
     for (const row of rows) {
-      const p = row.payload ?? {};
-      const productId = getString(p.productId) || row.id;
+      const p: Record<string, unknown> = {
+        title: row.title,
+        description: row.description,
+        carYear: row.car_year,
+      };
+      const productId = getString(row.product_id) || row.id;
       if (seen.has(productId)) continue;
       seen.add(productId); // newest event per product wins
 
-      if (getString(p.status) !== "active") continue;
-      if (getString(p.availability) === "out_of_stock") continue;
-      const quantity = getNumber(p.quantity);
+      if (getString(row.status) !== "active") continue;
+      if (getString(row.availability) === "out_of_stock") continue;
+      const quantity = projectedNumber(row.quantity);
       if (quantity !== undefined && quantity <= 0) continue;
-      if (hiddenMerchants.has(getString(p.merchantId))) continue;
+      if (hiddenMerchants.has(getString(row.merchant_id))) continue;
 
-      const carMake = getString(p.carMake);
-      const carModel = getString(p.carModel);
-      const color = getString(p.color);
-      const merchantId = getString(p.merchantId);
-      const merchantGovernorate = getString(p.merchantCity) || merchantGovernorates.get(merchantId) || "";
+      const carMake = getString(row.car_make);
+      const carModel = getString(row.car_model);
+      const color = getString(row.color);
+      const merchantId = getString(row.merchant_id);
+      const merchantGovernorate = getString(row.merchant_city) || merchantGovernorates.get(merchantId) || "";
 
       // Universal parts ("عام") fit every car, so they pass any make filter.
-      if (wantGovernorate && merchantGovernorate !== wantGovernorate) continue;
+      if (searchScope === "governorate" && wantGovernorate && normalizeGovernorate(merchantGovernorate) !== wantGovernorate) continue;
       if (wantMake && carMake !== wantMake && carMake !== "عام") continue;
       if (
         wantModel &&
@@ -297,33 +360,40 @@ export const browseCarProducts = createServerFn({ method: "POST" })
       if (wantColor && wantColor !== "أخرى" && !color.includes(wantColor)) continue;
       if (!matchesYear(p, wantYear)) continue;
 
-      const primaryImage = getString(p.imageUrl);
-      const extraImages = Array.isArray(p.imageUrls)
-        ? (p.imageUrls as unknown[]).filter(
-            (v): v is string => typeof v === "string" && v.length > 0,
-          )
-        : [];
+      const imageUrls = [`/api/product-image/${encodeURIComponent(productId)}?index=0`];
+      const discountPrice = projectedNumber(row.discount_price);
+      const currentPrice = projectedNumber(row.current_price);
 
-      results.push({
+      if (results.length < pagination.limit) results.push({
         id: productId,
         title: getString(p.title) || getString(p.description) || "منتج",
-        description: getString(p.description),
-        imageUrls: extraImages.length > 0 ? extraImages : primaryImage ? [primaryImage] : [],
-        price: getNumber(p.discountPrice) ?? getNumber(p.currentPrice) ?? 0,
-        originalPrice: getNumber(p.currentPrice) || undefined,
-        currency: getString(p.currency) || "IQD",
+        description: getString(row.description),
+        imageUrls,
+        price: discountPrice ?? currentPrice ?? 0,
+        originalPrice: currentPrice,
+        currency: getString(row.currency) || "IQD",
         color: color || undefined,
-        size: getString(p.size) || undefined,
+        size: getString(row.size) || undefined,
         carMake: carMake || undefined,
         carModel: carModel || undefined,
-        carYear: getString(p.carYear) || undefined,
+        carYear: getString(row.car_year) || undefined,
         merchantGovernorate: merchantGovernorate || undefined,
         deliveryEstimate: estimateDelivery(merchantGovernorate, wantGovernorate),
         quantity,
       });
+      if (results.length === pagination.limit) {
+        resultCursor = eventTime(row as EventRow);
+        break;
+      }
     }
 
-    return results;
+    return finish({
+      items: results,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: resultCursor ?? productPage.nextCursor,
+      hasMore: Boolean(resultCursor) || productPage.hasMore,
+    });
   });
 
 // ---------------------------------------------------------------------------
@@ -334,6 +404,8 @@ type MediatorContact = {
   phone: string;
   city: string;
 };
+
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
 
 function normalizeMediatorPhones(values: string[]): string[] {
   const seen = new Set<string>();
@@ -389,9 +461,17 @@ function filterMediatorContactsByGovernorate(
   contacts: MediatorContact[],
   governorate: string,
 ): MediatorContact[] {
-  const wanted = governorate.trim();
+  const wanted = normalizeGovernorate(governorate);
   if (!wanted) return [];
-  return contacts.filter((contact) => contact.city === wanted);
+  const seen = new Set<string>();
+  return contacts.filter((contact) => {
+    const city = normalizeGovernorate(contact.city);
+    const isMatch = city === wanted || contact.city.trim() === ALL_GOVERNORATES_MEDIATOR;
+    const key = phoneKey(contact.phone);
+    if (!isMatch || !key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // WhatsApp Graph API expects the recipient number without a leading "+".
@@ -405,6 +485,7 @@ async function sendOrderToMediator(phone: string, message: string) {
 
   const primary = await sendWhatsAppText(primaryRecipient, message);
   if (primary.ok) return { phone: primaryRecipient, ...primary };
+  if (primary.status === 0) return { phone: primaryRecipient, ...primary };
 
   // Before the mediator split, this order path sent the normalized number with
   // "+". Keep that as a compatibility fallback for accounts that were already
@@ -451,10 +532,9 @@ async function resolveMerchantContact(
   let merchantId = merchantIdHint;
   let city = "";
 
-  const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
-  for (const row of products) {
+  const product = await latestEventWhere("botly_product", "productId", productId);
+  for (const row of product ? [product] : []) {
     const p = row.payload ?? {};
-    if ((getString(p.productId) || row.id) !== productId) continue;
     whatsapp = getString(p.whatsapp);
     merchantId = merchantId || getString(p.merchantId);
     city = getString(p.merchantCity);
@@ -463,7 +543,12 @@ async function resolveMerchantContact(
 
   let storeName = "";
   if (merchantId) {
-    const merchants = await listEvents("botly_merchant").catch(() => [] as EventRow[]);
+    const merchants = await listEventsByPayloadField(
+      "botly_merchant",
+      "merchantId",
+      merchantId,
+      1,
+    );
     for (const row of merchants) {
       const p = row.payload ?? {};
       if ((getString(p.merchantId) || row.id) !== merchantId) continue;
@@ -477,40 +562,18 @@ async function resolveMerchantContact(
   return { whatsapp, storeName, merchantId, city };
 }
 
-async function sendMerchantAvailabilityQuestion(args: {
-  merchantWhatsapp: string;
-  productTitle: string;
-  currentPrice: number;
-  currency: string;
-  requesterLabel: string;
-}) {
-  if (!args.merchantWhatsapp) return { ok: false, status: 0, error: "Missing merchant phone" };
-  const body = [
-    "يوجد طلب على منتج من Botly:",
-    `المنتج: ${args.productTitle}`,
-    `السعر الحالي: ${args.currentPrice.toLocaleString()} ${args.currency}`,
-    `نوع الطلب: ${args.requesterLabel}`,
-    "",
-    "هل لا يزال المنتج متوفر؟",
-  ].join("\n");
-  return sendWhatsAppButtons(
-    normalizePhone(args.merchantWhatsapp).replace(/^\+/, ""),
-    body,
-    buildAvailabilityButtons(),
-  );
-}
-
 async function resolveOrderProduct(productId: string): Promise<{
   id: string;
   title: string;
   price: number;
   currentPrice: number;
   currency: string;
+  carMake: string;
+  carModel: string;
   merchantId: string;
   merchantGovernorate: string;
 }> {
-  const products = await listEvents("botly_product").catch(() => [] as EventRow[]);
-  const row = products.find((event) => (getString(event.payload?.productId) || event.id) === productId);
+  const row = await latestEventWhere("botly_product", "productId", productId);
   if (!row) throw new Error("المنتج غير موجود حالياً.");
 
   const p = row.payload ?? {};
@@ -532,6 +595,8 @@ async function resolveOrderProduct(productId: string): Promise<{
     price,
     currentPrice: currentPrice ?? price,
     currency: getString(p.currency) || "IQD",
+    carMake: getString(p.carMake),
+    carModel: getString(p.carModel),
     merchantId: getString(p.merchantId),
     merchantGovernorate: getString(p.merchantCity),
   };
@@ -556,7 +621,8 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       readMediatorContacts(),
       resolveMerchantContact(product.id, product.merchantId),
     ]);
-    const orderGovernorate = product.merchantGovernorate || merchant.city;
+    const orderGovernorate = normalizeGovernorate(product.merchantGovernorate || merchant.city);
+    const customerGovernorate = normalizeGovernorate(data.customerGovernorate);
     const mediatorContacts = filterMediatorContactsByGovernorate(
       allMediatorContacts,
       orderGovernorate,
@@ -591,35 +657,32 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       "👤 بيانات الزبون:",
       `الاسم: ${data.customerName}`,
       `الهاتف: ${data.customerPhone}`,
-      `المحافظة: ${data.customerGovernorate}`,
+      `المحافظة: ${customerGovernorate}`,
       `أقرب نقطة دالة: ${data.customerLandmark}`,
     );
     const message = lines.join("\n");
 
     const orderId = crypto.randomUUID();
-    const merchantAvailabilityResult = merchant.whatsapp
-      ? await sendMerchantAvailabilityQuestion({
-          merchantWhatsapp: merchant.whatsapp,
-          productTitle: product.title,
-          currentPrice: product.currentPrice,
-          currency: product.currency,
-          requesterLabel: "زبون",
-        }).catch((error) => ({
-          ok: false,
-          status: 0,
-          error: error instanceof Error ? error.message : String(error),
-        }))
-      : { ok: false, status: 0, error: "Missing merchant phone" };
+    const merchantAvailabilityResult = {
+      ok: false,
+      status: 0,
+      skipped: true,
+      reason: "web_notifications_only",
+    };
 
     // Store the order in the event store for history/admin view (optional).
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "customer_site",
+      requesterType: "customer",
+      requesterPhone: data.customerPhone,
       productId: product.id,
       productTitle: product.title,
       price: product.price,
       currentPrice: product.currentPrice,
       currency: product.currency,
+      carMake: product.carMake,
+      carModel: product.carModel,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
@@ -629,7 +692,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerNumber: data.customerPhone,
-      customerGovernorate: data.customerGovernorate,
+      customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,
@@ -638,30 +701,35 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       createdAt: new Date().toISOString(),
     });
 
-    const sendResults = [];
-    for (const mediatorPhone of mediatorPhones) {
+    const sendResults = await Promise.all(
+      mediatorPhones.map(async (mediatorPhone) => {
       try {
         const result = await sendOrderToMediator(mediatorPhone, message);
-        sendResults.push(result);
+        return result;
       } catch (error) {
-        sendResults.push({
+        return {
           phone: mediatorPhone,
           ok: false,
           status: 0,
           error: error instanceof Error ? error.message : String(error),
-        });
+        };
       }
-    }
+      }),
+    );
 
     const sentCount = sendResults.filter((result) => result.ok).length;
     await appendEvent("botly_order", {
       orderId,
       sourceContext: "customer_site",
+      requesterType: "customer",
+      requesterPhone: data.customerPhone,
       productId: product.id,
       productTitle: product.title,
       price: product.price,
       currentPrice: product.currentPrice,
       currency: product.currency,
+      carMake: product.carMake,
+      carModel: product.carModel,
       merchantId: merchant.merchantId,
       merchantStoreName: merchant.storeName,
       merchantWhatsapp: merchant.whatsapp,
@@ -671,7 +739,7 @@ export const submitProductOrder = createServerFn({ method: "POST" })
       customerName: data.customerName,
       customerPhone: data.customerPhone,
       customerNumber: data.customerPhone,
-      customerGovernorate: data.customerGovernorate,
+      customerGovernorate,
       customerLandmark: data.customerLandmark,
       mediatorPhone: mediatorPhones[0],
       mediatorPhones,

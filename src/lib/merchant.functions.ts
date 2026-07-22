@@ -10,11 +10,32 @@ import {
   toEnabledCatalogue,
   type CarMake,
 } from "@/lib/car-data";
+import { normalizeGovernorate } from "@/lib/governorates";
+import {
+  diagnoseServerResult,
+  diagnosticIdentity,
+  diagnosticSession,
+  recordEgressDiagnostic,
+} from "@/lib/egress-diagnostics.server";
+import {
+  getEventById as getSharedEventById,
+  listEventsByPayloadField as listSharedEventsByPayloadField,
+  listEventsByPayloadFieldPage as listSharedEventsByPayloadFieldPage,
+  listProjectedEventsByPayloadFieldPage,
+  normalizePageRequest,
+  type PageRequest,
+  type PageResult,
+} from "@/lib/eventStore.server";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/whatsapp/send.server";
 
 const MERCHANT_PROVIDER = "botly_merchant";
 const PRODUCT_PROVIDER = "botly_product";
 const SESSION_PROVIDER = "botly_session";
+const MERCHANT_OTP_PROVIDER = "botly_merchant_otp";
+const WHATSAPP_OTP_TEMPLATE_NAME = process.env.WHATSAPP_OTP_TEMPLATE_NAME?.trim() || "";
+const WHATSAPP_OTP_TEMPLATE_LANGUAGE = process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE?.trim() || "ar";
 const SESSION_TTL_DAYS = 30;
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
 type EventStore = "whatsapp_webhook_events" | "broadcasts";
 
@@ -42,6 +63,12 @@ export type MerchantProfile = {
   logoUrl?: string;
   coverUrl?: string;
   bannedFromBot: boolean;
+  carMakes: string[];
+  carModels: string[];
+  specialties: string[];
+  servesAllGovernorates: boolean;
+  accountStatus: "active" | "pending" | "inactive" | "suspended";
+  firstLoginCompleted: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -111,10 +138,29 @@ const signupInput = authInput.extend({
   storeName: z.string().trim().min(1).max(140),
   city: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(200).optional().or(z.literal("")),
+  otpCode: z.string().trim().min(4).max(8),
+  carMakes: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  carModels: z.array(z.string().trim().min(1).max(100)).max(200).optional(),
+  specialties: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  servesAllGovernorates: z.boolean().optional(),
+});
+
+const merchantOtpInput = z.object({
+  whatsapp: z.string().trim().min(3).max(40),
+  purpose: z.enum(["signup", "reset"]).default("signup"),
+});
+
+const merchantPasswordResetInput = authInput.extend({
+  otpCode: z.string().trim().min(4).max(8),
 });
 
 const tokenInput = z.object({
   token: z.string().trim().min(20).max(300),
+});
+const paginatedTokenInput = tokenInput.extend({
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
 const profileInput = tokenInput.extend({
@@ -149,7 +195,7 @@ const imageUrlSchema = z
 
 const productInput = tokenInput.extend({
   title: z.string().trim().min(1).max(140),
-  description: z.string().trim().min(1).max(280),
+  description: z.string().trim().max(280).optional().or(z.literal("")),
   imageUrl: imageUrlSchema,
   // Additional photos beyond the primary one (up to 6 total).
   imageUrls: z.array(imageUrlSchema).max(6).optional(),
@@ -236,6 +282,18 @@ async function getMerchantSalesResetAt(merchantId: string) {
   return row ? getString(row.payload?.resetAt) || eventTime(row) : "";
 }
 
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
+}
+
 async function getMerchantSalesReport(merchantId: string): Promise<MerchantSalesReport> {
   const resetAt = await getMerchantSalesResetAt(merchantId);
   const orderRows = latestByPayloadId(await listEvents("botly_order"), "orderId");
@@ -313,6 +371,10 @@ async function generateStoreSlug(storeName: string): Promise<string> {
 
 function toProfile(row: EventRow): MerchantProfile {
   const payload = row.payload ?? {};
+  const stringList = (value: unknown) =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
   return {
     id: merchantIdentity(row),
     storeName: getString(payload.storeName),
@@ -328,6 +390,17 @@ function toProfile(row: EventRow): MerchantProfile {
     logoUrl: getString(payload.logoUrl) || undefined,
     coverUrl: getString(payload.coverUrl) || undefined,
     bannedFromBot: payload.bannedFromBot === true,
+    carMakes: stringList(payload.carMakes),
+    carModels: stringList(payload.carModels),
+    specialties: stringList(payload.specialties),
+    servesAllGovernorates: payload.servesAllGovernorates === true,
+    accountStatus:
+      getString(payload.status) === "pending" ||
+      getString(payload.status) === "inactive" ||
+      getString(payload.status) === "suspended"
+        ? getString(payload.status) as "pending" | "inactive" | "suspended"
+        : "active",
+    firstLoginCompleted: payload.firstLoginCompleted !== false,
     createdAt: getString(payload.createdAt) || eventTime(row),
     updatedAt: getString(payload.updatedAt) || eventTime(row),
   };
@@ -356,6 +429,23 @@ function toProduct(row: EventRow): MerchantProduct {
     carModel: getString(payload.carModel) || undefined,
     carYear: getString(payload.carYear) || undefined,
     createdAt: getString(payload.createdAt) || eventTime(row),
+  };
+}
+
+function toProductSummary(row: EventRow): MerchantProduct {
+  const product = toProduct(row);
+  const imageUrls = product.imageUrls.map((image, index) =>
+    /^data:image\//i.test(image)
+      ? `/api/product-image/${encodeURIComponent(product.id)}?index=${index}`
+      : image,
+  );
+  return {
+    ...product,
+    imageUrl:
+      /^data:image\//i.test(product.imageUrl)
+        ? `/api/product-image/${encodeURIComponent(product.id)}?index=0`
+        : product.imageUrl,
+    imageUrls,
   };
 }
 
@@ -390,8 +480,47 @@ function randomToken() {
     .replace(/=+$/g, "");
 }
 
+function randomOtpCode() {
+  return String(100000 + Math.floor(Math.random() * 900000));
+}
+
+function toWhatsAppRecipient(phone: string) {
+  return normalizePhone(phone).replace(/^\+/, "");
+}
+
+function uniqueStrings(values: string[] | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
 async function hashPassword(password: string, salt: string) {
   return sha256(`${salt}:${password}`);
+}
+
+async function hashOtp(phone: string, purpose: "signup" | "reset", code: string) {
+  return sha256(`${phoneKey(phone)}:${purpose}:${code.trim()}`);
+}
+
+async function assertValidMerchantOtp(phone: string, purpose: "signup" | "reset", code: string) {
+  const key = phoneKey(phone);
+  const rows = await listSharedEventsByPayloadField(MERCHANT_OTP_PROVIDER, "phoneKey", key, 20);
+  const now = Date.now();
+  for (const row of rows) {
+    const payload = row.payload ?? {};
+    if (getString(payload.purpose) !== purpose) continue;
+    if (getString(payload.usedAt)) continue;
+    const expiresAt = Date.parse(getString(payload.expiresAt));
+    if (!expiresAt || expiresAt < now) continue;
+    const expected = getString(payload.codeHash);
+    const actual = await hashOtp(phone, purpose, code);
+    if (expected && expected === actual) {
+      await insertEvent(MERCHANT_OTP_PROVIDER, {
+        ...payload,
+        usedAt: new Date().toISOString(),
+      });
+      return;
+    }
+  }
+  throw new Error("رمز التحقق غير صحيح أو منتهي الصلاحية.");
 }
 
 async function getEventStore(): Promise<EventStore> {
@@ -401,50 +530,88 @@ async function getEventStore(): Promise<EventStore> {
   return resolvedEventStore;
 }
 
-async function listEvents(provider: string) {
+async function listEvents(provider: string, request: PageRequest = {}) {
   const store = await getEventStore();
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const offset = (page - 1) * limit;
 
   if (store === "broadcasts") {
-    const list = await supabaseAdmin
+    let query = supabaseAdmin
       .from("broadcasts")
       .select("id,body,created_at")
       .eq("audience", `botly:${provider}`)
-      .order("created_at", { ascending: false })
-      .limit(5000);
+      .order("created_at", { ascending: false });
+    query = cursor
+      ? query.lt("created_at", cursor).limit(limit)
+      : query.range(offset, offset + limit - 1);
+    const list = await query;
     if (list.error) throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", list.error));
     return (list.data ?? []).map((row) => fromBroadcastRow(row as Record<string, unknown>));
   }
 
-  const primary = await supabaseAdmin
+  let primaryQuery = supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,created_at")
     .eq("source", "botly")
     .eq("event_type", provider)
-    .order("created_at", { ascending: false })
-    .limit(5000);
+    .order("created_at", { ascending: false });
+  primaryQuery = cursor
+    ? primaryQuery.lt("created_at", cursor).limit(limit)
+    : primaryQuery.range(offset, offset + limit - 1);
+  const primary = await primaryQuery;
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:merchantListEvents:${provider}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
 
-  const fallback = await supabaseAdmin
+  let fallbackQuery = supabaseAdmin
     .from("whatsapp_webhook_events")
     .select("id,payload,received_at")
     .eq("provider" as never, provider as never)
-    .order("received_at", { ascending: false })
-    .limit(5000);
+    .order("received_at", { ascending: false });
+  fallbackQuery = cursor
+    ? fallbackQuery.lt("received_at", cursor).limit(limit)
+    : fallbackQuery.range(offset, offset + limit - 1);
+  const fallback = await fallbackQuery;
 
   if (isMissingTableError(fallback.error)) {
     resolvedEventStore = "broadcasts";
-    return listEvents(provider);
+    return listEvents(provider, request);
   }
   if (fallback.error)
     throw new Error(explainDbError("تعذر قراءة بيانات المتجر من قاعدة البيانات", fallback.error));
-  return (fallback.data ?? []) as unknown as EventRow[];
+  const rows = (fallback.data ?? []) as unknown as EventRow[];
+  recordEgressDiagnostic({
+    route: `db:merchantListEvents:${provider}:legacy`,
+    payload: rows,
+    params: { page, limit, cursor },
+  });
+  return rows;
 }
 
 async function findMerchantByPhone(whatsapp: string) {
   const key = phoneKey(whatsapp);
   if (!key) return null;
-  const rows = await listEvents(MERCHANT_PROVIDER);
+  const variants = [...new Set([whatsapp, normalizePhone(whatsapp)])].filter(Boolean);
+  const rows = (
+    await Promise.all(
+      variants.flatMap((variant) => [
+        listSharedEventsByPayloadField("botly_merchant", "whatsapp", variant, 1),
+        listSharedEventsByPayloadField(
+          "botly_merchant",
+          "whatsappNormalized",
+          variant,
+          1,
+        ),
+      ]),
+    )
+  ).flat();
   return (
     rows.find((row) => {
       const payload = row.payload ?? {};
@@ -458,17 +625,13 @@ async function findMerchantByPhone(whatsapp: string) {
 
 async function findMerchantById(id: string) {
   if (!id || !id.trim()) return null;
-  const store = await getEventStore();
-
-  // Avoid direct DB filtering by `id` because some projects use bigint ids.
-  // We filter in-memory by business identity, which is always string-safe.
-  if (store === "broadcasts") {
-    const rows = await listEvents(MERCHANT_PROVIDER);
-    return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
-  }
-
-  const rows = await listEvents(MERCHANT_PROVIDER);
-  return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
+  const rows = await listSharedEventsByPayloadField(
+    "botly_merchant",
+    "merchantId",
+    id,
+    1,
+  );
+  return rows[0] ?? getSharedEventById("botly_merchant", id);
 }
 
 async function insertEvent(provider: string, payload: Record<string, unknown>) {
@@ -541,7 +704,12 @@ async function createSession(merchant: EventRow) {
 
 export async function getAuthorizedMerchant(token: string) {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents(SESSION_PROVIDER);
+  const sessions = await listSharedEventsByPayloadField(
+    "botly_session",
+    "tokenHash",
+    tokenHash,
+    1,
+  );
   const session = sessions.find((row) => {
     const payload = row.payload ?? {};
     return (
@@ -575,7 +743,7 @@ function completionScore(profile: MerchantProfile, productCount: number) {
 
 function buildManualProductKeywords(data: {
   title: string;
-  description: string;
+  description?: string;
   size?: string;
   color?: string;
 }) {
@@ -590,41 +758,97 @@ export const signupMerchant = createServerFn({ method: "POST" })
   .inputValidator((d) => signupInput.parse(d))
   .handler(async ({ data }) => {
     const existing = await findMerchantByPhone(data.whatsapp);
-    if (existing) throw new Error("هذا الرقم مسجل مسبقاً. سجل دخول بدل إنشاء حساب جديد.");
+    if (existing) throw new Error("رقم الواتساب مستخدم بحساب تاجر آخر.");
 
-    const salt = randomToken();
+    await assertValidMerchantOtp(data.whatsapp, "signup", data.otpCode);
+
     const now = new Date().toISOString();
-    const passwordHash = await hashPassword(data.password, salt);
-    const whatsappNormalized = normalizePhone(data.whatsapp);
     const merchantId = crypto.randomUUID();
-
+    const salt = randomToken();
     const storeSlug = await generateStoreSlug(data.storeName);
-
-    const row = await insertEvent(MERCHANT_PROVIDER, {
+    const payload = {
       merchantId,
-      storeName: data.storeName,
+      storeName: data.storeName.trim(),
       storeSlug,
-      whatsapp: data.whatsapp,
-      whatsappNormalized,
+      whatsapp: data.whatsapp.trim(),
+      whatsappNormalized: normalizePhone(data.whatsapp),
       email: data.email || "",
-      passwordSalt: salt,
-      passwordHash,
-      bio: "",
-      city: data.city,
-      address: "",
-      latitude: undefined,
-      longitude: undefined,
-      deliveryPhone: "",
-      logoUrl: "",
-      coverUrl: "",
+      city: normalizeGovernorate(data.city),
+      status: "active",
+      isActive: true,
+      visibilityEnabled: true,
       bannedFromBot: false,
+      firstLoginCompleted: true,
+      passwordSalt: salt,
+      passwordHash: await hashPassword(data.password, salt),
+      carMakes: uniqueStrings(data.carMakes),
+      carModels: uniqueStrings(data.carModels),
+      specialties: uniqueStrings(data.specialties),
+      servesAllGovernorates: data.servesAllGovernorates === true,
       createdAt: now,
       updatedAt: now,
-    });
-
-    const profile = toProfile(row);
+      createdBy: "merchant_self_signup",
+    };
+    const row = await insertEvent(MERCHANT_PROVIDER, payload);
     const token = await createSession(row);
-    return { token, profile };
+    return { token, profile: toProfile(row) };
+  });
+
+export const requestMerchantOtp = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantOtpInput.parse(d))
+  .handler(async ({ data }) => {
+    const code = randomOtpCode();
+    const phone = normalizePhone(data.whatsapp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await insertEvent(MERCHANT_OTP_PROVIDER, {
+      otpId: crypto.randomUUID(),
+      phone,
+      phoneKey: phoneKey(phone),
+      purpose: data.purpose,
+      codeHash: await hashOtp(phone, data.purpose, code),
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
+    const label = data.purpose === "reset" ? "استرجاع كلمة مرور التاجر" : "تسجيل تاجر جديد";
+    const message = `رمز تحقق Botlly لـ ${label}: ${code}\nينتهي خلال 10 دقائق.`;
+    const recipient = toWhatsAppRecipient(phone);
+    const templateResult = WHATSAPP_OTP_TEMPLATE_NAME
+      ? await sendWhatsAppTemplate(
+          recipient,
+          WHATSAPP_OTP_TEMPLATE_NAME,
+          WHATSAPP_OTP_TEMPLATE_LANGUAGE,
+          [label, code, "10"],
+        )
+      : null;
+    const result = templateResult?.ok
+      ? templateResult
+      : await sendWhatsAppText(recipient, message);
+    if (!result.ok) {
+      throw new Error(
+        result.error ||
+          "تعذر إرسال رمز OTP عبر واتساب. تأكد من إعداد قالب WhatsApp OTP في Meta.",
+      );
+    }
+    return { ok: true, expiresAt, sent: true, status: result.status, channel: templateResult?.ok ? "template" : "text" };
+  });
+
+export const resetMerchantPassword = createServerFn({ method: "POST" })
+  .inputValidator((d) => merchantPasswordResetInput.parse(d))
+  .handler(async ({ data }) => {
+    const row = await findMerchantByPhone(data.whatsapp);
+    if (!row) throw new Error("رقم الواتساب غير مسجل.");
+    await assertValidMerchantOtp(data.whatsapp, "reset", data.otpCode);
+    const salt = randomToken();
+    const updated = await insertEvent(MERCHANT_PROVIDER, {
+      ...row.payload,
+      merchantId: merchantIdentity(row),
+      passwordSalt: salt,
+      passwordHash: await hashPassword(data.password, salt),
+      updatedAt: new Date().toISOString(),
+      passwordResetAt: new Date().toISOString(),
+    });
+    const token = await createSession(updated);
+    return { token, profile: toProfile(updated) };
   });
 
 export const loginMerchant = createServerFn({ method: "POST" })
@@ -670,6 +894,7 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
     const currentPayload = row.payload ?? {};
     const nextPhone = normalizePhone(data.whatsapp);
     const currentPhone = getString(currentPayload.whatsappNormalized);
+    const city = data.city ? normalizeGovernorate(data.city) : getString(currentPayload.city);
 
     if (nextPhone !== currentPhone) {
       const existing = await findMerchantByPhone(data.whatsapp);
@@ -685,7 +910,7 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
       whatsapp: data.whatsapp,
       whatsappNormalized: nextPhone,
       bio: data.bio || "",
-      city: data.city || getString(currentPayload.city),
+      city,
       address: data.address || "",
       latitude: data.latitude,
       longitude: data.longitude,
@@ -698,6 +923,13 @@ export const updateMerchantProfile = createServerFn({ method: "POST" })
 
     const updated = await insertEvent(MERCHANT_PROVIDER, payload);
     return toProfile(updated);
+  });
+
+export const getMerchantPlatformCommission = createServerFn({ method: "POST" })
+  .inputValidator((d) => tokenInput.parse(d))
+  .handler(async ({ data }) => {
+    await getAuthorizedMerchant(data.token);
+    return { platformCommissionPercent: await getPlatformCommissionPercent() };
   });
 
 export const createMerchantProduct = createServerFn({ method: "POST" })
@@ -731,7 +963,7 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       source: "manual",
       platform: "manual",
       title: data.title,
-      description: data.description,
+      description: data.description || "",
       imageUrl: imageUrls[0],
       imageUrls,
       currentPrice: data.currentPrice,
@@ -754,15 +986,64 @@ export const createMerchantProduct = createServerFn({ method: "POST" })
       updatedAt: now,
     });
 
-    return toProduct(row);
+    return toProductSummary(row);
   });
 
 export const listMerchantProducts = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }) => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<MerchantProduct>> => {
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents(PRODUCT_PROVIDER);
+    const pagination = normalizePageRequest(data);
+    const productPage = await listProjectedEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      [
+        "product_id:payload->>productId",
+        "merchant_id:payload->>merchantId",
+        "title:payload->>title",
+        "description:payload->>description",
+        "current_price:payload->currentPrice",
+        "discount_price:payload->discountPrice",
+        "currency:payload->>currency",
+        "size:payload->>size",
+        "color:payload->>color",
+        "quantity:payload->quantity",
+        "car_make:payload->>carMake",
+        "car_model:payload->>carModel",
+        "car_year:payload->>carYear",
+        "status:payload->>status",
+        "deleted_at:payload->>deletedAt",
+        "created_at_value:payload->>createdAt",
+      ].join(","),
+      pagination,
+    );
+    const rows: EventRow[] = productPage.items.map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      received_at: row.received_at,
+      payload: {
+        productId: row.product_id,
+        merchantId: row.merchant_id,
+        title: row.title,
+        description: row.description,
+        imageUrl: `/api/product-image/${encodeURIComponent(getString(row.product_id) || row.id)}?index=0`,
+        imageUrls: [`/api/product-image/${encodeURIComponent(getString(row.product_id) || row.id)}?index=0`],
+        currentPrice: row.current_price,
+        discountPrice: row.discount_price,
+        currency: row.currency,
+        size: row.size,
+        color: row.color,
+        quantity: row.quantity,
+        carMake: row.car_make,
+        carModel: row.car_model,
+        carYear: row.car_year,
+        status: row.status,
+        deletedAt: row.deleted_at,
+        createdAt: row.created_at_value,
+      },
+    }));
     // Append-only store: edits add rows with the same productId, so keep
     // only the newest event per product (rows come newest first).
     const seen = new Set<string>();
@@ -773,10 +1054,20 @@ export const listMerchantProducts = createServerFn({ method: "POST" })
       if (seen.has(productId)) continue;
       seen.add(productId);
       if (isDeletedProduct(row)) continue;
-      const product = toProduct(row);
+      const product = toProductSummary(row);
       products.push(product);
     }
-    return products;
+    return diagnoseServerResult("api:listMerchantProducts", {
+      items: products.slice(0, pagination.limit),
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: productPage.nextCursor,
+      hasMore: productPage.hasMore,
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 export const getMerchantProduct = createServerFn({ method: "POST" })
@@ -784,7 +1075,12 @@ export const getMerchantProduct = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents(PRODUCT_PROVIDER);
+    const rows = await listSharedEventsByPayloadField(
+      "botly_product",
+      "productId",
+      data.productId,
+      100,
+    );
     const row = rows.find(
       (row) =>
         !isDeletedProduct(row) &&
@@ -792,13 +1088,16 @@ export const getMerchantProduct = createServerFn({ method: "POST" })
         (getString(row.payload?.productId) === data.productId || row.id === data.productId),
     );
     if (!row) throw new Error("لم يتم العثور على المنتج.");
-    return toProduct(row);
+    return diagnoseServerResult("api:getMerchantProduct", toProduct(row), {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+    });
   });
 
 const updateProductInput = tokenInput.extend({
   productId: z.string().min(1),
   title: z.string().trim().min(1).max(140).optional(),
-  description: z.string().trim().min(1).max(280).optional(),
+  description: z.string().trim().max(280).optional().or(z.literal("")),
   imageUrl: imageUrlSchema.optional(),
   imageUrls: z.array(imageUrlSchema).max(6).optional(),
   currentPrice: z.number().min(0).max(999_999_999).optional(),
@@ -817,7 +1116,12 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents(PRODUCT_PROVIDER);
+    const rows = await listSharedEventsByPayloadField(
+      "botly_product",
+      "productId",
+      data.productId,
+      100,
+    );
     const row = rows.find(
       (row) =>
         !isDeletedProduct(row) &&
@@ -827,9 +1131,11 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     if (!row) throw new Error("لم يتم العثور على المنتج.");
 
     const currentPayload = row.payload ?? {};
+    const nextDescription =
+      data.description !== undefined ? data.description : getString(currentPayload.description);
     const keywords = buildManualProductKeywords({
       title: data.title || getString(currentPayload.title),
-      description: data.description || getString(currentPayload.description),
+      description: nextDescription,
       size: data.size || getString(currentPayload.size),
       color: data.color || getString(currentPayload.color),
     });
@@ -840,7 +1146,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
 
     const searchText = [
       data.title || getString(currentPayload.title),
-      data.description || getString(currentPayload.description),
+      nextDescription,
       data.color || getString(currentPayload.color),
       data.size || getString(currentPayload.size),
       carMake,
@@ -869,7 +1175,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
       merchantId,
       whatsapp: getString(merchant.payload?.whatsapp) || getString(currentPayload.whatsapp),
       title: data.title || getString(currentPayload.title),
-      description: data.description || getString(currentPayload.description),
+      description: nextDescription,
       imageUrl: imageUrls[0] || data.imageUrl || getString(currentPayload.imageUrl),
       imageUrls,
       currentPrice: data.currentPrice ?? getNumber(currentPayload.currentPrice),
@@ -919,7 +1225,7 @@ export const updateMerchantProduct = createServerFn({ method: "POST" })
     }
 
     const updated = await insertEvent(PRODUCT_PROVIDER, payload);
-    return toProduct(updated);
+    return toProductSummary(updated);
   });
 
 const deleteProductInput = tokenInput.extend({
@@ -934,7 +1240,12 @@ export const deleteMerchantProduct = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents(PRODUCT_PROVIDER);
+    const rows = await listSharedEventsByPayloadField(
+      "botly_product",
+      "productId",
+      data.productId,
+      100,
+    );
     const row = rows.find(
       (row) =>
         !isDeletedProduct(row) &&
@@ -1020,11 +1331,11 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
       if (seen.has(productId)) continue;
       seen.add(productId);
       if (isDeletedProduct(row)) continue;
-      const product = toProduct(row);
+      const product = toProductSummary(row);
       products.push(product);
     }
 
-    return {
+    return diagnoseServerResult("api:getMerchantDashboard", {
       profile,
       products,
       stats: {
@@ -1035,7 +1346,10 @@ export const getMerchantDashboard = createServerFn({ method: "POST" })
         completion: completionScore(profile, products.length),
       },
       salesReport,
-    } satisfies MerchantDashboard;
+    } satisfies MerchantDashboard, {
+      user: diagnosticIdentity(profile.id),
+      session: diagnosticSession(data.token),
+    });
   });
 
 export type MerchantOrder = {
@@ -1055,11 +1369,18 @@ export type MerchantOrder = {
 // /dashboard/orders so the merchant always sees what the bot sold, even when
 // the order was forwarded straight to the delivery company.
 export const listMerchantOrders = createServerFn({ method: "POST" })
-  .inputValidator((d) => tokenInput.parse(d))
-  .handler(async ({ data }) => {
+  .inputValidator((d) => paginatedTokenInput.parse(d))
+  .handler(async ({ data }): Promise<PageResult<MerchantOrder>> => {
     const merchant = await getAuthorizedMerchant(data.token);
     const merchantId = merchantIdentity(merchant);
-    const rows = await listEvents("botly_order");
+    const pagination = normalizePageRequest(data);
+    const orderPage = await listSharedEventsByPayloadFieldPage(
+      "botly_order",
+      "merchantId",
+      merchantId,
+      pagination,
+    );
+    const rows = orderPage.items;
 
     // The bot appends a second event with the same orderId when the merchant
     // answers the confirmation buttons — keep only the newest event per order
@@ -1072,7 +1393,7 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
       return true;
     });
 
-    return latestPerOrder
+    const items = latestPerOrder
       .filter((row) => getString(row.payload?.merchantId) === merchantId)
       .map((row) => {
         const p = row.payload ?? {};
@@ -1088,7 +1409,19 @@ export const listMerchantOrders = createServerFn({ method: "POST" })
           merchantNotified: p.merchantNotified === true,
           createdAt: getString(p.createdAt) || getString(row.created_at) || "",
         } satisfies MerchantOrder;
-      });
+      })
+      .slice(0, pagination.limit);
+    return diagnoseServerResult("api:listMerchantOrders", {
+      items,
+      page: pagination.page,
+      limit: pagination.limit,
+      nextCursor: orderPage.nextCursor,
+      hasMore: orderPage.hasMore,
+    }, {
+      user: diagnosticIdentity(merchantId),
+      session: diagnosticSession(data.token),
+      params: pagination,
+    });
   });
 
 // Merchant-facing car catalogue: only enabled items show in product forms.
@@ -1105,6 +1438,19 @@ export const getEnabledCarCatalogueForMerchant = createServerFn({ method: "POST"
     // Same single source as the customer side: newest parseable catalogue
     // event from the admin panel.
     const rows = await listEvents("botly_catalogue_config");
+    for (const row of rows) {
+      const config = parseCatalogueConfig(row.payload);
+      if (config) {
+        const enabled = toEnabledCatalogue(config);
+        if (enabled.makes.length || enabled.colors.length || enabled.years.length) return enabled;
+      }
+    }
+    return { makes: CAR_MAKES, colors: CAR_COLORS, years: CAR_YEARS };
+  });
+
+export const getPublicMerchantSignupCatalogue = createServerFn({ method: "POST" })
+  .handler(async (): Promise<MerchantCarCatalogue> => {
+    const rows = await listEvents("botly_catalogue_config").catch(() => [] as EventRow[]);
     for (const row of rows) {
       const config = parseCatalogueConfig(row.payload);
       if (config) {

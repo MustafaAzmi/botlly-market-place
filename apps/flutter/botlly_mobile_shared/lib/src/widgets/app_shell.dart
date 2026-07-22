@@ -40,8 +40,35 @@ class PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title), actions: actions),
+      appBar: AppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _BotllyLogoMark(),
+            const SizedBox(width: 8),
+            Text(title),
+          ],
+        ),
+        actions: actions,
+      ),
       body: SafeArea(child: child),
+    );
+  }
+}
+
+class _BotllyLogoMark extends StatelessWidget {
+  const _BotllyLogoMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 18),
     );
   }
 }

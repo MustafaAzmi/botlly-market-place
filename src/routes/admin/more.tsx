@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Coins, Package, Send, Truck, Users } from "lucide-react";
+import { Coins, Package, Send, ShieldCheck, Truck, Users } from "lucide-react";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { requireAdminClient } from "@/lib/adminGuard";
@@ -11,6 +11,12 @@ export const Route = createFileRoute("/admin/more")({
 });
 
 const links = [
+  {
+    to: "/admin/supervisors",
+    icon: ShieldCheck,
+    title: "المشرفون",
+    desc: "إنشاء المشرفين وتفعيل أو تعطيل حساباتهم.",
+  },
   {
     to: "/admin/customers",
     icon: Users,

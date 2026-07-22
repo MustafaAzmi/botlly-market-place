@@ -8,7 +8,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { getNumber, getString, listEvents, type EventRow } from "@/lib/eventStore.server";
+import { diagnoseServerResult } from "@/lib/egress-diagnostics.server";
+import {
+  getProjectedEventByPayloadField,
+  getString,
+  listProjectedEventsByPayloadFieldPage,
+  normalizePageRequest,
+} from "@/lib/eventStore.server";
 
 export type PublicStoreProduct = {
   id: string;
@@ -20,6 +26,8 @@ export type PublicStoreProduct = {
   currency: string;
   size?: string;
   color?: string;
+  carModel?: string;
+  carYear?: string;
   quantity?: number;
 };
 
@@ -32,6 +40,10 @@ export type PublicStore = {
   coverUrl?: string;
   whatsapp?: string;
   products: PublicStoreProduct[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 // Same effective-visibility rules the bot search applies (flags may be stored
@@ -47,66 +59,126 @@ function isHiddenMerchant(p: Record<string, unknown>): boolean {
   return false;
 }
 
-const slugInput = z.object({ slug: z.string().trim().min(1).max(80) });
+function projectedNumber(value: unknown): number | undefined {
+  const text = getString(value).trim();
+  if (!text) return undefined;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+const slugInput = z.object({
+  slug: z.string().trim().min(1).max(80),
+  page: z.number().int().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().trim().max(100).optional().or(z.literal("")),
+});
 
 export const getPublicStore = createServerFn({ method: "POST" })
   .inputValidator((d) => slugInput.parse(d))
   .handler(async ({ data }): Promise<PublicStore | null> => {
+    const pagination = normalizePageRequest(data);
+    const finish = (result: PublicStore | null) =>
+      diagnoseServerResult("api:getPublicStore", result, {
+        user: data.slug,
+        params: pagination,
+      });
     // Merchants are event-sourced: newest event per merchantId is the current
     // state. Match the CURRENT state's slug only, so renamed slugs don't keep
     // serving the store under an old address.
-    const merchantRows = await listEvents("botly_merchant");
-    const seenMerchant = new Set<string>();
-    let merchant: EventRow | null = null;
-    for (const row of merchantRows) {
-      const id = getString(row.payload?.merchantId) || row.id;
-      if (seenMerchant.has(id)) continue;
-      seenMerchant.add(id);
-      if (getString(row.payload?.storeSlug) === data.slug) {
-        merchant = row;
-        break;
-      }
-    }
-    if (!merchant) return null;
+    const merchant = await getProjectedEventByPayloadField(
+      "botly_merchant",
+      "storeSlug",
+      data.slug,
+      [
+        "merchant_id:payload->>merchantId",
+        "store_name:payload->>storeName",
+        "bio:payload->>bio",
+        "address:payload->>address",
+        "whatsapp:payload->>whatsapp",
+        "banned:payload->bannedFromBot",
+        "visibility:payload->visibilityEnabled",
+        "active:payload->isActive",
+        "suspended_at:payload->>suspendedAt",
+        "subscription_status:payload->>subscriptionStatus",
+        "package_expiry:payload->>packageExpiry",
+      ].join(","),
+    );
+    if (!merchant) return finish(null);
 
-    const p = merchant.payload ?? {};
-    if (isHiddenMerchant(p)) return null;
+    const p: Record<string, unknown> = {
+      bannedFromBot: merchant.banned,
+      visibilityEnabled: merchant.visibility,
+      isActive: merchant.active,
+      suspendedAt: merchant.suspended_at,
+      subscriptionStatus: merchant.subscription_status,
+      packageExpiry: merchant.package_expiry,
+    };
+    if (isHiddenMerchant(p)) return finish(null);
 
-    const merchantId = getString(p.merchantId) || merchant.id;
+    const merchantId = getString(merchant.merchant_id) || merchant.id;
 
     // Active products, latest event per productId (append-only log).
-    const productRows = await listEvents("botly_product");
+    const productPage = await listProjectedEventsByPayloadFieldPage(
+      "botly_product",
+      "merchantId",
+      merchantId,
+      [
+        "product_id:payload->>productId",
+        "merchant_id:payload->>merchantId",
+        "status:payload->>status",
+        "title:payload->>title",
+        "description:payload->>description",
+        "current_price:payload->>currentPrice",
+        "discount_price:payload->>discountPrice",
+        "currency:payload->>currency",
+        "size:payload->>size",
+        "color:payload->>color",
+        "car_model:payload->>carModel",
+        "car_year:payload->>carYear",
+        "quantity:payload->>quantity",
+      ].join(","),
+      pagination,
+    );
+    const productRows = productPage.items;
     const seenProduct = new Set<string>();
     const products: PublicStoreProduct[] = [];
     for (const row of productRows) {
-      const pp = row.payload ?? {};
-      const pid = getString(pp.productId) || row.id;
+      const pid = getString(row.product_id) || row.id;
       if (seenProduct.has(pid)) continue;
       seenProduct.add(pid);
-      if (getString(pp.merchantId) !== merchantId) continue;
-      if ((getString(pp.status) || "active") !== "active") continue;
+      if (getString(row.merchant_id) !== merchantId) continue;
+      if ((getString(row.status) || "active") !== "active") continue;
+      const currentPrice = projectedNumber(row.current_price);
+      const discountPrice = projectedNumber(row.discount_price);
+      const quantity = projectedNumber(row.quantity);
       products.push({
         id: pid,
-        title: getString(pp.title) || getString(pp.description) || "منتج",
-        description: getString(pp.description),
-        imageUrl: getString(pp.imageUrl),
-        price: getNumber(pp.currentPrice) ?? 0,
-        discountPrice: getNumber(pp.discountPrice),
-        currency: getString(pp.currency) || "IQD",
-        size: getString(pp.size) || undefined,
-        color: getString(pp.color) || undefined,
-        quantity: getNumber(pp.quantity),
+        title: getString(row.title) || getString(row.description) || "منتج",
+        description: getString(row.description),
+        imageUrl: `/api/product-image/${encodeURIComponent(pid)}?index=0`,
+        price: currentPrice ?? 0,
+        discountPrice,
+        currency: getString(row.currency) || "IQD",
+        size: getString(row.size) || undefined,
+        color: getString(row.color) || undefined,
+        carModel: getString(row.car_model) || undefined,
+        carYear: getString(row.car_year) || undefined,
+        quantity,
       });
     }
 
-    return {
-      storeName: getString(p.storeName) || "متجر",
+    return finish({
+      storeName: getString(merchant.store_name) || "متجر",
       storeSlug: data.slug,
-      bio: getString(p.bio) || undefined,
-      address: getString(p.address) || undefined,
-      logoUrl: getString(p.logoUrl) || undefined,
-      coverUrl: getString(p.coverUrl) || undefined,
-      whatsapp: getString(p.whatsapp) || undefined,
+      bio: getString(merchant.bio) || undefined,
+      address: getString(merchant.address) || undefined,
+      logoUrl: `/api/merchant-image/${encodeURIComponent(merchantId)}?type=logo`,
+      coverUrl: `/api/merchant-image/${encodeURIComponent(merchantId)}?type=cover`,
+      whatsapp: getString(merchant.whatsapp) || undefined,
       products,
-    };
+      page: pagination.page,
+      limit: pagination.limit,
+      hasMore: productPage.hasMore,
+      nextCursor: productPage.nextCursor,
+    });
   });

@@ -18,7 +18,7 @@ const VALID_CATEGORIES = [
   "other",
 ];
 
-const CURRENCY_CODES = ["IQD", "USD", "EUR", "AED", "SAR"];
+const CURRENCY_CODES = ["IQD", "USD"];
 
 export function validateProductTitle(title: string): ValidationError[] {
   const errors: ValidationError[] = [];

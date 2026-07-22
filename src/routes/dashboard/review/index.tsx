@@ -32,6 +32,8 @@ function ReviewPage() {
   const [leads, setLeads] = useState<MerchantLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   const token = () => readMerchantSession()?.token ?? null;
 
@@ -41,16 +43,20 @@ function ReviewPage() {
       navigate({ to: "/auth" });
       return;
     }
-    Promise.all([listReviewFn({ data: { token: t } }), listLeadsFn({ data: { token: t } })])
+    Promise.all([
+      listReviewFn({ data: { token: t, page, limit: 20 } }),
+      listLeadsFn({ data: { token: t, page, limit: 20 } }),
+    ])
       .then(([reviewProducts, merchantLeads]) => {
-        setProducts(reviewProducts);
-        setLeads(merchantLeads);
+        setProducts(reviewProducts.items);
+        setLeads(merchantLeads.items);
+        setHasMore(reviewProducts.hasMore || merchantLeads.hasMore);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل البيانات");
       })
       .finally(() => setLoading(false));
-  }, [listReviewFn, listLeadsFn, navigate]);
+  }, [listReviewFn, listLeadsFn, navigate, page]);
 
   const act = async (productId: string, action: "approve" | "reject") => {
     const t = token();
@@ -181,6 +187,15 @@ function ReviewPage() {
           </div>
         </div>
       )}
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => { setLoading(true); setPage((value) => value - 1); }}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={loading || !hasMore} onClick={() => { setLoading(true); setPage((value) => value + 1); }}>
+          التالي
+        </Button>
+      </div>
     </DashboardLayout>
   );
 }

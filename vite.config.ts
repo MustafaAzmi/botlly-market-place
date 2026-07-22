@@ -25,6 +25,7 @@ export default defineConfig({
   // which breaks Netlify's function packaging step ("Could not resolve tslib").
   // Inlining it sidesteps the trace entirely.
   nitro: {
+    // @ts-expect-error Supported by Nitro at runtime but absent from this beta config type.
     noExternals: ["tslib"],
   },
   tanstackStart: {

@@ -53,8 +53,10 @@ class NotificationService {
 
   static final instance = NotificationService._();
   final _plugin = FlutterLocalNotificationsPlugin();
+  var _initialized = false;
 
   Future<void> initialize() async {
+    if (_initialized) return;
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -63,6 +65,38 @@ class NotificationService {
     );
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
+    );
+    await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+    _initialized = true;
+  }
+
+  Future<void> show({
+    required String title,
+    required String body,
+    int id = 2001,
+  }) async {
+    await initialize();
+    const android = AndroidNotificationDetails(
+      'botlly_merchant_order_updates',
+      'Botlly merchant order updates',
+      channelDescription: 'Order updates for Botlly merchant inbox.',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+    );
+    const ios = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    await _plugin.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(android: android, iOS: ios),
     );
   }
 }
@@ -240,6 +274,12 @@ class _BotlyMerchantAppState extends State<BotlyMerchantApp> {
     setState(() => language = next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_language', next.code);
+  }
+
+  @override
+  void dispose() {
+    repository.dispose();
+    super.dispose();
   }
 
   @override
@@ -507,6 +547,10 @@ class MerchantOrder {
     required this.customerNumber,
     required this.customerDetails,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
+    required this.merchantNote,
     required this.sentToDelivery,
     required this.createdAt,
   });
@@ -518,8 +562,15 @@ class MerchantOrder {
   final String customerNumber;
   final String customerDetails;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
+  final String merchantNote;
   final bool sentToDelivery;
   final DateTime createdAt;
+
+  bool get canMarkAvailability => merchantStatus == 'Pending';
+  bool get canConfirmSale => merchantStatus == 'Available';
 
   factory MerchantOrder.fromJson(Map<String, dynamic> json) {
     return MerchantOrder(
@@ -530,6 +581,10 @@ class MerchantOrder {
       customerNumber: _string(json['customerNumber']),
       customerDetails: _string(json['customerDetails']),
       status: _string(json['status'], fallback: 'unknown'),
+      merchantStatus: _string(json['merchantStatus'], fallback: 'Pending'),
+      requesterStatus: _string(json['requesterStatus'], fallback: 'Pending'),
+      finalStatus: _string(json['finalStatus'], fallback: _string(json['status'], fallback: 'pending_review')),
+      merchantNote: _string(json['merchantNote']),
       sentToDelivery: json['sentToDelivery'] == true,
       createdAt: DateTime.tryParse(_string(json['createdAt'])) ?? DateTime.now(),
     );
@@ -651,6 +706,8 @@ Map<String, dynamic> _withoutNull(Map<String, dynamic> input) {
 }
 
 class MerchantRepository extends ChangeNotifier {
+  static const _orderPollInterval = Duration(seconds: 10);
+
   MerchantProfile? _profile;
   String? _token;
   final _products = <MerchantProduct>[];
@@ -658,6 +715,10 @@ class MerchantRepository extends ChangeNotifier {
   MerchantCatalogue? _catalogue;
   bool _productsLoaded = false;
   bool _ordersLoaded = false;
+  Timer? _ordersTimer;
+  var _ordersSnapshotReady = false;
+  var _suppressNextOrderNotification = false;
+  final _orderSignatures = <String, String>{};
 
   MerchantProfile? get profile => _profile;
   String? get token => _token;
@@ -680,6 +741,7 @@ class MerchantRepository extends ChangeNotifier {
       address: prefs.getString('merchant_address'),
       deliveryPhone: prefs.getString('merchant_delivery_phone'),
     );
+    startOrderUpdates();
   }
 
   Future<MerchantProfile> login({
@@ -696,6 +758,7 @@ class MerchantRepository extends ChangeNotifier {
     _token = _string(result['token']);
     _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
+    startOrderUpdates();
     notifyListeners();
     return _profile!;
   }
@@ -705,9 +768,12 @@ class MerchantRepository extends ChangeNotifier {
     required String whatsapp,
     required String password,
     required String city,
-    String? email,
+    required String otpCode,
+    List<String> carMakes = const [],
+    List<String> carModels = const [],
+    List<String> specialties = const [],
   }) async {
-    if (storeName.trim().isEmpty || whatsapp.trim().isEmpty || password.length < 6 || city.isEmpty) {
+    if (storeName.trim().isEmpty || whatsapp.trim().isEmpty || password.length < 6 || city.isEmpty || otpCode.trim().isEmpty) {
       throw StateError('اسم المحل ورقم الواتساب والمحافظة وكلمة المرور مطلوبة.');
     }
     final result = _map(await _post('signup', _withoutEmpty({
@@ -715,8 +781,42 @@ class MerchantRepository extends ChangeNotifier {
       'whatsapp': whatsapp.trim(),
       'password': password,
       'city': city,
-      'email': email,
+      'otpCode': otpCode.trim(),
+      'carMakes': carMakes,
+      'carModels': carModels,
+      'specialties': specialties,
     })));
+    _token = _string(result['token']);
+    _profile = MerchantProfile.fromJson(_map(result['profile']));
+    await _persistProfile();
+    startOrderUpdates();
+    notifyListeners();
+    return _profile!;
+  }
+
+  Future<void> requestOtp({required String whatsapp, required String purpose}) async {
+    if (whatsapp.trim().isEmpty) throw StateError('أدخل رقم الواتساب أولاً.');
+    await _post('requestOtp', {
+      'whatsapp': whatsapp.trim(),
+      'purpose': purpose,
+    });
+  }
+
+  Future<MerchantCatalogue> getSignupCatalogue() async {
+    final result = _map(await _post('signupCatalogue', const {}));
+    return MerchantCatalogue.fromJson(result);
+  }
+
+  Future<MerchantProfile> resetPassword({
+    required String whatsapp,
+    required String password,
+    required String otpCode,
+  }) async {
+    final result = _map(await _post('resetPassword', {
+      'whatsapp': whatsapp.trim(),
+      'password': password,
+      'otpCode': otpCode.trim(),
+    }));
     _token = _string(result['token']);
     _profile = MerchantProfile.fromJson(_map(result['profile']));
     await _persistProfile();
@@ -725,6 +825,11 @@ class MerchantRepository extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _ordersTimer?.cancel();
+    _ordersTimer = null;
+    _ordersSnapshotReady = false;
+    _suppressNextOrderNotification = false;
+    _orderSignatures.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('merchant_token');
     _token = null;
@@ -735,6 +840,23 @@ class MerchantRepository extends ChangeNotifier {
     _orders.clear();
     _catalogue = null;
     notifyListeners();
+  }
+
+  void startOrderUpdates() {
+    if (!isSignedIn) return;
+    _ordersTimer?.cancel();
+    _ordersTimer = Timer.periodic(_orderPollInterval, (_) {
+      unawaited(_refreshOrdersInBackground());
+    });
+  }
+
+  Future<void> _refreshOrdersInBackground() async {
+    if (!isSignedIn) return;
+    try {
+      await listOrders(force: true);
+    } catch (_) {
+      // Background refresh is best-effort; the visible screen keeps its current state.
+    }
   }
 
   Future<MerchantDashboard> getDashboard() async {
@@ -772,11 +894,62 @@ class MerchantRepository extends ChangeNotifier {
     _requireSession();
     if (!force && _ordersLoaded) return List.unmodifiable(_orders);
     final rows = await _postList('listOrders', {'token': _token});
+    final nextOrders = rows.map((item) => MerchantOrder.fromJson(_map(item))).toList();
+    if (_suppressNextOrderNotification) {
+      _suppressNextOrderNotification = false;
+      _rememberOrderSnapshot(nextOrders);
+    } else {
+      _notifyChangedOrders(nextOrders);
+    }
     _orders
       ..clear()
-      ..addAll(rows.map((item) => MerchantOrder.fromJson(_map(item))));
+      ..addAll(nextOrders);
     _ordersLoaded = true;
+    notifyListeners();
     return List.unmodifiable(_orders);
+  }
+
+  Future<void> markOrderAvailable(
+    String orderId, {
+    double? finalPrice,
+    String currency = 'IQD',
+    String merchantNote = '',
+  }) async {
+    _requireSession();
+    await _post('markAvailable', {
+      'token': _token,
+      'orderId': orderId,
+      if (finalPrice != null) 'finalPrice': finalPrice,
+      'currency': currency,
+      'merchantNote': merchantNote,
+    });
+    _suppressNextOrderNotification = true;
+    _ordersLoaded = false;
+    notifyListeners();
+  }
+
+  Future<void> markOrderUnavailable(String orderId) async {
+    _requireSession();
+    await _post('markUnavailable', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
+    _ordersLoaded = false;
+    notifyListeners();
+  }
+
+  Future<void> markOrderSold(String orderId) async {
+    _requireSession();
+    await _post('markSold', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
+    _ordersLoaded = false;
+    notifyListeners();
+  }
+
+  Future<void> markOrderCancelled(String orderId) async {
+    _requireSession();
+    await _post('markCancelled', {'token': _token, 'orderId': orderId});
+    _suppressNextOrderNotification = true;
+    _ordersLoaded = false;
+    notifyListeners();
   }
 
   Future<MerchantCatalogue> getCatalogue({bool force = false}) async {
@@ -836,6 +1009,63 @@ class MerchantRepository extends ChangeNotifier {
     if (!isSignedIn) throw StateError('انتهت الجلسة. سجل دخول مرة ثانية.');
   }
 
+  void _notifyChangedOrders(List<MerchantOrder> nextOrders) {
+    final nextSignatures = _orderSnapshot(nextOrders);
+    if (!_ordersSnapshotReady) {
+      _orderSignatures
+        ..clear()
+        ..addAll(nextSignatures);
+      _ordersSnapshotReady = true;
+      return;
+    }
+
+    MerchantOrder? changed;
+    for (final order in nextOrders) {
+      if (_orderSignatures[order.id] != nextSignatures[order.id]) {
+        changed = order;
+        break;
+      }
+    }
+    _orderSignatures
+      ..clear()
+      ..addAll(nextSignatures);
+    if (changed == null) return;
+
+    unawaited(NotificationService.instance.show(
+      title: 'Botlly Merchant',
+      body: 'تم تحديث طلب: ${changed.productTitle}',
+      id: changed.id.hashCode & 0x7fffffff,
+    ));
+  }
+
+  void _rememberOrderSnapshot(List<MerchantOrder> nextOrders) {
+    _orderSignatures
+      ..clear()
+      ..addAll(_orderSnapshot(nextOrders));
+    _ordersSnapshotReady = true;
+  }
+
+  Map<String, String> _orderSnapshot(List<MerchantOrder> nextOrders) {
+    return {
+      for (final order in nextOrders) order.id: _orderSignature(order),
+    };
+  }
+
+  String _orderSignature(MerchantOrder order) {
+    return [
+      order.status,
+      order.merchantStatus,
+      order.requesterStatus,
+      order.finalStatus,
+      order.productPrice.toStringAsFixed(2),
+      order.currency,
+      order.customerDetails,
+      order.merchantNote,
+      order.sentToDelivery.toString(),
+      order.createdAt.toIso8601String(),
+    ].join('|');
+  }
+
   Future<dynamic> _post(String action, Map<String, dynamic> data) async {
     final uri = Uri.parse('${apiBaseUrl.replaceAll(RegExp(r'/$'), '')}/api/merchant/mobile');
     final response = await http
@@ -860,6 +1090,9 @@ class MerchantRepository extends ChangeNotifier {
 
   Future<List<dynamic>> _postList(String action, Map<String, dynamic> data) async {
     final result = await _post(action, data);
+    if (result is Map<String, dynamic> && result['items'] is List) {
+      return result['items'] as List<dynamic>;
+    }
     return _list(result);
   }
 
@@ -877,6 +1110,12 @@ class MerchantRepository extends ChangeNotifier {
     await prefs.setString('merchant_bio', profile.bio ?? '');
     await prefs.setString('merchant_address', profile.address ?? '');
     await prefs.setString('merchant_delivery_phone', profile.deliveryPhone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _ordersTimer?.cancel();
+    super.dispose();
   }
 }
 
@@ -934,19 +1173,112 @@ class _AuthScreenState extends State<AuthScreen> {
   final storeName = TextEditingController();
   final whatsapp = TextEditingController();
   final password = TextEditingController();
-  final email = TextEditingController();
+  final otpCode = TextEditingController();
+  final selectedCarMakes = <String>{};
+  final selectedCarModels = <String>{};
+  final selectedSpecialties = <String>{};
   var mode = AuthMode.login;
   var city = governorates.first;
   var loading = false;
   var showReset = false;
+  var showPassword = false;
+  MerchantCatalogue signupCatalogue = MerchantCatalogue.empty;
+
+  static const partSpecialties = <String>[
+    'كهربائيات عامة',
+    'محرك',
+    'هيكل وبدن',
+    'تعليق وتوجيه',
+    'فرامل',
+    'تبريد وتكييف',
+    'إكسسوارات',
+    'أخرى',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadSignupCatalogue());
+    });
+  }
 
   @override
   void dispose() {
     storeName.dispose();
     whatsapp.dispose();
     password.dispose();
-    email.dispose();
+    otpCode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSignupCatalogue() async {
+    try {
+      final catalogue = await MerchantScope.of(context).getSignupCatalogue();
+      if (!mounted) return;
+      setState(() => signupCatalogue = catalogue);
+    } catch (_) {
+      // Keep signup usable if the catalogue endpoint is temporarily unavailable.
+    }
+  }
+
+  void _toggleMake(String label, bool checked) {
+    setState(() {
+      if (checked) {
+        selectedCarMakes.add(label);
+      } else {
+        selectedCarMakes.remove(label);
+        final allowedModels = signupCatalogue.makes
+            .where((make) => selectedCarMakes.contains(make.label))
+            .expand((make) => make.models)
+            .toSet();
+        selectedCarModels.removeWhere((model) => !allowedModels.contains(model));
+      }
+    });
+  }
+
+  void _toggleSet(Set<String> target, String value, bool checked) {
+    setState(() {
+      if (checked) {
+        target.add(value);
+      } else {
+        target.remove(value);
+      }
+    });
+  }
+
+  Future<void> _requestOtp(String purpose) async {
+    setState(() => loading = true);
+    try {
+      await MerchantScope.of(context).requestOtp(
+        whatsapp: whatsapp.text,
+        purpose: purpose,
+      );
+      if (mounted) _showMessage(context, 'تم إرسال رمز التحقق إلى واتساب');
+    } catch (error) {
+      if (mounted) _showMessage(context, _localizedError(context, error));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    setState(() => loading = true);
+    try {
+      await MerchantScope.of(context).resetPassword(
+        whatsapp: whatsapp.text,
+        password: password.text,
+        otpCode: otpCode.text,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const MerchantHome()),
+      );
+    } catch (error) {
+      if (mounted) _showMessage(context, _localizedError(context, error));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -955,7 +1287,13 @@ class _AuthScreenState extends State<AuthScreen> {
       _showMessage(context, t.missingLoginFields);
       return;
     }
-    if (mode == AuthMode.signup && (storeName.text.trim().isEmpty || city.trim().isEmpty)) {
+    if (mode == AuthMode.signup &&
+        (storeName.text.trim().isEmpty ||
+            city.trim().isEmpty ||
+            otpCode.text.trim().isEmpty ||
+            selectedCarMakes.isEmpty ||
+            selectedCarModels.isEmpty ||
+            selectedSpecialties.isEmpty)) {
       _showMessage(context, t.missingSignupFields);
       return;
     }
@@ -970,7 +1308,10 @@ class _AuthScreenState extends State<AuthScreen> {
           whatsapp: whatsapp.text,
           password: password.text,
           city: city,
-          email: email.text.trim().isEmpty ? null : email.text.trim(),
+          otpCode: otpCode.text,
+          carMakes: selectedCarMakes.toList(),
+          carModels: selectedCarModels.toList(),
+          specialties: selectedSpecialties.toList(),
         );
       }
       if (!mounted) return;
@@ -1012,15 +1353,30 @@ class _AuthScreenState extends State<AuthScreen> {
             if (showReset) ...[
               TextField(controller: whatsapp, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: t.whatsapp)),
               const SizedBox(height: 12),
-              TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: t.optionalEmail)),
+              TextField(controller: otpCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رمز OTP')),
+              const SizedBox(height: 12),
+              TextField(
+                controller: password,
+                obscureText: !showPassword,
+                decoration: InputDecoration(
+                  labelText: t.password,
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(() => showPassword = !showPassword),
+                    icon: Icon(showPassword ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: loading ? null : () => _requestOtp('reset'),
+                icon: const Icon(Icons.sms_rounded),
+                label: const Text('إرسال OTP إلى واتساب'),
+              ),
+              const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: () {
-                  _showMessage(context, t.resetPrepared);
-                  setState(() => showReset = false);
-                },
-                icon: const Icon(Icons.send_rounded),
-                label: Text(t.sendResetCode),
+                onPressed: loading ? null : _resetPassword,
+                icon: const Icon(Icons.lock_reset_rounded),
+                label: const Text('تغيير كلمة المرور'),
               ),
               TextButton(onPressed: () => setState(() => showReset = false), child: Text(t.back)),
             ] else ...[
@@ -1033,6 +1389,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 onSelectionChanged: (value) => setState(() => mode = value.first),
               ),
               const SizedBox(height: 16),
+              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: InputDecoration(labelText: t.whatsapp)),
+              const SizedBox(height: 12),
               if (mode == AuthMode.signup) ...[
                 TextField(controller: storeName, decoration: InputDecoration(labelText: t.storeName)),
                 const SizedBox(height: 12),
@@ -1043,12 +1401,73 @@ class _AuthScreenState extends State<AuthScreen> {
                   onChanged: (value) => setState(() => city = value ?? governorates.first),
                 ),
                 const SizedBox(height: 12),
-                TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: t.optionalEmail)),
+                _CheckboxSection(
+                  title: 'أنواع السيارات',
+                  hint: 'اختر نوعاً واحداً أو أكثر',
+                  children: signupCatalogue.makes.isEmpty
+                      ? [const Text('جاري تحميل أنواع السيارات...')]
+                      : signupCatalogue.makes
+                          .map((make) => CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: selectedCarMakes.contains(make.label),
+                                title: Text(make.label),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                onChanged: (value) => _toggleMake(make.label, value == true),
+                              ))
+                          .toList(),
+                ),
+                const SizedBox(height: 12),
+                _CheckboxSection(
+                  title: 'الموديلات',
+                  hint: 'تظهر موديلات أنواع السيارات المحددة فقط',
+                  children: selectedCarMakes.isEmpty
+                      ? [const Text('اختر نوع السيارة أولاً.')]
+                      : signupCatalogue.makes
+                          .where((make) => selectedCarMakes.contains(make.label))
+                          .expand((make) => make.models.map((model) => CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: selectedCarModels.contains(model),
+                                title: Text('${make.label} - $model'),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                onChanged: (value) => _toggleSet(selectedCarModels, model, value == true),
+                              )))
+                          .toList(),
+                ),
+                const SizedBox(height: 12),
+                _CheckboxSection(
+                  title: 'الاختصاصات',
+                  hint: 'اختر اختصاصاً واحداً أو أكثر',
+                  children: partSpecialties
+                      .map((item) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: selectedSpecialties.contains(item),
+                            title: Text(item),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            onChanged: (value) => _toggleSet(selectedSpecialties, item, value == true),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: otpCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رمز OTP')),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: loading ? null : () => _requestOtp('signup'),
+                  icon: const Icon(Icons.sms_rounded),
+                  label: const Text('إرسال OTP إلى واتساب'),
+                ),
                 const SizedBox(height: 12),
               ],
-              TextField(controller: whatsapp, keyboardType: TextInputType.phone, textDirection: ui.TextDirection.ltr, decoration: InputDecoration(labelText: t.whatsapp)),
-              const SizedBox(height: 12),
-              TextField(controller: password, obscureText: true, decoration: InputDecoration(labelText: t.password)),
+              TextField(
+                controller: password,
+                obscureText: !showPassword,
+                decoration: InputDecoration(
+                  labelText: t.password,
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(() => showPassword = !showPassword),
+                    icon: Icon(showPassword ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                  ),
+                ),
+              ),
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: TextButton(onPressed: () => setState(() => showReset = true), child: Text(t.forgotPassword)),
@@ -1071,6 +1490,47 @@ class _AuthScreenState extends State<AuthScreen> {
 
 enum AuthMode { login, signup }
 
+class _CheckboxSection extends StatelessWidget {
+  const _CheckboxSection({
+    required this.title,
+    required this.hint,
+    required this.children,
+  });
+
+  final String title;
+  final String hint;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54)),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260),
+              child: ListView(
+                shrinkWrap: true,
+                children: children,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class MerchantHome extends StatefulWidget {
   const MerchantHome({super.key});
 
@@ -1079,31 +1539,12 @@ class MerchantHome extends StatefulWidget {
 }
 
 class _MerchantHomeState extends State<MerchantHome> {
-  var index = 0;
-
   @override
   Widget build(BuildContext context) {
-    final t = LocaleScope.textOf(context);
-    final pages = [
-      const DashboardScreen(),
-      const ProductsScreen(),
-      const OrdersScreen(),
-      const StoreProfileScreen(),
-    ];
     return Scaffold(
       body: AnimatedBuilder(
         animation: MerchantScope.of(context),
-        builder: (context, _) => pages[index],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
-        destinations: [
-          NavigationDestination(icon: const Icon(Icons.dashboard_rounded), label: t.home),
-          NavigationDestination(icon: const Icon(Icons.inventory_2_rounded), label: t.products),
-          NavigationDestination(icon: const Icon(Icons.shopping_bag_rounded), label: t.orders),
-          NavigationDestination(icon: const Icon(Icons.store_rounded), label: t.store),
-        ],
+        builder: (context, _) => const OrdersScreen(),
       ),
     );
   }
@@ -1282,15 +1723,72 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 }
 
-class OrdersScreen extends StatelessWidget {
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
+
+  @override
+  State<OrdersScreen> createState() => _OrdersScreenState();
+}
+
+class _OrdersScreenState extends State<OrdersScreen> {
+  late Future<List<MerchantOrder>> _ordersFuture;
+  MerchantRepository? _repository;
+  final Map<String, String> _offerPrices = {};
+  final Map<String, String> _offerCurrencies = {};
+  final Map<String, String> _offerNotes = {};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextRepository = MerchantScope.of(context);
+    if (_repository != nextRepository) {
+      _repository?.removeListener(_handleRepositoryChanged);
+      _repository = nextRepository;
+      _repository!.addListener(_handleRepositoryChanged);
+    }
+    _ordersFuture = nextRepository.listOrders(force: true);
+  }
+
+  @override
+  void dispose() {
+    _repository?.removeListener(_handleRepositoryChanged);
+    super.dispose();
+  }
+
+  void _handleRepositoryChanged() {
+    if (!mounted) return;
+    setState(() {
+      _ordersFuture = MerchantScope.of(context).listOrders();
+    });
+  }
+
+  void _refresh() {
+    setState(() {
+      _ordersFuture = MerchantScope.of(context).listOrders(force: true);
+    });
+  }
+
+  String _offerPrice(MerchantOrder order) {
+    return _offerPrices.putIfAbsent(
+      order.id,
+      () => order.productPrice > 0 ? order.productPrice.toStringAsFixed(order.productPrice.truncateToDouble() == order.productPrice ? 0 : 2) : '',
+    );
+  }
+
+  String _offerCurrency(MerchantOrder order) {
+    return _offerCurrencies.putIfAbsent(order.id, () => order.currency == 'USD' ? 'USD' : 'IQD');
+  }
+
+  String _offerNote(MerchantOrder order) {
+    return _offerNotes.putIfAbsent(order.id, () => order.merchantNote);
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = LocaleScope.textOf(context);
     final repository = MerchantScope.of(context);
     return FutureBuilder<List<MerchantOrder>>(
-      future: repository.listOrders(),
+      future: _ordersFuture,
       builder: (context, snapshot) {
         final orders = snapshot.data ?? [];
         return _PageScaffold(
@@ -1305,6 +1803,9 @@ class OrdersScreen extends StatelessWidget {
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final order = orders[index];
+                        final offerPrice = _offerPrice(order);
+                        final offerCurrency = _offerCurrency(order);
+                        final offerNote = _offerNote(order);
                         return Card(
                           child: Padding(
                             padding: const EdgeInsets.all(14),
@@ -1322,6 +1823,103 @@ class OrdersScreen extends StatelessWidget {
                                 Text(order.customerNumber, textDirection: ui.TextDirection.ltr),
                                 Text(order.customerDetails),
                                 if (order.sentToDelivery) Text(t.sentToDelivery),
+                                const SizedBox(height: 12),
+                                if (order.canMarkAvailability)
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: const Color(0xffd1d5db)),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        TextFormField(
+                                          initialValue: offerPrice,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textDirection: ui.TextDirection.ltr,
+                                          decoration: const InputDecoration(labelText: 'السعر النهائي'),
+                                          onChanged: (value) => _offerPrices[order.id] = value,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        DropdownButtonFormField<String>(
+                                          initialValue: offerCurrency,
+                                          decoration: const InputDecoration(labelText: 'العملة'),
+                                          items: const [
+                                            DropdownMenuItem(value: 'IQD', child: Text('IQD')),
+                                            DropdownMenuItem(value: 'USD', child: Text('USD')),
+                                          ],
+                                          onChanged: (value) => setState(() => _offerCurrencies[order.id] = value ?? 'IQD'),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        TextFormField(
+                                          initialValue: offerNote,
+                                          decoration: const InputDecoration(labelText: 'ملاحظة عن القطعة أو العرض'),
+                                          onChanged: (value) => _offerNotes[order.id] = value,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (order.canMarkAvailability) const SizedBox(height: 12),
+                                if (order.canMarkAvailability) Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () async {
+                                          final parsedPrice = double.tryParse((_offerPrices[order.id] ?? '').replaceAll(',', '.'));
+                                          await repository.markOrderAvailable(
+                                            order.id,
+                                            finalPrice: parsedPrice,
+                                            currency: _offerCurrencies[order.id] ?? 'IQD',
+                                            merchantNote: _offerNotes[order.id] ?? '',
+                                          );
+                                          if (context.mounted) _showMessage(context, 'تم تأكيد توفر المنتج');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.check_circle_rounded),
+                                        label: const Text('المنتج متوفر'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          await repository.markOrderUnavailable(order.id);
+                                          if (context.mounted) _showMessage(context, 'تم تأكيد عدم توفر المنتج');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.cancel_rounded),
+                                        label: const Text('المنتج غير متوفر'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (order.canConfirmSale) Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: () async {
+                                          await repository.markOrderSold(order.id);
+                                          if (context.mounted) _showMessage(context, 'تم بيع المنتج');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.check_circle_rounded),
+                                        label: const Text('تم بيع المنتج'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: () async {
+                                          await repository.markOrderCancelled(order.id);
+                                          if (context.mounted) _showMessage(context, 'تم إلغاء الطلب');
+                                          _refresh();
+                                        },
+                                        icon: const Icon(Icons.cancel_rounded),
+                                        label: const Text('تم إلغاء الطلب'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
@@ -1480,6 +2078,16 @@ class _PageScaffold extends StatelessWidget {
           children: [
             Row(
               children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.shopping_bag_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

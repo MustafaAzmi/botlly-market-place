@@ -108,6 +108,13 @@ class CustomerOrder {
     required this.id,
     required this.productTitle,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
+    required this.merchantStoreName,
+    required this.merchantWhatsapp,
+    required this.merchantPhoneVisible,
+    required this.merchantNote,
     required this.currency,
     required this.price,
     required this.updatedAt,
@@ -116,14 +123,31 @@ class CustomerOrder {
   final String id;
   final String productTitle;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
+  final String merchantStoreName;
+  final String merchantWhatsapp;
+  final bool merchantPhoneVisible;
+  final String merchantNote;
   final String currency;
   final double price;
   final String updatedAt;
+
+  bool get canRequesterAct =>
+      (merchantStatus == 'Available' || merchantStatus == 'Sold') && requesterStatus == 'Pending';
 
   factory CustomerOrder.fromJson(Map<String, dynamic> json) => CustomerOrder(
         id: readString(json, 'id'),
         productTitle: readString(json, 'productTitle', 'طلب'),
         status: readString(json, 'status', 'requested'),
+        merchantStatus: readString(json, 'merchantStatus', 'Pending'),
+        requesterStatus: readString(json, 'requesterStatus', 'Pending'),
+        finalStatus: readString(json, 'finalStatus', readString(json, 'status', 'requested')),
+        merchantStoreName: readString(json, 'merchantStoreName'),
+        merchantWhatsapp: readString(json, 'merchantWhatsapp'),
+        merchantPhoneVisible: json['merchantPhoneVisible'] == true,
+        merchantNote: readString(json, 'merchantNote'),
         currency: readString(json, 'currency', 'IQD'),
         price: readDouble(json, 'price'),
         updatedAt: readString(json, 'updatedAt'),
@@ -201,8 +225,12 @@ class FitterOrder {
     required this.merchantWhatsapp,
     required this.merchantAddress,
     required this.merchantGovernorate,
+    required this.commissionPercent,
     required this.commissionAmount,
     required this.status,
+    required this.merchantStatus,
+    required this.requesterStatus,
+    required this.finalStatus,
   });
 
   final String id;
@@ -213,8 +241,15 @@ class FitterOrder {
   final String merchantWhatsapp;
   final String merchantAddress;
   final String merchantGovernorate;
+  final double commissionPercent;
   final double commissionAmount;
   final String status;
+  final String merchantStatus;
+  final String requesterStatus;
+  final String finalStatus;
+
+  bool get canRequesterAct =>
+      (merchantStatus == 'Available' || merchantStatus == 'Sold') && requesterStatus == 'Pending';
 
   factory FitterOrder.fromJson(Map<String, dynamic> json) => FitterOrder(
         id: readString(json, 'id'),
@@ -225,8 +260,12 @@ class FitterOrder {
         merchantWhatsapp: readString(json, 'merchantWhatsapp'),
         merchantAddress: readString(json, 'merchantAddress'),
         merchantGovernorate: readString(json, 'merchantGovernorate'),
+        commissionPercent: readDouble(json, 'commissionPercent'),
         commissionAmount: readDouble(json, 'commissionAmount'),
         status: readString(json, 'status', 'requested'),
+        merchantStatus: readString(json, 'merchantStatus', 'Pending'),
+        requesterStatus: readString(json, 'requesterStatus', 'Pending'),
+        finalStatus: readString(json, 'finalStatus', readString(json, 'status', 'requested')),
       );
 }
 

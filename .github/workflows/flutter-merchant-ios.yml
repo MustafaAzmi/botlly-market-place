@@ -35,9 +35,8 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Install CocoaPods
-        run: pod install
-        working-directory: apps/flutter/merchant_app/ios
+      - name: Setup CocoaPods
+        run: sudo gem install cocoapods -v 1.16.2
 
       - name: Analyze
         continue-on-error: true

@@ -13,6 +13,8 @@ on:
       - "src/routes/api/customer/mobile.ts"
       - "src/routes/api/fitter/mobile.ts"
       - ".github/workflows/flutter-customer-fitter-android.yml"
+      - "apps/flutter/customer_app/tool/configure_platforms.py"
+      - "apps/flutter/fitter_app/tool/configure_platforms.py"
   workflow_dispatch:
 
 jobs:
@@ -26,11 +28,9 @@ jobs:
           - id: customer_app
             label: customer
             artifact: botlly-customer-install-apk
-            package: tech.botlly.customer
           - id: fitter_app
             label: fitter
             artifact: botlly-fitter-install-apk
-            package: tech.botlly.fitter
 
     defaults:
       run:
@@ -56,49 +56,7 @@ jobs:
         run: flutter create --platforms=android --org tech.botlly .
 
       - name: Configure Android app id and permissions
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          package = "${{ matrix.app.package }}"
-          gradle = Path("android/app/build.gradle.kts")
-          text = gradle.read_text()
-          text = text.replace('namespace = "tech.botlly.botlly_${{ matrix.app.id }}"', f'namespace = "{package}"')
-          text = text.replace('applicationId = "tech.botlly.botlly_${{ matrix.app.id }}"', f'applicationId = "{package}"')
-          gradle.write_text(text)
-          manifest = Path("android/app/src/main/AndroidManifest.xml")
-          data = manifest.read_text()
-          permissions = [
-              '<uses-permission android:name="android.permission.INTERNET" />',
-              '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
-              '<uses-permission android:name="android.permission.CALL_PHONE" />',
-          ]
-          missing = [p for p in permissions if p not in data]
-          if missing:
-              data = data.replace("<application", "\n".join(missing) + "\n    <application")
-              manifest.write_text(data)
-
-          # flutter create generates MainActivity under a package derived from
-          # the project folder (for example tech.botlly.botlly_customer_app).
-          # After changing applicationId/namespace above, Android resolves
-          # ".MainActivity" to the new package, so the Kotlin package and path
-          # must be moved to match or the app crashes immediately on launch.
-          src_root = Path("android/app/src/main/kotlin")
-          activity_files = list(src_root.rglob("MainActivity.kt"))
-          if not activity_files:
-              raise SystemExit("MainActivity.kt was not generated")
-          activity = activity_files[0]
-          activity_text = activity.read_text()
-          lines = activity_text.splitlines()
-          if lines and lines[0].startswith("package "):
-              lines[0] = f"package {package}"
-          else:
-              lines.insert(0, f"package {package}")
-          target = src_root.joinpath(*package.split("."), "MainActivity.kt")
-          target.parent.mkdir(parents=True, exist_ok=True)
-          target.write_text("\n".join(lines) + "\n")
-          if activity.resolve() != target.resolve():
-              activity.unlink()
-          PY
+        run: python tool/configure_platforms.py
 
       - name: Install dependencies
         run: flutter pub get

@@ -1,13 +1,4 @@
-// Install / open card for one of the two Botly PWAs.
-//
-// - "تنصيب التطبيق" appears ONLY when the browser fired beforeinstallprompt
-//   (Chromium on Android/Desktop). On iOS we show Add-to-Home-Screen steps
-//   instead, because Safari has no install prompt API.
-// - "فتح التطبيق" simply navigates to the app start URL: if the PWA is
-//   installed the OS opens the standalone app for in-scope URLs; if not,
-//   the website opens directly — exactly the required fallback.
-
-import { Bell, CheckCircle2, Download, ExternalLink, Share, SquarePlus } from "lucide-react";
+import { Bell, CheckCircle2, Copy, Download, ExternalLink, Menu, Share, SquarePlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,32 +9,25 @@ import {
   registerServiceWorker,
   requestNotificationPermission,
   usePwaInstall,
+  type BrowserFamily,
   type PwaApp,
 } from "@/lib/pwa";
 
 export function InstallAppCard({ app }: { app: PwaApp }) {
   const t = useT();
   const cfg = PWA_APPS[app];
-  const { canInstall, promptInstall, installed, isStandalone, isIos } = usePwaInstall();
+  const { canInstall, promptInstall, installed, isStandalone, isIos, isInAppBrowser, browserFamily } = usePwaInstall();
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [showManualInstall, setShowManualInstall] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
     registerServiceWorker();
   }, []);
 
-  const enableDebug = () => {
-    (window as any).__PWA_DEBUG__ = true;
-    setShowDebug(true);
-    console.log("[PWA] Debug mode enabled");
-    toast.success("تم تفعيل وضع التشخيص — افتح console (F12)");
-  };
-
   const handleInstall = async () => {
     if (!canInstall) {
       setShowManualInstall(true);
-      toast.info("إذا ما ظهرت نافذة التنصيب، استخدم قائمة المتصفح ثم اختر تثبيت التطبيق.");
+      toast.info("إذا لم تظهر نافذة التنصيب تلقائياً، اتبع الخطوات التي ظهرت حسب نوع المتصفح.");
       registerServiceWorker();
       return;
     }
@@ -56,7 +40,17 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
       }
     } catch (error) {
       console.error("[PWA Install Error]", error);
+      setShowManualInstall(true);
       toast.error(t("pwa.install.error"));
+    }
+  };
+
+  const copyInstallLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success("تم نسخ رابط التنصيب");
+    } catch {
+      toast.error("تعذر نسخ الرابط");
     }
   };
 
@@ -73,11 +67,7 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6 text-center shadow-soft">
-      <img
-        src={cfg.icon}
-        alt={cfg.name}
-        className="mx-auto h-20 w-20 rounded-2xl shadow-soft"
-      />
+      <img src={cfg.icon} alt={cfg.name} className="mx-auto h-20 w-20 rounded-2xl shadow-soft" />
       <h2 className="mt-4 text-xl font-bold">{cfg.name}</h2>
 
       {isStandalone ? (
@@ -89,14 +79,15 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
         <div className="mt-5 space-y-3">
           <Button size="lg" className="w-full gap-2" onClick={handleInstall}>
             <Download className="h-4 w-4" />
-            {t("pwa.install.button")}
+            {canInstall ? t("pwa.install.button") : "عرض طريقة التنصيب"}
           </Button>
-          {installed && (
+
+          {installed ? (
             <p className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
               <CheckCircle2 className="h-4 w-4" />
               {t("pwa.install.success")}
             </p>
-          )}
+          ) : null}
 
           <Button asChild size="lg" variant="outline" className="w-full gap-2">
             <a href={cfg.startUrl}>
@@ -105,33 +96,25 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
             </a>
           </Button>
 
-          {(isIos || showManualInstall) && (
-            <div className="rounded-xl bg-secondary/60 p-4 text-start text-xs leading-6 text-muted-foreground">
-              {isIos ? (
-                <>
-                  <p className="font-semibold text-foreground">{t("pwa.install.instructions_ios")}</p>
-                  <p className="mt-1 flex items-center gap-1.5">
-                    {t("pwa.install.instructions_ios_1")}
-                    <Share className="inline h-3.5 w-3.5" />
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    {t("pwa.install.instructions_ios_2")}
-                    <SquarePlus className="inline h-3.5 w-3.5" />
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="font-semibold text-foreground">طريقة التنصيب اليدوي</p>
-                  <p className="mt-1">من Chrome اضغط ⋮ ثم اختر تثبيت التطبيق أو إضافة إلى الشاشة الرئيسية.</p>
-                  <p>إذا ما ظهر الخيار، انتظر اكتمال النشر ثم حدّث الصفحة مرتين.</p>
-                </>
-              )}
+          {isInAppBrowser ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-start text-xs leading-6 text-amber-900">
+              افتح هذه الصفحة من Chrome أو Firefox أو Opera أو Samsung Internet، لأن متصفح واتساب/فيسبوك لا يضيف التطبيق للشاشة الرئيسية غالباً.
+              <Button type="button" variant="outline" size="sm" className="mt-3 w-full gap-2" onClick={copyInstallLink}>
+                <Copy className="h-3.5 w-3.5" />
+                نسخ رابط التنصيب
+              </Button>
             </div>
-          )}
+          ) : null}
+
+          {(isIos || showManualInstall || (!canInstall && !installed)) ? (
+            <div className="rounded-xl bg-secondary/60 p-4 text-start text-xs leading-6 text-muted-foreground">
+              {isIos ? <IosInstallInstructions /> : <ManualInstallInstructions browser={browserFamily} appName={cfg.name} />}
+            </div>
+          ) : null}
         </div>
       )}
 
-      <div className="mt-4 space-y-2 flex flex-col items-center">
+      <div className="mt-4 flex flex-col items-center space-y-2">
         <button
           type="button"
           onClick={enableNotifications}
@@ -141,15 +124,79 @@ export function InstallAppCard({ app }: { app: PwaApp }) {
           <Bell className="h-3.5 w-3.5" />
           {t("pwa.notifications.enable")}
         </button>
-
-        <button
-          type="button"
-          onClick={enableDebug}
-          className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-        >
-          {showDebug ? "✓ Debug ON" : "🔧 Debug"}
-        </button>
       </div>
     </div>
   );
+}
+
+function IosInstallInstructions() {
+  const t = useT();
+  return (
+    <>
+      <p className="font-semibold text-foreground">{t("pwa.install.instructions_ios")}</p>
+      <p className="mt-1 flex items-center gap-1.5">
+        {t("pwa.install.instructions_ios_1")}
+        <Share className="inline h-3.5 w-3.5" />
+      </p>
+      <p className="flex items-center gap-1.5">
+        {t("pwa.install.instructions_ios_2")}
+        <SquarePlus className="inline h-3.5 w-3.5" />
+      </p>
+    </>
+  );
+}
+
+function ManualInstallInstructions({ browser, appName }: { browser: BrowserFamily; appName: string }) {
+  const steps = installStepsForBrowser(browser, appName);
+  return (
+    <>
+      <p className="font-semibold text-foreground">{steps.title}</p>
+      <div className="mt-1 space-y-1">
+        {steps.lines.map((line) => (
+          <p key={line} className="flex items-start gap-1.5">
+            <Menu className="mt-1 h-3.5 w-3.5 shrink-0" />
+            <span>{line}</span>
+          </p>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px]">
+        إذا لم يظهر خيار التنصيب، افتح الصفحة من المتصفح نفسه وليس من داخل واتساب أو فيسبوك، ثم حدّث الصفحة.
+      </p>
+    </>
+  );
+}
+
+function installStepsForBrowser(browser: BrowserFamily, appName: string) {
+  if (browser === "firefox") {
+    return {
+      title: `تنصيب ${appName} من Firefox`,
+      lines: ["اضغط قائمة Firefox.", "اختر إضافة إلى الشاشة الرئيسية أو Install إن ظهر الخيار."],
+    };
+  }
+
+  if (browser === "opera") {
+    return {
+      title: `تنصيب ${appName} من Opera`,
+      lines: ["اضغط شعار Opera أو قائمة المتصفح.", "اختر إضافة إلى الشاشة الرئيسية أو Install app."],
+    };
+  }
+
+  if (browser === "samsung") {
+    return {
+      title: `تنصيب ${appName} من Samsung Internet`,
+      lines: ["اضغط القائمة في أسفل المتصفح.", "اختر إضافة الصفحة إلى ثم الشاشة الرئيسية."],
+    };
+  }
+
+  if (browser === "edge") {
+    return {
+      title: `تنصيب ${appName} من Edge`,
+      lines: ["اضغط قائمة Edge.", "اختر التطبيقات ثم Install this site أو إضافة إلى الشاشة الرئيسية."],
+    };
+  }
+
+  return {
+    title: `تنصيب ${appName}`,
+    lines: ["اضغط قائمة المتصفح.", "اختر تثبيت التطبيق أو إضافة إلى الشاشة الرئيسية.", "في Chrome اضغط ⋮ ثم تثبيت التطبيق."],
+  };
 }

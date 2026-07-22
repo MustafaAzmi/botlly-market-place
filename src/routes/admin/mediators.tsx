@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPlatformSettings, setMediatorPhone } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { requireAdminClient } from "@/lib/adminGuard";
 
 export const Route = createFileRoute("/admin/mediators")({
@@ -22,6 +22,8 @@ type MediatorRow = {
   phone: string;
   city: string;
 };
+
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
 
 const IRAQI_GOVERNORATES = [
   "بغداد",
@@ -45,12 +47,15 @@ const IRAQI_GOVERNORATES = [
   "حلبجة",
 ];
 
+const MEDIATOR_GOVERNORATE_OPTIONS = [ALL_GOVERNORATES_MEDIATOR, ...IRAQI_GOVERNORATES];
+
 function AdminMediatorsPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const getSettingsFn = useServerFn(getPlatformSettings);
   const setMediatorFn = useServerFn(setMediatorPhone);
 
   const [mediators, setMediators] = useState<MediatorRow[]>([{ phone: "", city: "" }]);
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState(5);
   const [loading, setLoading] = useState(true);
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
 
@@ -66,6 +71,7 @@ function AdminMediatorsPage() {
                 .filter((phone): phone is string => Boolean(phone))
                 .map((phone) => ({ phone, city: "" }));
         setMediators(contacts.length > 0 ? contacts : [{ phone: "", city: "" }]);
+        setPlatformCommissionPercent(settings.platformCommissionPercent ?? 5);
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل الوسطاء");
@@ -104,7 +110,13 @@ function AdminMediatorsPage() {
         toast.error("اختار محافظة لكل وسيط قبل الحفظ");
         return;
       }
-      await setMediatorFn({ data: { token: session.token, mediatorContacts } });
+      await setMediatorFn({
+        data: {
+          token: session.token,
+          mediatorContacts,
+          platformCommissionPercent,
+        },
+      });
       toast.success("تم حفظ الوسطاء");
       setMediators(mediatorContacts.length > 0 ? mediatorContacts : [{ phone: "", city: "" }]);
     } catch (error) {
@@ -134,6 +146,23 @@ function AdminMediatorsPage() {
           كل طلب جديد يرسل لكل الأرقام المحفوظة. أول رقم بالقائمة يظهر للزبون بزر التواصل مع الوسيط.
         </p>
 
+        <div className="mt-5 max-w-xs space-y-2">
+          <label className="text-sm font-medium" htmlFor="platform-commission-percent">
+            نسبة عمولة الوسيط %
+          </label>
+          <Input
+            id="platform-commission-percent"
+            dir="ltr"
+            type="number"
+            min={0}
+            max={100}
+            inputMode="decimal"
+            value={platformCommissionPercent}
+            onChange={(event) => setPlatformCommissionPercent(Number(event.target.value) || 0)}
+            className="h-11 text-start"
+          />
+        </div>
+
         <div className="mt-5 space-y-3">
           {loading ? (
             <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -161,7 +190,7 @@ function AdminMediatorsPage() {
                     <SelectValue placeholder="المحافظة" />
                   </SelectTrigger>
                   <SelectContent>
-                    {IRAQI_GOVERNORATES.map((city) => (
+                    {MEDIATOR_GOVERNORATE_OPTIONS.map((city) => (
                       <SelectItem key={city} value={city}>
                         {city}
                       </SelectItem>

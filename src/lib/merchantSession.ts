@@ -11,6 +11,8 @@ export interface MerchantSession {
   latitude?: number;
   longitude?: number;
   deliveryPhone?: string;
+  accountStatus?: "active" | "pending" | "inactive" | "suspended";
+  firstLoginCompleted?: boolean;
   signedInAt?: string;
   updatedAt?: string;
 }

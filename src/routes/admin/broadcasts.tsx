@@ -19,7 +19,7 @@ import {
   type AdminMessageRecord,
   type MerchantAdminView,
 } from "@/lib/admin.functions";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/broadcasts")({
   beforeLoad: () => requireAdminClient(),
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/admin/broadcasts")({
 type Audience = "all" | "selection";
 
 function AdminBroadcastsPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listMerchantsFn = useServerFn(listMerchants);
   const sendBroadcastFn = useServerFn(sendAdminBroadcast);
   const listMessagesFn = useServerFn(listAdminMessages);
@@ -42,16 +42,26 @@ function AdminBroadcastsPage() {
   const [search, setSearch] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [merchantPage, setMerchantPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [hasMoreMerchants, setHasMoreMerchants] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
 
   useEffect(() => {
     if (!session?.token) return;
-    listMerchantsFn({ data: { token: session.token } })
-      .then(setMerchants)
+    listMerchantsFn({ data: { token: session.token, page: merchantPage, limit: 20 } })
+      .then((result) => {
+        setMerchants(result.items);
+        setHasMoreMerchants(result.hasMore);
+      })
       .catch(() => setMerchants([]));
-    listMessagesFn({ data: { token: session.token } })
-      .then(setHistory)
+    listMessagesFn({ data: { token: session.token, page: historyPage, limit: 20 } })
+      .then((result) => {
+        setHistory(result.items);
+        setHasMoreHistory(result.hasMore);
+      })
       .catch(() => setHistory([]));
-  }, [listMerchantsFn, listMessagesFn, session?.token]);
+  }, [historyPage, listMerchantsFn, listMessagesFn, merchantPage, session?.token]);
 
   const filteredMerchants = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -87,8 +97,10 @@ function AdminBroadcastsPage() {
       });
       toast.success(`تم الإرسال إلى ${result.sent} من ${result.total} (فشل ${result.failed})`);
       setBody("");
-      const refreshed = await listMessagesFn({ data: { token: session.token } });
-      setHistory(refreshed);
+      const refreshed = await listMessagesFn({
+        data: { token: session.token, page: historyPage, limit: 20 },
+      });
+      setHistory(refreshed.items);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر الإرسال");
     } finally {
@@ -159,6 +171,15 @@ function AdminBroadcastsPage() {
                   ))
                 )}
               </div>
+              <div className="flex items-center justify-center gap-2 border-t p-2">
+                <Button type="button" variant="outline" size="sm" disabled={merchantPage <= 1} onClick={() => setMerchantPage((value) => value - 1)}>
+                  السابق
+                </Button>
+                <span className="text-xs text-muted-foreground">{merchantPage}</span>
+                <Button type="button" variant="outline" size="sm" disabled={!hasMoreMerchants} onClick={() => setMerchantPage((value) => value + 1)}>
+                  التالي
+                </Button>
+              </div>
             </div>
           )}
 
@@ -211,6 +232,15 @@ function AdminBroadcastsPage() {
               ))}
             </div>
           )}
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={historyPage <= 1} onClick={() => setHistoryPage((value) => value - 1)}>
+              السابق
+            </Button>
+            <span className="text-xs text-muted-foreground">{historyPage}</span>
+            <Button type="button" variant="outline" size="sm" disabled={!hasMoreHistory} onClick={() => setHistoryPage((value) => value + 1)}>
+              التالي
+            </Button>
+          </div>
         </div>
       </div>
     </AdminLayout>

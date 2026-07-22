@@ -8,11 +8,13 @@
 // that file.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { recordEgressDiagnostic } from "@/lib/egress-diagnostics.server";
 
 export type BotlyEventType =
   | "botly_merchant"
   | "botly_product"
   | "botly_session"
+  | "botly_merchant_otp"
   | "botly_lead"
   | "botly_customer"
   | "botly_customer_session"
@@ -25,6 +27,11 @@ export type BotlyEventType =
   | "botly_order"
   | "botly_order_counter_reset"
   | "botly_merchant_sales_reset"
+  | "botly_merchant_review"
+  | "botly_fitter_saved_request"
+  | "botly_fitter_favorite"
+  | "botly_supervisor"
+  | "botly_supervisor_session"
   | "botly_admin"
   | "botly_admin_session"
   | "botly_admin_password_reset"
@@ -40,6 +47,64 @@ export type EventRow = {
   created_at?: string;
   received_at?: string;
 };
+
+export type ProjectedEventRow = Record<string, unknown> & {
+  id: string;
+  created_at?: string;
+  received_at?: string;
+};
+
+export const DEFAULT_PAGE_LIMIT = 20;
+export const MAX_PAGE_LIMIT = 100;
+
+export type PageRequest = {
+  page?: number;
+  limit?: number;
+  cursor?: string;
+};
+
+export type PageResult<T> = {
+  items: T[];
+  page: number;
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export function normalizePageRequest(input: PageRequest = {}) {
+  const page = Math.max(1, Math.floor(input.page ?? 1));
+  const limit = Math.min(
+    MAX_PAGE_LIMIT,
+    Math.max(1, Math.floor(input.limit ?? DEFAULT_PAGE_LIMIT)),
+  );
+  const cursor = typeof input.cursor === "string" ? input.cursor.trim() : "";
+  return { page, limit, cursor };
+}
+
+const READ_CACHE_TTL_MS = 5_000;
+const eventReadCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<EventRow[]> }
+>();
+
+function invalidateEventReadCache(eventType: BotlyEventType) {
+  for (const key of eventReadCache.keys()) {
+    if (key.startsWith(`${eventType}:`)) eventReadCache.delete(key);
+  }
+}
+
+function cacheEventRead(key: string, loader: () => Promise<EventRow[]>) {
+  const now = Date.now();
+  const cached = eventReadCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = loader().catch((error) => {
+    eventReadCache.delete(key);
+    throw error;
+  });
+  eventReadCache.set(key, { expiresAt: now + READ_CACHE_TTL_MS, promise });
+  return promise;
+}
 
 export function getString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -75,7 +140,10 @@ export async function appendEvent(
     .select("id,payload,created_at")
     .single();
 
-  if (!primary.error) return primary.data as unknown as EventRow;
+  if (!primary.error) {
+    invalidateEventReadCache(eventType);
+    return primary.data as unknown as EventRow;
+  }
 
   const fallback = await supabaseAdmin
     .from("whatsapp_webhook_events")
@@ -86,30 +154,285 @@ export async function appendEvent(
   if (fallback.error) {
     throw new Error(`Failed to persist ${eventType}: ${fallback.error.message ?? "unknown error"}`);
   }
+  invalidateEventReadCache(eventType);
   return fallback.data as unknown as EventRow;
 }
 
-// Read events of a given type (newest first).
-export async function listEvents(eventType: BotlyEventType, limit = 5000): Promise<EventRow[]> {
-  const primary = await supabaseAdmin
+// Read one bounded page of events (newest first).
+export async function listEventsPage(
+  eventType: BotlyEventType,
+  request: PageRequest = {},
+): Promise<PageResult<EventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const cacheKey = `${eventType}:page:${page}:${limit}:${cursor}`;
+  const items = await cacheEventRead(cacheKey, async () => {
+    const offset = (page - 1) * limit;
+    let primaryQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", eventType)
+      .order("created_at", { ascending: false });
+    primaryQuery = cursor
+      ? primaryQuery.lt("created_at", cursor)
+      : primaryQuery.range(offset, offset + limit - 1);
+    if (cursor) primaryQuery = primaryQuery.limit(limit);
+    const primary = await primaryQuery;
+
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:listEventsPage:${eventType}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
+
+    let fallbackQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,received_at")
+      .eq("provider" as never, eventType)
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    if (cursor) fallbackQuery = fallbackQuery.limit(limit);
+    const fallback = await fallbackQuery;
+
+    if (isMissingTableError(fallback.error) || fallback.error) return [];
+    const rows = (fallback.data ?? []) as unknown as EventRow[];
+    recordEgressDiagnostic({
+      route: `db:listEventsPage:${eventType}:legacy`,
+      payload: rows,
+      params: { page, limit, cursor },
+    });
+    return rows;
+  });
+
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+// Compatibility helper for single-page reads. It is intentionally capped at
+// 100 rows; list/page endpoints should use listEventsPage directly.
+export async function listEvents(
+  eventType: BotlyEventType,
+  limit = DEFAULT_PAGE_LIMIT,
+): Promise<EventRow[]> {
+  const page = await listEventsPage(eventType, { limit });
+  return page.items;
+}
+
+// Read scalar JSONB fields without transferring the complete payload. The
+// projection uses PostgREST aliases, e.g. "title:payload->>title".
+export async function listProjectedEventsPage(
+  eventType: BotlyEventType,
+  projection: string,
+  request: PageRequest = {},
+): Promise<PageResult<ProjectedEventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const offset = (page - 1) * limit;
+  let primaryQuery = supabaseAdmin
     .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
+    .select(`id,created_at,${projection}`)
     .eq("source", "botly")
     .eq("event_type", eventType)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .order("created_at", { ascending: false });
+  primaryQuery = cursor
+    ? primaryQuery.lt("created_at", cursor).limit(limit)
+    : primaryQuery.range(offset, offset + limit - 1);
+  const primary = await primaryQuery;
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+  let items: ProjectedEventRow[];
+  if (!primary.error) {
+    items = (primary.data ?? []) as unknown as ProjectedEventRow[];
+  } else {
+    let fallbackQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select(`id,received_at,${projection}`)
+      .eq("provider" as never, eventType)
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor).limit(limit)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    const fallback = await fallbackQuery;
+    if (fallback.error) throw new Error(`Failed to read projected ${eventType}: ${fallback.error.message}`);
+    items = (fallback.data ?? []) as unknown as ProjectedEventRow[];
+  }
+
+  recordEgressDiagnostic({
+    route: `db:listProjectedEventsPage:${eventType}`,
+    payload: items,
+    params: { page, limit, cursor },
+  });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last as EventRow) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+export async function listProjectedEventsByPayloadFieldPage(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  projection: string,
+  request: PageRequest = {},
+): Promise<PageResult<ProjectedEventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const offset = (page - 1) * limit;
+  let primaryQuery = supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("created_at", { ascending: false });
+  primaryQuery = cursor
+    ? primaryQuery.lt("created_at", cursor).limit(limit)
+    : primaryQuery.range(offset, offset + limit - 1);
+  const primary = await primaryQuery;
+
+  let items: ProjectedEventRow[];
+  if (!primary.error) {
+    items = (primary.data ?? []) as unknown as ProjectedEventRow[];
+  } else {
+    let fallbackQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select(`id,received_at,${projection}`)
+      .eq("provider" as never, eventType)
+      .eq(`payload->>${field}` as never, value)
+      .order("received_at", { ascending: false });
+    fallbackQuery = cursor
+      ? fallbackQuery.lt("received_at", cursor).limit(limit)
+      : fallbackQuery.range(offset, offset + limit - 1);
+    const fallback = await fallbackQuery;
+    if (fallback.error) throw new Error(`Failed to read projected ${eventType}: ${fallback.error.message}`);
+    items = (fallback.data ?? []) as unknown as ProjectedEventRow[];
+  }
+
+  recordEgressDiagnostic({
+    route: `db:listProjectedEventsByField:${eventType}:${field}`,
+    payload: items,
+    params: { page, limit, cursor },
+  });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last as EventRow) : null,
+    hasMore: items.length === limit,
+  };
+}
+
+export async function getProjectedEventByPayloadField(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  projection: string,
+): Promise<ProjectedEventRow | null> {
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq(`payload->>${field}` as never, value)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (!primary.error) {
+    const row = (primary.data?.[0] ?? null) as unknown as ProjectedEventRow | null;
+    recordEgressDiagnostic({
+      route: `db:getProjectedEvent:${eventType}:${field}`,
+      payload: row ? [row] : [],
+      params: { limit: 1 },
+    });
+    return row;
+  }
 
   const fallback = await supabaseAdmin
     .from("whatsapp_webhook_events")
-    .select("id,payload,received_at")
+    .select(`id,received_at,${projection}`)
     .eq("provider" as never, eventType)
+    .eq(`payload->>${field}` as never, value)
     .order("received_at", { ascending: false })
-    .limit(limit);
+    .limit(1);
+  if (fallback.error) return null;
+  const row = (fallback.data?.[0] ?? null) as unknown as ProjectedEventRow | null;
+  recordEgressDiagnostic({
+    route: `db:getProjectedEvent:${eventType}:${field}:legacy`,
+    payload: row ? [row] : [],
+    params: { limit: 1 },
+  });
+  return row;
+}
 
-  if (isMissingTableError(fallback.error) || fallback.error) return [];
-  return (fallback.data ?? []) as unknown as EventRow[];
+export async function getProjectedEventById(
+  eventType: BotlyEventType,
+  id: string,
+  projection: string,
+): Promise<ProjectedEventRow | null> {
+  if (!id.trim()) return null;
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,created_at,${projection}`)
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq("id", id)
+    .limit(1);
+  if (!primary.error && primary.data?.[0]) {
+    const row = primary.data[0] as unknown as ProjectedEventRow;
+    recordEgressDiagnostic({
+      route: `db:getProjectedEventById:${eventType}`,
+      payload: [row],
+      params: { limit: 1 },
+    });
+    return row;
+  }
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select(`id,received_at,${projection}`)
+    .eq("provider" as never, eventType)
+    .eq("id", id)
+    .limit(1);
+  if (fallback.error || !fallback.data?.[0]) return null;
+  const row = fallback.data[0] as unknown as ProjectedEventRow;
+  recordEgressDiagnostic({
+    route: `db:getProjectedEventById:${eventType}:legacy`,
+    payload: [row],
+    params: { limit: 1 },
+  });
+  return row;
+}
+
+// Admin exports may scan multiple bounded pages, but no individual database
+// query exceeds MAX_PAGE_LIMIT.
+export async function listEventsForAdminExport(
+  eventType: BotlyEventType,
+  maxRows = 5_000,
+): Promise<EventRow[]> {
+  const rows: EventRow[] = [];
+  let cursor = "";
+  while (rows.length < maxRows) {
+    const page = await listEventsPage(eventType, {
+      cursor,
+      limit: Math.min(MAX_PAGE_LIMIT, maxRows - rows.length),
+    });
+    rows.push(...page.items);
+    if (!page.hasMore || !page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return rows;
 }
 
 // Read events of a given type filtered by a payload field, server-side
@@ -119,22 +442,57 @@ export async function listEventsByPayloadField(
   eventType: BotlyEventType,
   field: string,
   value: string,
-  limit = 20,
+  limit = DEFAULT_PAGE_LIMIT,
 ): Promise<EventRow[]> {
-  const primary = await supabaseAdmin
-    .from("whatsapp_webhook_events")
-    .select("id,payload,created_at")
-    .eq("source", "botly")
-    .eq("event_type", eventType)
-    .eq(`payload->>${field}` as never, value)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  return (await listEventsByPayloadFieldPage(eventType, field, value, { limit })).items;
+}
 
-  if (!primary.error) return (primary.data ?? []) as EventRow[];
+export async function listEventsByPayloadFieldPage(
+  eventType: BotlyEventType,
+  field: string,
+  value: string,
+  request: PageRequest = {},
+): Promise<PageResult<EventRow>> {
+  const { page, limit, cursor } = normalizePageRequest(request);
+  const cacheKey = `${eventType}:field-page:${field}:${value}:${page}:${limit}:${cursor}`;
+  const items = await cacheEventRead(cacheKey, async () => {
+    const offset = (page - 1) * limit;
+    let primaryQuery = supabaseAdmin
+      .from("whatsapp_webhook_events")
+      .select("id,payload,created_at")
+      .eq("source", "botly")
+      .eq("event_type", eventType)
+      .eq(`payload->>${field}` as never, value)
+      .order("created_at", { ascending: false });
+    primaryQuery = cursor
+      ? primaryQuery.lt("created_at", cursor).limit(limit)
+      : primaryQuery.range(offset, offset + limit - 1);
+    const primary = await primaryQuery;
 
-  // Older schema / filter failure: fall back to the in-memory scan.
-  const rows = await listEvents(eventType, 1000);
-  return rows.filter((row) => getString(row.payload?.[field]) === value).slice(0, limit);
+    if (!primary.error) {
+      const rows = (primary.data ?? []) as EventRow[];
+      recordEgressDiagnostic({
+        route: `db:listEventsByField:${eventType}:${field}`,
+        payload: rows,
+        params: { page, limit, cursor },
+      });
+      return rows;
+    }
+
+    // Older schema / filter failure: fall back to the in-memory scan.
+    const rows = await listEvents(eventType, MAX_PAGE_LIMIT);
+    return rows
+      .filter((row) => getString(row.payload?.[field]) === value)
+      .slice(offset, offset + limit);
+  });
+  const last = items.at(-1);
+  return {
+    items,
+    page,
+    limit,
+    nextCursor: items.length === limit && last ? eventTime(last) : null,
+    hasMore: items.length === limit,
+  };
 }
 
 // Read the most recent event matching a payload field equality. Useful for
@@ -148,35 +506,100 @@ export async function latestEventWhere(
   return rows[0] ?? null;
 }
 
+export async function getEventById(
+  eventType: BotlyEventType,
+  id: string,
+): Promise<EventRow | null> {
+  if (!id.trim()) return null;
+  const primary = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,created_at")
+    .eq("source", "botly")
+    .eq("event_type", eventType)
+    .eq("id", id)
+    .limit(1);
+  if (!primary.error && primary.data?.[0]) {
+    const row = primary.data[0] as EventRow;
+    recordEgressDiagnostic({
+      route: `db:getEventById:${eventType}`,
+      payload: [row],
+      params: { limit: 1 },
+    });
+    return row;
+  }
+
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .select("id,payload,received_at")
+    .eq("provider" as never, eventType)
+    .eq("id", id)
+    .limit(1);
+  if (fallback.error || !fallback.data?.[0]) return null;
+  const row = fallback.data[0] as unknown as EventRow;
+  recordEgressDiagnostic({
+    route: `db:getEventById:${eventType}:legacy`,
+    payload: [row],
+    params: { limit: 1 },
+  });
+  return row;
+}
+
 // Delete all events of a specific type matching a payload field (hard delete from DB).
 export async function deleteEventsByPayloadField(
   eventType: BotlyEventType,
   field: string,
   value: string,
 ): Promise<number> {
-  const result = await supabaseAdmin
+  const primary = await supabaseAdmin
     .from("whatsapp_webhook_events")
     .delete()
     .eq("source", "botly")
     .eq("event_type", eventType)
-    .eq(`payload->>${field}` as never, value);
+    .eq(`payload->>${field}` as never, value)
+    .select("id");
 
-  if (result.error) {
-    throw new Error(`Failed to delete ${eventType}: ${result.error.message ?? "unknown error"}`);
+  const fallback = await supabaseAdmin
+    .from("whatsapp_webhook_events")
+    .delete()
+    .eq("provider" as never, eventType)
+    .eq(`payload->>${field}` as never, value)
+    .select("id");
+
+  if (primary.error && fallback.error) {
+    throw new Error(`Failed to delete ${eventType}: ${primary.error.message ?? fallback.error.message ?? "unknown error"}`);
   }
-  return result.count ?? 0;
+  if (primary.error && !fallback.error) {
+    invalidateEventReadCache(eventType);
+    return fallback.data?.length ?? 0;
+  }
+  if (fallback.error) {
+    const message = `${fallback.error.code ?? ""} ${fallback.error.message ?? ""}`.toLowerCase();
+    if (!message.includes("provider") && !message.includes("column") && !message.includes("schema cache")) {
+      throw new Error(`Failed to delete legacy ${eventType}: ${fallback.error.message ?? "unknown error"}`);
+    }
+  }
+
+  invalidateEventReadCache(eventType);
+  return (primary.data?.length ?? 0) + (fallback.data?.length ?? 0);
 }
 
 async function findMerchantById(id: string): Promise<EventRow | null> {
   if (!id || !id.trim()) return null;
-  const rows = await listEvents("botly_merchant");
-  return rows.find((row) => merchantIdentity(row) === id || row.id === id) ?? null;
+  const rows = await listEventsByPayloadField("botly_merchant", "merchantId", id, 1);
+  return rows[0] ?? getEventById("botly_merchant", id);
 }
 
 async function findMerchantByPhone(phone: string): Promise<EventRow | null> {
   const key = phoneKey(phone);
   if (!key) return null;
-  const rows = await listEvents("botly_merchant");
+  const candidates = [...new Set([phone, normalizePhone(phone)])].filter(Boolean);
+  const groups = await Promise.all(
+    candidates.flatMap((candidate) => [
+      listEventsByPayloadField("botly_merchant", "whatsapp", candidate, 1),
+      listEventsByPayloadField("botly_merchant", "whatsappNormalized", candidate, 1),
+    ]),
+  );
+  const rows = groups.flat();
   return (
     rows.find((row) => {
       const payload = row.payload ?? {};
@@ -246,7 +669,7 @@ export function phoneKey(phone: string): string {
 // by SHA-256 token hash with a TTL). Reused by Meta integration server functions.
 export async function authorizeMerchantId(token: string): Promise<string> {
   const tokenHash = await sha256(token);
-  const sessions = await listEvents("botly_session");
+  const sessions = await listEventsByPayloadField("botly_session", "tokenHash", tokenHash, 1);
   const session = sessions.find((row) => {
     const payload = row.payload ?? {};
     return (

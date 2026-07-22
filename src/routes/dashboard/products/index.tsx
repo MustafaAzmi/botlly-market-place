@@ -24,6 +24,8 @@ function ProductsPage() {
   const deleteProductFn = useServerFn(deleteMerchantProduct);
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<MerchantProduct[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
   const merchantSession = readMerchantSession();
@@ -34,14 +36,17 @@ function ProductsPage() {
       return;
     }
 
-    listMerchantProductsFn({ data: { token: merchantSession.token } })
-      .then(setProducts)
+    listMerchantProductsFn({ data: { token: merchantSession.token, page, limit: 20 } })
+      .then((result) => {
+        setProducts(result.items);
+        setHasMore(result.hasMore);
+      })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل المنتجات");
         navigate({ to: "/auth" });
       })
       .finally(() => setLoading(false));
-  }, [listMerchantProductsFn, navigate, merchantSession?.token]);
+  }, [listMerchantProductsFn, navigate, page, merchantSession?.token]);
 
   const filtered = useMemo(
     () =>
@@ -98,6 +103,31 @@ function ProductsPage() {
           ))}
         </div>
       )}
+      <div className="mt-6 flex items-center justify-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading || page <= 1}
+          onClick={() => {
+            setLoading(true);
+            setPage((current) => current - 1);
+          }}
+        >
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">الصفحة {page}</span>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading || !hasMore}
+          onClick={() => {
+            setLoading(true);
+            setPage((current) => current + 1);
+          }}
+        >
+          التالي
+        </Button>
+      </div>
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

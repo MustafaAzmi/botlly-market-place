@@ -9,6 +9,16 @@
 import { useEffect, useState } from "react";
 
 export type PwaApp = "customer" | "merchant" | "fitter";
+export type BrowserFamily = "chrome" | "firefox" | "opera" | "edge" | "samsung" | "ios" | "in-app" | "other";
+
+type BotlyWindow = Window & {
+  __BOTLY_PWA_PROMPT_CAPTURED__?: boolean;
+  __PWA_DEBUG__?: boolean;
+};
+
+function pwaDebugEnabled() {
+  return typeof window !== "undefined" && (window as BotlyWindow).__PWA_DEBUG__ === true;
+}
 
 export const PWA_APPS: Record<
   PwaApp,
@@ -43,6 +53,7 @@ export function pwaHeadLinks(app: PwaApp) {
   const cfg = PWA_APPS[app];
   return [
     { rel: "manifest", href: cfg.manifest },
+    { rel: "icon", href: cfg.icon, type: "image/svg+xml" },
     { rel: "apple-touch-icon", href: `/icons/${app}-apple-180.png` },
   ];
 }
@@ -51,6 +62,7 @@ export function pwaHeadMeta(app: PwaApp) {
   const cfg = PWA_APPS[app];
   return [
     { name: "theme-color", content: cfg.themeColor },
+    { name: "application-name", content: cfg.name },
     { name: "mobile-web-app-capable", content: "yes" },
     { name: "apple-mobile-web-app-capable", content: "yes" },
     { name: "apple-mobile-web-app-status-bar-style", content: "default" },
@@ -65,11 +77,11 @@ export function registerServiceWorker() {
   // Don't specify scope — let the manifest's scope take precedence
   // Register immediately to ensure beforeinstallprompt fires before user interaction
   navigator.serviceWorker.register("/sw.js").then((reg) => {
-    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] Service Worker registered:", reg.scope);
     }
   }).catch((err) => {
-    if (typeof window !== "undefined" && (window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.error("[PWA] Service Worker registration failed:", err);
     }
   });
@@ -93,21 +105,21 @@ function publishInstallPrompt(event: BeforeInstallPromptEvent | null) {
 
 function ensureInstallPromptCapture() {
   if (typeof window === "undefined") return;
-  const w = window as typeof window & { __BOTLY_PWA_PROMPT_CAPTURED__?: boolean };
+  const w = window as BotlyWindow;
   if (w.__BOTLY_PWA_PROMPT_CAPTURED__) return;
   w.__BOTLY_PWA_PROMPT_CAPTURED__ = true;
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     publishInstallPrompt(event as BeforeInstallPromptEvent);
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] beforeinstallprompt captured globally");
     }
   });
 
   window.addEventListener("appinstalled", () => {
     publishInstallPrompt(null);
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] app installed successfully");
     }
   });
@@ -122,22 +134,32 @@ export function usePwaInstall() {
   const [installed, setInstalled] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIos, setIsIos] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
+  const [browserFamily, setBrowserFamily] = useState<BrowserFamily>("other");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const isIosDevice = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+    const isAndroidDevice = /android/i.test(window.navigator.userAgent);
+    const inAppBrowser = detectInAppBrowser(window.navigator.userAgent);
     setIsIos(isIosDevice);
+    setIsAndroid(isAndroidDevice);
+    setIsInAppBrowser(inAppBrowser);
+    setBrowserFamily(inAppBrowser ? "in-app" : detectBrowserFamily(window.navigator.userAgent));
 
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     setIsStandalone(standalone);
 
-    if ((window as any).__PWA_DEBUG__) {
+    if (pwaDebugEnabled()) {
       console.log("[PWA] Init:", {
         userAgent: window.navigator.userAgent,
         isIos: isIosDevice,
+        isAndroid: isAndroidDevice,
+        isInAppBrowser: inAppBrowser,
         isStandalone: standalone,
         hasServiceWorker: !!navigator.serviceWorker,
         protocol: window.location.protocol,
@@ -156,8 +178,8 @@ export function usePwaInstall() {
 
     // Log when page becomes visible (important for installability)
     const onVisibilityChange = () => {
-      if ((window as any).__PWA_DEBUG__ && document.visibilityState === "visible") {
-        console.log("[PWA] Page became visible, prompt available:", !!deferredPrompt);
+      if (pwaDebugEnabled() && document.visibilityState === "visible") {
+        console.log("[PWA] Page became visible, prompt available:", !!savedInstallPrompt);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -184,7 +206,34 @@ export function usePwaInstall() {
     installed,
     isStandalone,
     isIos,
+    isAndroid,
+    isInAppBrowser,
+    browserFamily,
   };
+}
+
+export function detectBrowserFamily(userAgent: string): BrowserFamily {
+  const ua = userAgent.toLowerCase();
+  if (detectInAppBrowser(userAgent)) return "in-app";
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (ua.includes("samsungbrowser")) return "samsung";
+  if (ua.includes("opr/") || ua.includes("opera")) return "opera";
+  if (ua.includes("edg/")) return "edge";
+  if (ua.includes("firefox") || ua.includes("fxios")) return "firefox";
+  if (ua.includes("chrome") || ua.includes("crios")) return "chrome";
+  return "other";
+}
+
+export function detectInAppBrowser(userAgent: string) {
+  const ua = userAgent.toLowerCase();
+  return (
+    ua.includes("fbav") ||
+    ua.includes("fban") ||
+    ua.includes("instagram") ||
+    ua.includes("line/") ||
+    ua.includes("wv") ||
+    ua.includes("whatsapp")
+  );
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {

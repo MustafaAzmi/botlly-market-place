@@ -24,9 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAdminOverview, resetAdminOrderCounter } from "@/lib/admin.functions";
+import { getAdminOverview, getSalesConfirmationSummary, resetAdminOrderCounter } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/")({
@@ -53,8 +53,9 @@ function excelCell(value: string | number) {
 }
 
 function AdminDashboard() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const overviewFn = useServerFn(getAdminOverview);
+  const confirmationSummaryFn = useServerFn(getSalesConfirmationSummary);
   const resetOrderCounterFn = useServerFn(resetAdminOrderCounter);
   const queryClient = useQueryClient();
   const [governorate, setGovernorate] = useState("all");
@@ -64,6 +65,14 @@ function AdminDashboard() {
     queryKey: ["admin-overview"],
     queryFn: async () =>
       session?.token ? overviewFn({ data: { token: session.token } }) : null,
+    enabled: Boolean(session?.token),
+    retry: 1,
+  });
+
+  const { data: confirmationSummary } = useQuery({
+    queryKey: ["admin-sales-confirmations"],
+    queryFn: async () =>
+      session?.token ? confirmationSummaryFn({ data: { token: session.token } }) : null,
     enabled: Boolean(session?.token),
     retry: 1,
   });
@@ -256,6 +265,19 @@ function AdminDashboard() {
             <StatCard icon={Wrench} label="فيتر" value={data.totals.fitters} />
             <StatCard icon={ShoppingBag} label="الطلبات" value={totalOrders} />
           </div>
+
+          {confirmationSummary ? (
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+              <h2 className="text-lg font-semibold">متابعة تأكيدات البيع بين الزبون والتاجر</h2>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                <StatCard icon={ShoppingBag} label="أكدها الطرفان" value={confirmationSummary.confirmedByBoth} />
+                <StatCard icon={Users} label="أكدها الزبون فقط" value={confirmationSummary.customerOnly} />
+                <StatCard icon={Store} label="أكدها التاجر فقط" value={confirmationSummary.merchantOnly} />
+                <StatCard icon={PackageSearch} label="عمليات متعارضة" value={confirmationSummary.conflicts} />
+                <StatCard icon={Loader2} label="عمليات معلقة" value={confirmationSummary.pending} />
+              </div>
+            </section>
+          ) : null}
 
           <div className="grid gap-4 xl:grid-cols-2">
             {selectedCurrencySales.map((row) => (

@@ -21,7 +21,7 @@ async function resolveMerchantContacts(
   if (merchantIds.length === 0) return contacts;
 
   const wanted = new Set(merchantIds);
-  const merchants = await listEvents("botly_merchant");
+  const merchants = await listEvents("botly_merchant", 100);
 
   for (const row of merchants) {
     const id = getString(row.payload?.merchantId) || row.id;

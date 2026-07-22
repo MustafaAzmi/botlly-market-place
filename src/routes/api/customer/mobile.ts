@@ -9,14 +9,29 @@ import {
   submitProductOrder,
   updateCustomerProfile,
 } from "@/lib/customer.functions";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import {
   appendEvent,
   getString,
   listEvents,
+  listEventsByPayloadField,
+  listProjectedEventsByPayloadFieldPage,
+  normalizePageRequest,
   normalizePhone,
   type EventRow,
 } from "@/lib/eventStore.server";
 import { sendWhatsAppText } from "@/lib/whatsapp/send.server";
+import {
+  diagnosticIdentity,
+  diagnosticResponse,
+  diagnosticSession,
+  payloadBytes,
+} from "@/lib/egress-diagnostics.server";
+import {
+  listRequesterWebNotifications,
+  requesterConfirmWebPurchase,
+  type WebOrderNotification,
+} from "@/lib/web-notifications.functions";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -29,16 +44,36 @@ type Action =
   | "updateProfile"
   | "browseProducts"
   | "submitOrder"
+  | "submitSmartRequest"
   | "catalogue"
   | "mediator"
   | "listOrders"
   | "updateOrderStatus";
 
-function json(data: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(data), {
-    ...init,
-    headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
-  });
+function json(route: string, data: unknown, requestData: unknown, init?: ResponseInit) {
+  const body = JSON.stringify(data);
+  const input = (requestData ?? {}) as Record<string, unknown>;
+  return diagnosticResponse(
+    route,
+    body,
+    {
+      ...init,
+      headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
+    },
+    {
+      payload: data,
+      responseBytes: payloadBytes(body),
+      user: diagnosticIdentity(
+        getString(input.customerPhone) || getString(input.whatsapp),
+      ),
+      session: diagnosticSession(getString(input.token)),
+      params: {
+        limit: typeof input.limit === "number" ? input.limit : undefined,
+        page: typeof input.page === "number" ? input.page : undefined,
+        cursor: getString(input.cursor),
+      },
+    },
+  );
 }
 
 async function readBody(request: Request): Promise<{ action?: Action; data?: unknown }> {
@@ -71,50 +106,128 @@ function orderTime(row: EventRow) {
   return row.created_at || row.received_at || "";
 }
 
+function webRequesterNotificationToMobileOrder(order: WebOrderNotification) {
+  return {
+    id: order.orderId,
+    productTitle: order.productTitle,
+    price: order.price,
+    currency: order.currency || "IQD",
+    status: order.finalStatus || order.requesterStatus,
+    merchantStatus: order.merchantStatus,
+    requesterStatus: order.requesterStatus,
+    finalStatus: order.finalStatus,
+    merchantStoreName: order.merchantStoreName,
+    merchantWhatsapp: order.merchantWhatsapp,
+    merchantPhoneVisible: order.merchantPhoneVisible,
+    merchantNote: order.merchantNote ?? "",
+    updatedAt: order.updatedAt || order.createdAt,
+  };
+}
+
 async function listCustomerOrders(data: unknown) {
-  const phone = getString((data as Record<string, unknown> | null)?.customerPhone);
+  const input = data as Record<string, unknown> | null;
+  const phone = getString(input?.customerPhone);
   const key = phoneKey(phone);
-  if (!key) return [];
-  const rows = await listEvents("botly_order");
+  const pagination = normalizePageRequest({
+    page: typeof input?.page === "number" ? input.page : undefined,
+    limit: typeof input?.limit === "number" ? input.limit : undefined,
+    cursor: getString(input?.cursor),
+  });
+  if (!key) {
+    return { items: [], ...pagination, nextCursor: null, hasMore: false };
+  }
+  try {
+    const page = await callServerFn(listRequesterWebNotifications, {
+      requesterPhone: phone,
+      requesterType: "customer" as const,
+      page: pagination.page,
+      limit: pagination.limit,
+      cursor: pagination.cursor,
+    });
+    if (page.items.length > 0) {
+      return {
+        ...page,
+        items: page.items.map(webRequesterNotificationToMobileOrder),
+      };
+    }
+  } catch {
+    // Keep the legacy mobile order list as a fallback for older records.
+  }
+  const projection = [
+    "order_id:payload->>orderId",
+    "customer_phone:payload->>customerPhone",
+    "customer_number:payload->>customerNumber",
+    "phone:payload->>phone",
+    "product_title:payload->>productTitle",
+    "price:payload->price",
+    "currency:payload->>currency",
+    "status:payload->>status",
+    "availability_status:payload->>merchantAvailabilityStatus",
+    "merchant_available:payload->merchantAvailable",
+    "created_at_value:payload->>createdAt",
+    "updated_at_value:payload->>updatedAt",
+  ].join(",");
+  let eventPage = await listProjectedEventsByPayloadFieldPage(
+    "botly_order",
+    "requesterPhone",
+    phone,
+    projection,
+    pagination,
+  );
+  if (eventPage.items.length === 0) {
+    eventPage = await listProjectedEventsByPayloadFieldPage(
+      "botly_order",
+      "customerPhone",
+      phone,
+      projection,
+      pagination,
+    );
+  }
+  const rows = eventPage.items;
   const latest = new Map<string, Record<string, unknown>>();
   for (const row of rows) {
-    const payload = row.payload ?? {};
     const orderPhone =
-      getString(payload.customerPhone) ||
-      getString(payload.customerNumber) ||
-      getString(payload.phone);
+      getString(row.customer_phone) ||
+      getString(row.customer_number) ||
+      getString(row.phone);
     if (phoneKey(orderPhone) !== key) continue;
-    const orderId = getString(payload.orderId) || row.id;
+    const orderId = getString(row.order_id) || row.id;
     const existing = latest.get(orderId) ?? { id: orderId };
     latest.set(orderId, {
       ...existing,
-      productTitle: getString(existing.productTitle) || getString(payload.productTitle),
-      price: existing.price ?? payload.price,
-      currency: getString(existing.currency) || getString(payload.currency) || "IQD",
+      productTitle: getString(existing.productTitle) || getString(row.product_title),
+      price: existing.price ?? row.price,
+      currency: getString(existing.currency) || getString(row.currency) || "IQD",
       status:
         getString(existing.status) ||
-        getString(payload.status) ||
-        getString(payload.merchantAvailabilityStatus) ||
+        getString(row.status) ||
+        getString(row.availability_status) ||
         "requested",
-      merchantAvailable: existing.merchantAvailable ?? payload.merchantAvailable,
+      merchantAvailable: existing.merchantAvailable ?? row.merchant_available,
       createdAt:
         getString(existing.createdAt) ||
-        getString(payload.createdAt) ||
+        getString(row.created_at_value) ||
         row.created_at ||
         row.received_at,
       updatedAt:
         getString(existing.updatedAt) ||
-        getString(payload.updatedAt) ||
+        getString(row.updated_at_value) ||
         row.created_at ||
         row.received_at,
     });
   }
-  return [...latest.values()];
+  return {
+    items: [...latest.values()].slice(0, pagination.limit),
+    page: pagination.page,
+    limit: pagination.limit,
+    nextCursor: eventPage.nextCursor,
+    hasMore: eventPage.hasMore,
+  };
 }
 
 async function findCustomerOrder(orderId: string, customerPhone: string) {
   const key = phoneKey(customerPhone);
-  const rows = await listEvents("botly_order");
+  const rows = await listEventsByPayloadField("botly_order", "orderId", orderId, 100);
   const matches = rows.filter((row) => {
     const payload = row.payload ?? {};
     const rowOrderId = getString(payload.orderId) || row.id;
@@ -145,11 +258,15 @@ function mediatorContactsFromPayload(payload: Record<string, unknown>) {
     .filter((item) => item.phone);
 }
 
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
+
 async function readMediatorPhonesForGovernorate(governorate: string) {
   const settingsRows = await listEvents("botly_settings").catch(() => [] as EventRow[]);
   for (const row of settingsRows) {
     const contacts = mediatorContactsFromPayload(row.payload ?? {});
-    const scoped = contacts.filter((contact) => !governorate || contact.city === governorate);
+    const scoped = contacts.filter(
+      (contact) => !governorate || contact.city === governorate || contact.city === ALL_GOVERNORATES_MEDIATOR,
+    );
     if (scoped.length > 0) return scoped.map((contact) => contact.phone);
     const phones = stringList(row.payload?.mediatorPhones);
     if (phones.length > 0) return phones;
@@ -205,19 +322,9 @@ async function sendCustomerOrderStatusNotifications(args: {
     }
   }
 
-  let merchantResult: unknown = null;
-  if (args.status === "purchased" && merchantWhatsapp) {
-    const merchantMessage = [
-      "تأكيد بيع من Botly:",
-      `تم تأكيد شراء القطعة: ${productTitle}`,
-      "يرجى متابعة الوسيط لإكمال الإجراءات.",
-    ].filter(Boolean).join("\n");
-    merchantResult = await sendWhatsAppText(toWhatsAppRecipient(merchantWhatsapp), merchantMessage).catch((error) => ({
-      ok: false,
-      status: 0,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
+  const merchantResult: unknown = merchantWhatsapp
+    ? { ok: false, status: 0, skipped: true, reason: "web_notifications_only" }
+    : null;
 
   return { mediatorPhones, mediatorResults, merchantResult };
 }
@@ -229,6 +336,17 @@ async function updateCustomerOrderStatus(data: unknown) {
   const status = getString(record?.status);
   if (!orderId || !customerPhone) throw new Error("بيانات الطلب غير مكتملة.");
   if (!["cancelled", "purchased"].includes(status)) throw new Error("حالة الطلب غير صحيحة.");
+  try {
+    await callServerFn(requesterConfirmWebPurchase, {
+      orderId,
+      requesterPhone: customerPhone,
+      requesterType: "customer" as const,
+      result: status === "purchased" ? "purchased" as const : "cancelled" as const,
+    });
+    return { ok: true };
+  } catch {
+    // Keep the legacy status update as a fallback for older mobile orders.
+  }
 
   const order = await findCustomerOrder(orderId, customerPhone);
   if (!order) throw new Error("لم يتم العثور على الطلب.");
@@ -259,35 +377,41 @@ export const Route = createFileRoute("/api/customer/mobile")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        let action: Action | undefined;
+        let data: unknown;
         try {
-          const { action, data } = await readBody(request);
-          if (!action) return json({ ok: false, error: "Missing action" }, { status: 400 });
+          ({ action, data } = await readBody(request));
+          if (!action) return json("api:customerMobile:missingAction", { ok: false, error: "Missing action" }, data, { status: 400 });
 
           switch (action) {
             case "login":
-              return json({ ok: true, result: await callServerFn(loginCustomer, data) });
+              return json("api:customerMobile:login", { ok: true, result: await callServerFn(loginCustomer, data) }, data);
             case "signup":
-              return json({ ok: true, result: await callServerFn(signupCustomer, data) });
+              return json("api:customerMobile:signup", { ok: true, result: await callServerFn(signupCustomer, data) }, data);
             case "updateProfile":
-              return json({ ok: true, result: await callServerFn(updateCustomerProfile, data) });
+              return json("api:customerMobile:updateProfile", { ok: true, result: await callServerFn(updateCustomerProfile, data) }, data);
             case "browseProducts":
-              return json({ ok: true, result: await callServerFn(browseCarProducts, data) });
+              return json("api:customerMobile:browseProducts", { ok: true, result: await callServerFn(browseCarProducts, data) }, data);
             case "submitOrder":
-              return json({ ok: true, result: await callServerFn(submitProductOrder, data) });
+              return json("api:customerMobile:submitOrder", { ok: true, result: await callServerFn(submitProductOrder, data) }, data);
+            case "submitSmartRequest":
+              return json("api:customerMobile:submitSmartRequest", { ok: true, result: await callServerFn(submitMissingProductRequest, data) }, data);
             case "catalogue":
-              return json({ ok: true, result: await getEnabledCarCatalogue() });
+              return json("api:customerMobile:catalogue", { ok: true, result: await getEnabledCarCatalogue() }, data);
             case "mediator":
-              return json({ ok: true, result: await getMediatorPhone() });
+              return json("api:customerMobile:mediator", { ok: true, result: await getMediatorPhone() }, data);
             case "listOrders":
-              return json({ ok: true, result: await listCustomerOrders(data) });
+              return json("api:customerMobile:listOrders", { ok: true, result: await listCustomerOrders(data) }, data);
             case "updateOrderStatus":
-              return json({ ok: true, result: await updateCustomerOrderStatus(data) });
+              return json("api:customerMobile:updateOrderStatus", { ok: true, result: await updateCustomerOrderStatus(data) }, data);
             default:
-              return json({ ok: false, error: "Unknown action" }, { status: 400 });
+              return json("api:customerMobile:unknownAction", { ok: false, error: "Unknown action" }, data, { status: 400 });
           }
         } catch (error) {
           return json(
+            `api:customerMobile:${action ?? "error"}`,
             { ok: false, error: error instanceof Error ? error.message : "Unexpected server error" },
+            data,
             { status: 500 },
           );
         }

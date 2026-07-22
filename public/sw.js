@@ -8,7 +8,7 @@
 //   - /api/*       : network only (never cached — auth + live data)
 //   - push         : show a notification, focus/open the target URL on click
 
-const VERSION = "botly-pwa-v6";
+const VERSION = "botly-pwa-v7";
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";
@@ -23,10 +23,13 @@ const PRECACHE = [
   "/icons/fitter.svg",
   "/icons/customer-192.png",
   "/icons/customer-512.png",
+  "/icons/customer-apple-180.png",
   "/icons/merchant-192.png",
   "/icons/merchant-512.png",
+  "/icons/merchant-apple-180.png",
   "/icons/fitter-192.png",
   "/icons/fitter-512.png",
+  "/icons/fitter-apple-180.png",
 ];
 
 self.addEventListener("install", (event) => {

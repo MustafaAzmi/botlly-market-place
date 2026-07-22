@@ -47,6 +47,7 @@ import {
 
 const textHeaders = { "content-type": "text/plain; charset=utf-8" };
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+const DEFAULT_PLATFORM_COMMISSION_PERCENT = 5;
 
 function getVerifyToken() {
   return process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? process.env.BOTLY_WHATSAPP_VERIFY_TOKEN;
@@ -54,6 +55,18 @@ function getVerifyToken() {
 
 function getAppSecret() {
   return process.env.WHATSAPP_APP_SECRET;
+}
+
+async function getPlatformCommissionPercent() {
+  const rows = await listEvents("botly_settings").catch(() => []);
+  for (const row of rows) {
+    const value =
+      getNumber(row.payload?.platformCommissionPercent) ??
+      getNumber(row.payload?.merchantCommissionPercent) ??
+      getNumber(row.payload?.commissionPercent);
+    if (value !== undefined) return Math.min(100, Math.max(0, value));
+  }
+  return DEFAULT_PLATFORM_COMMISSION_PERCENT;
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -221,6 +234,11 @@ const ACTION_NEW_SEARCH = "new_search";
 const ACTION_SEARCH_ALTERNATIVE = "search_alternative";
 const ACTION_CONFIRM_ORDER = "merchant_confirm_order";
 const ACTION_PRODUCT_OUT_OF_STOCK = "merchant_product_out_of_stock";
+const ACTION_MISSING_AVAILABLE = "missing_product_available";
+const ACTION_MISSING_MERCHANT_SOLD = "missing_product_sold";
+const ACTION_MISSING_MERCHANT_NOT_PURCHASED = "missing_product_not_purchased";
+const ACTION_MISSING_REQUESTER_PURCHASED = "missing_requester_purchased";
+const ACTION_MISSING_REQUESTER_NOT_PURCHASED = "missing_requester_not_purchased";
 
 function toWhatsAppRecipient(phone: string): string {
   return normalizePhone(phone).replace(/^\+/, "");
@@ -244,6 +262,8 @@ type MediatorContact = {
   phone: string;
   city: string;
 };
+
+const ALL_GOVERNORATES_MEDIATOR = "كل المحافظات";
 
 function normalizeMediatorContacts(values: unknown): MediatorContact[] {
   if (!Array.isArray(values)) return [];
@@ -296,7 +316,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
     getString(args.order.fitterCity) ||
     getString(args.order.customerGovernorate);
   const fallbackContacts = (await readMediatorContactsFromSettings()).filter(
-    (contact) => contact.city === orderGovernorate,
+    (contact) => contact.city === orderGovernorate || contact.city === ALL_GOVERNORATES_MEDIATOR,
   );
   const mediatorPhones = normalizeMediatorPhones(
     storedContacts.length > 0
@@ -310,7 +330,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   const productTitle = getString(args.order.productTitle) || "المنتج";
   const storeName = getString(args.order.merchantStoreName) || getString(args.order.storeName) || "المتجر";
   const merchantWhatsapp = getString(args.order.merchantWhatsapp) || "-";
-  const currentPrice = getNumber(args.order.currentPrice) ?? getNumber(args.order.price) ?? 0;
+  const finalPrice = getNumber(args.order.price) ?? getNumber(args.order.currentPrice) ?? 0;
   const currency = getString(args.order.currency) || "IQD";
   const requester =
     getString(args.order.sourceContext) === "fitter_site"
@@ -320,7 +340,7 @@ async function notifyMediatorsOfMerchantAvailability(args: {
   const message = [
     args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
     `المنتج: ${productTitle}`,
-    `السعر الحالي: ${currentPrice.toLocaleString()} ${currency}`,
+    `السعر النهائي: ${finalPrice.toLocaleString()} ${currency}`,
     `المتجر: ${storeName}`,
     `واتساب التاجر: ${merchantWhatsapp}`,
     requester,
@@ -372,12 +392,12 @@ async function notifyRequesterOfMerchantAvailability(args: {
       ? `رقم الوسيط: ${mediatorPhones.join(" / ")}`
       : "رقم الوسيط غير متوفر حالياً، انتظر تواصل الوسيط.";
   const productTitle = getString(order.productTitle) || "المنتج";
-  const currentPrice = getNumber(order.currentPrice) ?? getNumber(order.price) ?? 0;
+  const finalPrice = getNumber(order.price) ?? getNumber(order.currentPrice) ?? 0;
   const currency = getString(order.currency) || "IQD";
   const body = [
     args.isAvailable ? "رد التاجر: المنتج متوفر" : "رد التاجر: المنتج غير متوفر",
     `المنتج: ${productTitle}`,
-    currentPrice ? `السعر: ${currentPrice.toLocaleString()} ${currency}` : "",
+    finalPrice ? `السعر النهائي: ${finalPrice.toLocaleString()} ${currency}` : "",
     mediatorLine,
     args.isAvailable ? "يرجى التواصل مع الوسيط لإكمال الطلب." : "يمكنك البحث عن قطعة بديلة من التطبيق.",
   ]
@@ -395,6 +415,232 @@ async function notifyRequesterOfMerchantAvailability(args: {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function missingOrderFinalStatus(order: Record<string, unknown>) {
+  const merchantStatus = getString(order.merchantStatus) || "Pending";
+  const requesterStatus = getString(order.requesterStatus) || "Pending";
+  if (merchantStatus === "Sold" && requesterStatus === "Purchased") return "completed";
+  if (merchantStatus === "Cancelled" && requesterStatus === "Cancelled") return "cancelled";
+  if (
+    (merchantStatus === "Sold" && requesterStatus === "Cancelled") ||
+    (merchantStatus === "Cancelled" && requesterStatus === "Purchased")
+  ) {
+    return "review";
+  }
+  return "pending_review";
+}
+
+async function findLatestMissingOrderByMerchant(phone: string) {
+  const key = phoneKey(phone);
+  const rows = await listEvents("botly_order", 100).catch(() => []);
+  return (
+    rows.find((row) => {
+      const p = row.payload ?? {};
+      return (
+        phoneKey(getString(p.merchantWhatsapp)) === key &&
+        getString(p.merchantStatus) !== "Cancelled" &&
+        getString(p.merchantStatus) !== "Sold"
+      );
+    }) ?? null
+  );
+}
+
+async function findLatestMissingOrderByRequester(phone: string) {
+  const key = phoneKey(phone);
+  const rows = await listEvents("botly_order", 100).catch(() => []);
+  return (
+    rows.find((row) => {
+      const p = row.payload ?? {};
+      return (
+        (phoneKey(getString(p.requesterPhone)) === key ||
+          phoneKey(getString(p.customerPhone)) === key ||
+          phoneKey(getString(p.customerNumber)) === key ||
+          phoneKey(getString(p.fitterWhatsapp)) === key) &&
+        getString(p.merchantStatus) &&
+        getString(p.requesterStatus) !== "Purchased" &&
+        getString(p.requesterStatus) !== "Cancelled"
+      );
+    }) ?? null
+  );
+}
+
+async function notifyMediatorsOfMissingOrderEvent(order: Record<string, unknown>, eventLabel: string) {
+  const contacts = await readMediatorContactsFromSettings();
+  const scoped = contacts.filter(
+    (contact) =>
+      !getString(order.requesterGovernorate) ||
+      contact.city === getString(order.requesterGovernorate) ||
+      contact.city === ALL_GOVERNORATES_MEDIATOR,
+  );
+  const phones = normalizeMediatorPhones((scoped.length > 0 ? scoped : contacts).map((contact) => contact.phone));
+  const status = missingOrderFinalStatus(order);
+  const message = [
+    eventLabel,
+    `اسم المنتج: ${getString(order.productTitle)}`,
+    `نوع السيارة: ${getString(order.carMake)}`,
+    `موديل السيارة: ${getString(order.carModel)}`,
+    `التاجر: ${getString(order.merchantStoreName)} / ${getString(order.merchantWhatsapp)}`,
+    `مقدم الطلب: ${getString(order.requesterName) || getString(order.customerName) || getString(order.fitterName)} / ${getString(order.requesterPhone) || getString(order.customerPhone) || getString(order.customerNumber) || getString(order.fitterWhatsapp)}`,
+    `حالة التاجر: ${getString(order.merchantStatus) || "Pending"}`,
+    `حالة الزبون/الفيتر: ${getString(order.requesterStatus) || "Pending"}`,
+    `الحالة النهائية: ${status}`,
+  ].join("\n");
+  const results = [];
+  for (const phone of phones) {
+    const recipient = toWhatsAppRecipient(phone);
+    try {
+      results.push({ phone: recipient, ...(await sendWhatsAppText(recipient, message)) });
+    } catch (error) {
+      results.push({ phone: recipient, ok: false, status: 0, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return results;
+}
+
+async function notifyRequesterOfMissingOrderStatus(order: Record<string, unknown>, body: string) {
+  const phone =
+    getString(order.requesterPhone) ||
+    getString(order.customerPhone) ||
+    getString(order.customerNumber) ||
+    getString(order.fitterWhatsapp);
+  if (!phone) return { ok: false, skipped: true, error: "Missing requester phone" };
+  return sendWhatsAppText(toWhatsAppRecipient(phone), body).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function notifyMerchantOfMissingOrderStatus(order: Record<string, unknown>, body: string) {
+  const phone = getString(order.merchantWhatsapp);
+  if (!phone) return { ok: false, skipped: true, error: "Missing merchant phone" };
+  return sendWhatsAppText(toWhatsAppRecipient(phone), body).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+function shouldAskRequesterForPurchaseStatus(order: Record<string, unknown>) {
+  const requesterStatus = getString(order.requesterStatus);
+  return (
+    requesterStatus !== "Purchased" &&
+    requesterStatus !== "Cancelled" &&
+    !getString(order.requesterRespondedAt)
+  );
+}
+
+async function sendRequesterPurchaseQuestion(order: Record<string, unknown>, intro = "") {
+  if (!shouldAskRequesterForPurchaseStatus(order)) {
+    return { ok: false, skipped: true, reason: "requester_already_responded" };
+  }
+  const requesterPhone =
+    getString(order.requesterPhone) ||
+    getString(order.customerPhone) ||
+    getString(order.customerNumber) ||
+    getString(order.fitterWhatsapp);
+  if (!requesterPhone) return { ok: false, skipped: true, error: "Missing requester phone" };
+
+  const body = [
+    intro,
+    "يرجى إكمال عملية الشراء من خلال الوسيط قبل الضغط على أزرار تم الشراء، أو الغِ العملية في حال عدم التوصل إلى اتفاق.",
+    "",
+    "هل تم شراء المنتج المطلوب؟",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendWhatsAppButtons(toWhatsAppRecipient(requesterPhone), body, [
+    { id: ACTION_MISSING_REQUESTER_PURCHASED, title: "تم الشراء" },
+    { id: ACTION_MISSING_REQUESTER_NOT_PURCHASED, title: "تم إلغاء الطلب" },
+  ]).catch((error) => ({
+    ok: false,
+    status: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function handleMissingProductButton(from: string, actionId: string) {
+  const now = new Date().toISOString();
+
+  if (actionId === ACTION_MISSING_AVAILABLE) {
+    const row = await findLatestMissingOrderByMerchant(from);
+    if (!row) return false;
+    const order: Record<string, unknown> = {
+      ...(row.payload ?? {}),
+      merchantStatus: "Available",
+      requesterStatus: getString(row.payload?.requesterStatus) || "Pending",
+      status: "available",
+      eventName: "merchant_pressed_available",
+      eventAt: now,
+      availableAt: now,
+    };
+    await appendEvent("botly_order", order);
+    await sendWhatsAppButtons(
+      toWhatsAppRecipient(getString(order.merchantWhatsapp)),
+      "بعد إكمال عملية البيع يرجى الضغط على زر (تم بيع المنتج)، أو إذا ألغى الزبون الطلب اضغط (تم إلغاء الطلب).",
+      [
+        { id: ACTION_MISSING_MERCHANT_SOLD, title: "تم بيع المنتج" },
+        { id: ACTION_MISSING_MERCHANT_NOT_PURCHASED, title: "تم إلغاء الطلب" },
+      ],
+    );
+    await sendRequesterPurchaseQuestion(order, "يوجد تاجر يمتلك المنتج المطلوب.");
+    return true;
+  }
+
+  if ([ACTION_MISSING_MERCHANT_SOLD, ACTION_MISSING_MERCHANT_NOT_PURCHASED].includes(actionId)) {
+    const row = await findLatestMissingOrderByMerchant(from);
+    if (!row) return false;
+    const merchantStatus = actionId === ACTION_MISSING_MERCHANT_SOLD ? "Sold" : "Cancelled";
+    const order: Record<string, unknown> = {
+      ...(row.payload ?? {}),
+      merchantStatus,
+      requesterStatus: getString(row.payload?.requesterStatus) || "Pending",
+      status: missingOrderFinalStatus({ ...(row.payload ?? {}), merchantStatus }),
+      eventName: merchantStatus === "Sold" ? "merchant_pressed_sold" : "merchant_pressed_cancelled",
+      eventAt: now,
+      merchantRespondedAt: now,
+      commissionPercent: await getPlatformCommissionPercent(),
+    };
+    await appendEvent("botly_order", order);
+    await notifyRequesterOfMissingOrderStatus(
+      order,
+      merchantStatus === "Sold"
+        ? `التاجر أكد بيع المنتج المطلوب: ${getString(order.productTitle) || "المنتج"}.\nيرجى تأكيد الشراء من الأزرار المرسلة لك.`
+        : `التاجر أبلغ بإلغاء طلب المنتج: ${getString(order.productTitle) || "المنتج"}.`,
+    );
+    await sendRequesterPurchaseQuestion(order);
+    await notifyMediatorsOfMissingOrderEvent(order, merchantStatus === "Sold" ? "التاجر أكد البيع" : "التاجر ألغى الطلب");
+    return true;
+  }
+
+  if ([ACTION_MISSING_REQUESTER_PURCHASED, ACTION_MISSING_REQUESTER_NOT_PURCHASED].includes(actionId)) {
+    const row = await findLatestMissingOrderByRequester(from);
+    if (!row) return false;
+    const requesterStatus = actionId === ACTION_MISSING_REQUESTER_PURCHASED ? "Purchased" : "Cancelled";
+    const order: Record<string, unknown> = {
+      ...(row.payload ?? {}),
+      requesterStatus,
+      merchantStatus: getString(row.payload?.merchantStatus) || "Pending",
+      status: missingOrderFinalStatus({ ...(row.payload ?? {}), requesterStatus }),
+      eventName: requesterStatus === "Purchased" ? "requester_pressed_purchased" : "requester_pressed_cancelled",
+      eventAt: now,
+      requesterRespondedAt: now,
+      commissionPercent: await getPlatformCommissionPercent(),
+    };
+    await appendEvent("botly_order", order);
+    await notifyMerchantOfMissingOrderStatus(
+      order,
+      requesterStatus === "Purchased"
+        ? `الزبون/الفيتر أكد شراء المنتج: ${getString(order.productTitle) || "المنتج"}.`
+        : `الزبون/الفيتر أبلغ بإلغاء طلب المنتج: ${getString(order.productTitle) || "المنتج"}.`,
+    );
+    await notifyMediatorsOfMissingOrderEvent(order, requesterStatus === "Purchased" ? "الزبون/الفيتر أكد الشراء" : "الزبون/الفيتر ألغى الطلب");
+    return true;
+  }
+
+  return false;
 }
 
 function buttonResponse(
@@ -674,6 +920,9 @@ async function notifyDeliveryOfOrder(customerNumber: string, match: ProductMatch
 
   await appendEvent("botly_order", {
     orderId: crypto.randomUUID(),
+    sourceContext: "customer_whatsapp",
+    requesterType: "customer",
+    requesterPhone: customerNumber,
     merchantId: match.merchantId,
     productId: match.id,
     productTitle: match.title,
@@ -855,6 +1104,9 @@ async function sendPurchaseDetails(customerNumber: string, match: ProductMatch, 
   const orderId = crypto.randomUUID();
   await appendEvent("botly_order", {
     orderId,
+    sourceContext: "customer_whatsapp",
+    requesterType: "customer",
+    requesterPhone: customerNumber,
     merchantId: match.merchantId,
     productId: match.id,
     productTitle: match.title,
@@ -1331,6 +1583,27 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
           const isCustomerMessage =
             Boolean(incoming.from) && summary.eventType.startsWith("message.");
 
+          if (
+            isCustomerMessage &&
+            incoming.from &&
+            incoming.actionId &&
+            [
+              ACTION_MISSING_AVAILABLE,
+              ACTION_MISSING_MERCHANT_SOLD,
+              ACTION_MISSING_MERCHANT_NOT_PURCHASED,
+              ACTION_MISSING_REQUESTER_PURCHASED,
+              ACTION_MISSING_REQUESTER_NOT_PURCHASED,
+            ].includes(incoming.actionId)
+          ) {
+            const handled = await handleMissingProductButton(incoming.from, incoming.actionId);
+            if (handled) {
+              return new Response(JSON.stringify({ ok: true, handled: "missing_product" }), {
+                status: 200,
+                headers: jsonHeaders,
+              });
+            }
+          }
+
           // Merchant pressed an order-status button (sent by sendPurchaseDetails).
           if (
             isCustomerMessage &&
@@ -1342,7 +1615,7 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
             // is stored as the merchant typed it (07... / +9647...), so match
             // by format-independent phone key over the recent orders.
             const fromKey = phoneKey(incoming.from);
-            const rows = await listEvents("botly_order", 200).catch(() => []);
+            const rows = await listEvents("botly_order", 100).catch(() => []);
             const respondedOrderIds = new Set<string>();
             let orderRow: (typeof rows)[number] | null = null;
             for (const row of rows) {
@@ -1385,7 +1658,12 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 orderId: getString(order.orderId) || orderRow.id,
                 merchantResponse: incoming.actionId,
                 merchantResponseStatus: isConfirmed ? "confirmed" : "out_of_stock",
-                status: isConfirmed ? "confirmed_by_merchant" : "out_of_stock",
+                merchantStatus: isConfirmed ? "Available" : "Cancelled",
+                requesterStatus: getString(order.requesterStatus) || "Pending",
+                status: isConfirmed ? "available" : "out_of_stock",
+                eventName: isConfirmed ? "merchant_pressed_available" : "merchant_pressed_cancelled",
+                eventAt: new Date().toISOString(),
+                commissionPercent: await getPlatformCommissionPercent(),
                 customerNotifiedOfStatus: Boolean((requesterResult as { ok?: unknown }).ok),
                 requesterNotificationResult: requesterResult,
                 mediatorNotifiedOfStatus: mediatorResults.some((result) => result.ok),
@@ -1394,6 +1672,23 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
               }).catch((error) =>
                 console.error("[Merchant] Failed to record merchant response:", error),
               );
+              if (isConfirmed) {
+                await sendWhatsAppButtons(
+                  toWhatsAppRecipient(getString(order.merchantWhatsapp)),
+                  "بعد إكمال عملية البيع يرجى الضغط على زر (تم بيع المنتج)، أو إذا ألغى الزبون الطلب اضغط (تم إلغاء الطلب).",
+                  [
+                    { id: ACTION_MISSING_MERCHANT_SOLD, title: "تم بيع المنتج" },
+                    { id: ACTION_MISSING_MERCHANT_NOT_PURCHASED, title: "تم إلغاء الطلب" },
+                  ],
+                ).catch((error) => {
+                  console.error("[Merchant] Failed to send sale confirmation buttons:", error);
+                  return { ok: false, status: 0 };
+                });
+                await sendRequesterPurchaseQuestion({
+                  ...order,
+                  requesterStatus: getString(order.requesterStatus) || "Pending",
+                });
+              }
               console.log("[Merchant] Availability response recorded:", productTitle);
             } else {
               console.warn("[Merchant] No pending order found for:", incoming.from);

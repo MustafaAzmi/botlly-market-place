@@ -13,11 +13,12 @@ import {
   deleteFitterByAdmin,
   listFitters,
   resetFitterProfitByAdmin,
+  setFitterActiveByAdmin,
   updateFitterByAdmin,
   type FitterAdminView,
 } from "@/lib/admin.functions";
 import { requireAdminClient } from "@/lib/adminGuard";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 
 export const Route = createFileRoute("/admin/fitters")({
   beforeLoad: () => requireAdminClient(),
@@ -48,19 +49,25 @@ const IRAQI_GOVERNORATES = [
 ];
 
 function AdminFittersPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listFn = useServerFn(listFitters);
   const updateFn = useServerFn(updateFitterByAdmin);
   const deleteFn = useServerFn(deleteFitterByAdmin);
   const resetFn = useServerFn(resetFitterProfitByAdmin);
+  const activeFn = useServerFn(setFitterActiveByAdmin);
   const [editing, setEditing] = useState<Record<string, FitterAdminView>>({});
   const [busyId, setBusyId] = useState("");
+  const [page, setPage] = useState(1);
 
-  const { data: fitters = [], isLoading, refetch } = useQuery({
-    queryKey: ["admin-fitters"],
+  const { data: fitterResult, isLoading, refetch } = useQuery({
+    queryKey: ["admin-fitters", page],
     enabled: !!session?.token,
-    queryFn: async () => (session?.token ? listFn({ data: { token: session.token } }) : []),
+    queryFn: async () =>
+      session?.token
+        ? listFn({ data: { token: session.token, page, limit: 20 } })
+        : null,
   });
+  const fitters = fitterResult?.items ?? [];
 
   const rowState = (row: FitterAdminView) => editing[row.fitterId] ?? row;
   const patch = (id: string, base: FitterAdminView, changes: Partial<FitterAdminView>) =>
@@ -126,6 +133,21 @@ function AdminFittersPage() {
     }
   };
 
+  const toggleActive = async (row: FitterAdminView) => {
+    if (!session?.token) return;
+    const active = row.accountStatus !== "active";
+    setBusyId(row.fitterId);
+    try {
+      await activeFn({ data: { token: session.token, fitterId: row.fitterId, active } });
+      toast.success(active ? "تم تفعيل حساب الفيتر" : "تم تعطيل حساب الفيتر");
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تحديث حالة الفيتر");
+    } finally {
+      setBusyId("");
+    }
+  };
+
   return (
     <AdminLayout title="فيتر" subtitle="إدارة حسابات الفيترية، نسب العمولة، الفيزا، وتصفير المستحقات.">
       {isLoading ? (
@@ -151,8 +173,14 @@ function AdminFittersPage() {
                       {row.name}
                     </h2>
                     <p className="text-xs text-muted-foreground" dir="ltr">{row.whatsapp}</p>
+                    <p className="mt-1 text-xs font-medium text-primary">
+                      {row.accountStatus === "active" ? "فعال" : row.accountStatus === "pending" ? "بانتظار التفعيل" : "غير فعال"}
+                    </p>
                   </div>
                   <div className="flex gap-2">
+                    <Button variant="outline" disabled={busy} onClick={() => toggleActive(row)}>
+                      {row.accountStatus === "active" ? "تعطيل" : "تفعيل"}
+                    </Button>
                     <Button className="gap-2" disabled={busy} onClick={() => save(row)}>
                       <Save className="h-4 w-4" />
                       حفظ
@@ -183,6 +211,15 @@ function AdminFittersPage() {
           })}
         </div>
       )}
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={!fitterResult?.hasMore} onClick={() => setPage((value) => value + 1)}>
+          التالي
+        </Button>
+      </div>
     </AdminLayout>
   );
 }

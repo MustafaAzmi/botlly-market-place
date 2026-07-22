@@ -1,27 +1,32 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Car, CheckCircle2, Loader2, LogOut, MapPin, Search, Settings, UserRound, Wrench } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BellRing, Bookmark, Car, CheckCircle2, ChevronRight, Loader2, LogOut, MapPin, Package, RotateCcw, Search, Send, Settings, Sparkles, UserRound, Wrench } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
 import { InstallAppCard } from "@/components/pwa/InstallAppCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { browseCarProducts, getEnabledCarCatalogue, type CustomerProduct } from "@/lib/customer.functions";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import {
   cancelFitterOrder,
   confirmFitterReceipt,
   getFitterSummary,
   loginFitter,
   requestFitterProduct,
-  signupFitter,
+  setFitterRequestSaved,
   type FitterOrder,
+  type FitterSmartRequest,
   type FitterSummary,
 } from "@/lib/fitter.functions";
 import { clearFitterSession, readFitterSession, writeFitterSession } from "@/lib/fitterSession";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/f")({
@@ -32,71 +37,60 @@ export const Route = createFileRoute("/f")({
   component: FitterPage,
 });
 
-type AuthMode = "login" | "signup";
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
+const CAR_PART_SPECIALTIES = [
+  "كهربائيات",
+  "محرك",
+  "هيكل وبدن",
+  "تعليق وتوجيه",
+  "فرامل",
+  "تبريد وتكييف",
+  "إكسسوارات",
+  "أخرى",
 ];
+
+function compressImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("اختر صورة فقط"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("تعذر قراءة الصورة"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("تعذر فتح الصورة"));
+      img.onload = () => {
+        const maxDim = 1000;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("تعذر معالجة الصورة"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 function FitterPage() {
   const [session, setSession] = useState(() => readFitterSession());
-  const [mode, setMode] = useState<AuthMode>("login");
   const [whatsapp, setWhatsapp] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [city, setCity] = useState("");
-  const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState<number | undefined>();
-  const [longitude, setLongitude] = useState<number | undefined>();
   const [loading, setLoading] = useState(false);
   const loginFn = useServerFn(loginFitter);
-  const signupFn = useServerFn(signupFitter);
-
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error("الموقع غير مدعوم بهذا المتصفح");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLatitude(pos.coords.latitude);
-        setLongitude(pos.coords.longitude);
-        setAddress((current) => current || `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
-        toast.success("تم تحديد موقعك الحالي");
-      },
-      () => toast.error("تعذر تحديد الموقع"),
-      { enableHighAccuracy: true, timeout: 12000 },
-    );
-  };
 
   const submitAuth = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true);
     try {
-      const result =
-        mode === "login"
-          ? await loginFn({ data: { whatsapp, password } })
-          : await signupFn({
-              data: { whatsapp, password, name, city, address, latitude, longitude },
-            });
+      const result = await loginFn({ data: { whatsapp, password } });
       writeFitterSession(result.fitter, result.token);
       setSession({ fitter: result.fitter, token: result.token });
       toast.success("تم الدخول بنجاح");
@@ -120,28 +114,16 @@ function FitterPage() {
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
-            <div className="grid grid-cols-2 rounded-lg bg-secondary p-1">
-              <button className={`rounded-md py-2 text-sm ${mode === "login" ? "bg-background shadow" : ""}`} onClick={() => setMode("login")}>دخول</button>
-              <button className={`rounded-md py-2 text-sm ${mode === "signup" ? "bg-background shadow" : ""}`} onClick={() => setMode("signup")}>تسجيل</button>
-            </div>
-            <form onSubmit={submitAuth} className="mt-5 space-y-4">
+            <form onSubmit={submitAuth} className="space-y-4">
               <Field label="رقم الواتساب" value={whatsapp} onChange={setWhatsapp} dir="ltr" placeholder="07XX XXX XXXX" />
               <Field label="كلمة المرور" value={password} onChange={setPassword} type="password" />
-              {mode === "signup" && (
-                <>
-                  <Field label="اسم الفيتر" value={name} onChange={setName} />
-                  <CitySelect value={city} onChange={setCity} />
-                  <Field label="عنوان الفيتر" value={address} onChange={setAddress} />
-                  <Button type="button" variant="outline" className="w-full gap-2" onClick={useCurrentLocation}>
-                    <MapPin className="h-4 w-4" />
-                    موقعي الحالي
-                  </Button>
-                </>
-              )}
               <Button disabled={loading} className="w-full gap-2">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRound className="h-4 w-4" />}
-                {mode === "login" ? "دخول" : "إنشاء حساب"}
+                دخول
               </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                إنشاء حساب الفيتر يتم عن طريق المشرف، ثم تفعّله الإدارة.
+              </p>
             </form>
           </div>
         </div>
@@ -154,20 +136,39 @@ function FitterPage() {
 
 function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnType<typeof readFitterSession>>; onLogout: () => void }) {
   const [summary, setSummary] = useState<FitterSummary | null>(null);
+  const [view, setView] = useState<"home" | "all-parts" | "smart-search">("home");
+  const [repeatRequest, setRepeatRequest] = useState<FitterSmartRequest | null>(null);
   const summaryFn = useServerFn(getFitterSummary);
+  const saveRequestFn = useServerFn(setFitterRequestSaved);
 
-  const refresh = async () => setSummary(await summaryFn({ data: { token: session.token } }));
-  useEffect(() => { refresh().catch(() => {}); }, []);
+  const refresh = useCallback(
+    async () => setSummary(await summaryFn({ data: { token: session.token } })),
+    [session.token, summaryFn],
+  );
+  useEffect(() => {
+    refresh().catch(() => {});
+  }, [refresh]);
 
   return (
     <div className="min-h-screen bg-secondary/30 pb-10">
       <header className="sticky top-0 z-20 border-b border-border bg-background/85 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-bold">لوحة الفيتر</h1>
             <p className="text-xs text-muted-foreground">{session.fitter.whatsapp}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <Button asChild variant="outline" className="gap-2">
+              <Link to="/f/notifications">
+                <BellRing className="h-4 w-4" />
+                <WebNotificationCountBadge
+                  role="requester"
+                  requesterType="fitter"
+                  requesterPhone={session.fitter.whatsapp}
+                />
+                الإشعارات
+              </Link>
+            </Button>
             <Button asChild variant="outline" className="gap-2">
               <Link to="/f/settings">
                 <Settings className="h-4 w-4" />
@@ -181,7 +182,71 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
           </div>
         </div>
       </header>
-      <main className="mx-auto grid max-w-6xl gap-5 px-4 py-6 lg:grid-cols-[320px_1fr]">
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        {view === "home" ? (
+          <div className="space-y-6">
+            <SearchModeHome
+              onAllParts={() => setView("all-parts")}
+              onSmartSearch={() => { setRepeatRequest(null); setView("smart-search"); }}
+            />
+            <section>
+              <h2 className="text-xl font-bold">سجل الطلبات</h2>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {(summary?.smartRequests ?? []).map((request) => (
+                  <article key={request.id} className="rounded-lg border border-border bg-card p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{request.productTitle}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {request.carMake} · {request.carModel} · {request.specialty}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-secondary px-2 py-1 text-xs">
+                        {request.offersCount} عروض
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {new Date(request.createdAt).toLocaleString("ar-IQ")}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setRepeatRequest(request);
+                          setView("smart-search");
+                        }}
+                      >
+                        <RotateCcw className="me-2 h-4 w-4" />
+                        إعادة الطلب
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          const saved = !(summary?.savedRequestIds.includes(request.id));
+                          await saveRequestFn({
+                            data: {
+                              token: session.token,
+                              requestId: request.id,
+                              name: request.productTitle,
+                              saved,
+                            },
+                          });
+                          await refresh();
+                        }}
+                      >
+                        <Bookmark className="me-2 h-4 w-4" />
+                        {summary?.savedRequestIds.includes(request.id) ? "محفوظ" : "حفظ كقالب"}
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
         <aside className="space-y-4">
           <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <div className="text-sm text-muted-foreground">الأرباح بعد آخر تصفير</div>
@@ -195,8 +260,46 @@ function FitterDashboard({ session, onLogout }: { session: NonNullable<ReturnTyp
           </div>
           <InstallAppCard app="fitter" />
         </aside>
-        <FitterShop token={session.token} summary={summary} onSale={refresh} />
+        <FitterShop
+          token={session.token}
+          summary={summary}
+          onSale={refresh}
+          mode={view}
+          initialRequest={repeatRequest}
+          onBack={() => setView("home")}
+        />
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function SearchModeHome({
+  onAllParts,
+  onSmartSearch,
+}: {
+  onAllParts: () => void;
+  onSmartSearch: () => void;
+}) {
+  return (
+    <div className="mx-auto grid min-h-[55vh] max-w-3xl content-center gap-5">
+      <button
+        type="button"
+        onClick={onAllParts}
+        className="rounded-2xl border border-primary/20 bg-card p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-primary hover:shadow-elevated"
+      >
+        <Search className="mx-auto h-12 w-12 text-primary" />
+        <div className="mt-4 text-3xl font-extrabold text-foreground sm:text-4xl">بحث عن كل القطع</div>
+      </button>
+      <button
+        type="button"
+        onClick={onSmartSearch}
+        className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-emerald-500 hover:shadow-elevated"
+      >
+        <Sparkles className="mx-auto h-12 w-12 text-emerald-600" />
+        <div className="mt-4 text-3xl font-extrabold text-emerald-700 sm:text-4xl">البحث الذكي</div>
+      </button>
     </div>
   );
 }
@@ -205,14 +308,21 @@ function FitterShop({
   token,
   summary,
   onSale,
+  mode,
+  initialRequest,
+  onBack,
 }: {
   token: string;
   summary: FitterSummary | null;
   onSale: () => Promise<void>;
+  mode: "all-parts" | "smart-search";
+  initialRequest?: FitterSmartRequest | null;
+  onBack: () => void;
 }) {
   const browseFn = useServerFn(browseCarProducts);
   const catalogFn = useServerFn(getEnabledCarCatalogue);
   const requestFn = useServerFn(requestFitterProduct);
+  const missingRequestFn = useServerFn(submitMissingProductRequest);
   const confirmFn = useServerFn(confirmFitterReceipt);
   const cancelFn = useServerFn(cancelFitterOrder);
   const [makes, setMakes] = useState<CarMake[]>([]);
@@ -220,11 +330,18 @@ function FitterShop({
   const [colors, setColors] = useState<string[]>([]);
   const [carMake, setCarMake] = useState("");
   const [carModel, setCarModel] = useState("");
+  const [specialty, setSpecialty] = useState("");
   const [carYear, setCarYear] = useState("");
   const [color, setColor] = useState("");
   const [governorate, setGovernorate] = useState("");
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageCursors, setPageCursors] = useState<Record<number, string>>({ 1: "" });
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
   const [busyOrderKey, setBusyOrderKey] = useState("");
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
@@ -233,17 +350,50 @@ function FitterShop({
   }, [governorate, summary?.fitter.city]);
 
   useEffect(() => {
+    if (!initialRequest) return;
+    setCarMake(initialRequest.carMake);
+    setCarModel(initialRequest.carModel);
+    setSpecialty(initialRequest.specialty);
+  }, [initialRequest]);
+
+  useEffect(() => {
     catalogFn({}).then((catalog) => {
       setMakes(catalog.makes);
       setYears(catalog.years);
       setColors(catalog.colors);
     }).catch(() => {});
-  }, []);
+  }, [catalogFn]);
 
-  const search = async () => {
+  const search = async (nextPage = 1) => {
     setLoading(true);
+    setSearched(true);
     try {
-      setProducts(await browseFn({ data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate } }));
+      const cursor =
+        nextPage === 1
+          ? ""
+          : nextPage > page
+            ? nextCursor ?? ""
+            : pageCursors[nextPage] ?? "";
+      const result = await browseFn({
+        data: {
+          carMake,
+          carModel,
+          carYear: carYear === ALL_YEARS ? "" : carYear,
+          color,
+          governorate,
+          searchScope,
+          page: nextPage,
+          limit: 20,
+          cursor,
+        },
+      });
+      setProducts(result.items);
+      setPage(result.page);
+      setHasMore(result.hasMore);
+      setNextCursor(result.nextCursor);
+      setPageCursors((current) =>
+        nextPage === 1 ? { 1: "" } : { ...current, [nextPage]: cursor },
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "تعذر البحث");
     } finally {
@@ -290,8 +440,73 @@ function FitterShop({
     }
   };
 
+  if (mode === "smart-search") {
+    return (
+      <section className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+            <ChevronRight className="h-4 w-4" />
+            رجوع
+          </Button>
+          <h1 className="text-3xl font-extrabold text-emerald-700">البحث الذكي</h1>
+        </div>
+        <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-soft">
+          <h2 className="flex items-center gap-2 text-xl font-extrabold text-emerald-700">
+            <Sparkles className="h-6 w-6" />
+            البحث الذكي
+          </h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Select value={governorate} onValueChange={setGovernorate}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="المحافظة" /></SelectTrigger>
+              <SelectContent>{IRAQI_GOVERNORATES.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={carMake} onValueChange={(v) => { setCarMake(v); setCarModel(""); }}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="نوع السيارة" /></SelectTrigger>
+              <SelectContent>{makes.map((m) => <SelectItem key={m.key} value={m.label}>{m.label}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="الموديل" /></SelectTrigger>
+              <SelectContent>{(selectedMake?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={specialty} onValueChange={setSpecialty}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="الاختصاص" /></SelectTrigger>
+              <SelectContent>{CAR_PART_SPECIALTIES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+              البحث داخل المحافظة
+            </Button>
+            <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+              البحث في جميع المحافظات
+            </Button>
+          </div>
+        </div>
+        <FitterMissingProductPanel
+          defaultProductName={initialRequest?.productTitle ?? ""}
+          defaultRequestDetails={initialRequest?.requestDetails ?? ""}
+          carMake={carMake}
+          carModel={carModel}
+          specialty={specialty}
+          governorate={governorate}
+          requesterName={summary?.fitter.name ?? "ÙÙŠØªØ±"}
+          requesterPhone={summary?.fitter.whatsapp ?? ""}
+          searchScope={searchScope}
+          onSubmit={(data) => missingRequestFn({ data })}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </Button>
+        <h1 className="text-2xl font-extrabold">بحث عن كل القطع</h1>
+      </div>
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <h2 className="flex items-center gap-2 font-semibold"><Car className="h-5 w-5 text-primary" /> بحث قطع السيارات</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-5">
@@ -316,27 +531,68 @@ function FitterShop({
             <SelectContent><SelectItem value={ALL_YEARS}>{ALL_YEARS}</SelectItem>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <Button onClick={search} className="mt-4 gap-2" disabled={loading}>
+        <Button onClick={() => search(1)} className="mt-4 gap-2" disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           عرض القطع
         </Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+            البحث داخل المحافظة
+          </Button>
+          <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+            البحث في جميع المحافظات
+          </Button>
+        </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {products.map((product) => {
-          const order = summary?.orders.find((item) => item.productId === product.id);
-          return (
-            <FitterProduct
-              key={product.id}
-              product={product}
-              order={order}
-              busyOrderKey={busyOrderKey}
-              onRequest={requestProduct}
-              onConfirm={confirm}
-              onCancel={cancel}
-            />
-          );
-        })}
-      </div>
+      {searched && !loading && products.length === 0 ? (
+        <div className="space-y-3">
+          {hasMore ? (
+            <Button type="button" variant="outline" onClick={() => search(page + 1)}>
+              البحث في المزيد
+            </Button>
+          ) : null}
+          <FitterMissingProductPanel
+          defaultProductName=""
+            defaultRequestDetails=""
+            carMake={carMake}
+            carModel={carModel}
+            specialty={specialty || "أخرى"}
+            governorate={governorate}
+            requesterName={summary?.fitter.name ?? "فيتر"}
+            requesterPhone={summary?.fitter.whatsapp ?? ""}
+            searchScope={searchScope}
+            onSubmit={(data) => missingRequestFn({ data })}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {products.map((product) => {
+              const order = summary?.orders.find((item) => item.productId === product.id);
+              return (
+                <FitterProduct
+                  key={product.id}
+                  product={product}
+                  order={order}
+                  busyOrderKey={busyOrderKey}
+                  onRequest={requestProduct}
+                  onConfirm={confirm}
+                  onCancel={cancel}
+                />
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => search(page - 1)}>
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">الصفحة {page}</span>
+            <Button type="button" variant="outline" disabled={loading || !hasMore} onClick={() => search(page + 1)}>
+              التالي
+            </Button>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -365,7 +621,15 @@ function FitterProduct({
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-      {product.imageUrls[0] && <img src={product.imageUrls[0]} alt={product.title} className="mb-3 aspect-square w-full rounded-xl object-cover" />}
+      {product.imageUrls[0] && (
+        <img
+          src={product.imageUrls[0]}
+          alt={product.title}
+          loading="lazy"
+          decoding="async"
+          className="mb-3 aspect-square w-full rounded-xl object-cover"
+        />
+      )}
       <h3 className="font-semibold">{product.title}</h3>
       <div className="mt-2 text-lg font-bold">{product.price.toLocaleString()} {product.currency}</div>
       {(product.merchantGovernorate || product.deliveryEstimate) && (
@@ -408,6 +672,146 @@ function FitterProduct({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FitterMissingProductPanel({
+  defaultProductName,
+  defaultRequestDetails,
+  carMake,
+  carModel,
+  specialty,
+  governorate,
+  requesterName,
+  requesterPhone,
+  searchScope,
+  onSubmit,
+}: {
+  defaultProductName: string;
+  defaultRequestDetails: string;
+  carMake: string;
+  carModel: string;
+  specialty: string;
+  governorate: string;
+  requesterName: string;
+  requesterPhone: string;
+  searchScope: "governorate" | "all";
+  onSubmit: (data: {
+    productName: string;
+    requestDetails?: string;
+    carMake: string;
+    carModel: string;
+    specialty: string;
+    governorate: string;
+    requesterType: "fitter";
+    requesterName: string;
+    requesterPhone: string;
+    searchScope: "governorate" | "all";
+    imageDataUrl?: string;
+  }) => Promise<{ targetMerchantCount?: number; sentCount: number; webNotificationCount?: number }>;
+}) {
+  const [productName, setProductName] = useState(defaultProductName);
+  const [requestDetails, setRequestDetails] = useState(defaultRequestDetails);
+  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const pickImage = async (file?: File) => {
+    if (!file) return;
+    try {
+      setImageDataUrl(await compressImageFile(file));
+      toast.success("تم اختيار الصورة");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر اختيار الصورة");
+    }
+  };
+
+  const submit = async () => {
+    const cleanName = productName.trim() || requestDetails.trim().slice(0, 120) || (imageDataUrl ? "طلب قطعة بصورة" : "");
+    if (!cleanName) {
+      toast.error("اكتب اسم المنتج المطلوب أولاً");
+      return;
+    }
+    if (!carMake || !specialty || !governorate) {
+      toast.error("اختر نوع السيارة والاختصاص والمحافظة قبل إرسال الطلب");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({
+        productName: cleanName,
+        requestDetails: requestDetails.trim(),
+        carMake,
+        carModel: carModel || "غير محدد",
+        specialty,
+        governorate,
+        requesterType: "fitter",
+        requesterName,
+        requesterPhone,
+        searchScope,
+        imageDataUrl,
+      });
+      const notifiedCount = result.webNotificationCount ?? result.sentCount ?? result.targetMerchantCount ?? 0;
+      toast.success(
+        notifiedCount > 0 || (result.targetMerchantCount ?? 0) > 0
+          ? `تم إرسال الطلب إلى ${notifiedCount || result.targetMerchantCount} تاجر مختص`
+          : "تم حفظ الطلب، لكن لا يوجد تاجر مختص مطابق حالياً",
+      );
+      setProductName("");
+      setRequestDetails("");
+      setImageDataUrl("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
+      <div className="text-center text-muted-foreground">
+        <Package className="mx-auto h-10 w-10" />
+        <p className="mx-auto mt-3 max-w-2xl text-sm">
+          لم نعثر على المنتج المطلوب، يمكنك إرسال صورة للقطعة أو كتابة تفاصيل إضافية ليتم إرسال الطلب مباشرة إلى التجار المختصين.
+        </p>
+      </div>
+      <div className="mx-auto mt-5 max-w-2xl space-y-4">
+        <Field label="اسم المنتج المطلوب" value={productName} onChange={setProductName} placeholder="مثال: لايت أمامي، بمبر، مراية..." />
+        <div className="space-y-2">
+          <Label htmlFor="fitter-missing-product-details">وصف إضافي للقطعة</Label>
+          <Textarea
+            id="fitter-missing-product-details"
+            value={requestDetails}
+            onChange={(event) => setRequestDetails(event.target.value)}
+            placeholder="اكتب أي تفاصيل تساعد التاجر مثل الجهة، الرقم، الشكل، أو العطل..."
+            rows={4}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            التقاط صورة
+            <input className="hidden" type="file" accept="image/*" capture="environment" onChange={(event) => pickImage(event.target.files?.[0])} />
+          </label>
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            اختيار من المعرض
+            <input className="hidden" type="file" accept="image/*" onChange={(event) => pickImage(event.target.files?.[0])} />
+          </label>
+          <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>إرسال بدون صورة</Button>
+        </div>
+        {imageDataUrl && (
+          <img
+            src={imageDataUrl}
+            alt="صورة القطعة المطلوبة"
+            loading="lazy"
+            decoding="async"
+            className="max-h-56 rounded-lg border object-contain"
+          />
+        )}
+        <Button onClick={submit} disabled={submitting || !carMake || !specialty || !governorate} className="w-full gap-2">
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          إرسال الطلب للتجار المختصين
+        </Button>
       </div>
     </div>
   );

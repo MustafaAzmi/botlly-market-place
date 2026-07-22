@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { requireAdminClient } from "@/lib/adminGuard";
 import { iraqiCities } from "@/lib/adminMockData";
-import { readAdminSession } from "@/lib/adminSession";
+import { useAdminSession } from "@/lib/adminSession";
 import {
   addDeliveryCompany,
   listDeliveryCompaniesAdmin,
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/admin/delivery")({
 });
 
 function AdminDeliveryPage() {
-  const session = readAdminSession();
+  const { session } = useAdminSession();
   const listFn = useServerFn(listDeliveryCompaniesAdmin);
   const addFn = useServerFn(addDeliveryCompany);
   const banFn = useServerFn(setDeliveryCompanyBan);
@@ -40,6 +40,8 @@ function AdminDeliveryPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ name: "", phone: "", cities: [] as string[] });
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   // Filter companies by name or phone in real-time
   const filteredCompanies = companies.filter(c =>
@@ -49,13 +51,16 @@ function AdminDeliveryPage() {
 
   useEffect(() => {
     if (!session?.token) return;
-    listFn({ data: { token: session.token } })
-      .then(setCompanies)
+    listFn({ data: { token: session.token, page, limit: 20 } })
+      .then((result) => {
+        setCompanies(result.items);
+        setHasMore(result.hasMore);
+      })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "تعذر تحميل شركات التوصيل");
       })
       .finally(() => setLoading(false));
-  }, [listFn, session?.token]);
+  }, [listFn, page, session?.token]);
 
   const toggleBan = async (company: DeliveryCompanyRecord) => {
     if (!session?.token) return;
@@ -200,6 +205,15 @@ function AdminDeliveryPage() {
           )}
         </>
       )}
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => { setLoading(true); setPage((value) => value - 1); }}>
+          السابق
+        </Button>
+        <span className="text-sm text-muted-foreground">{page}</span>
+        <Button type="button" variant="outline" disabled={loading || !hasMore} onClick={() => { setLoading(true); setPage((value) => value + 1); }}>
+          التالي
+        </Button>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">

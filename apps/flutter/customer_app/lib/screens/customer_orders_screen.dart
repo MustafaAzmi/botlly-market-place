@@ -36,7 +36,7 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
                     itemCount: orders.length,
                     itemBuilder: (context, index) {
                       final order = orders[index];
-                      final closed = order.status == 'cancelled' || order.status == 'purchased';
+                      final canAct = order.canRequesterAct;
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         child: Padding(
@@ -61,30 +61,58 @@ class _CustomerOrdersScreenState extends State<CustomerOrdersScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text('الحالة: ${readableStatus(order.status)}'),
+                              if (order.merchantStoreName.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('التاجر: ${order.merchantStoreName}'),
+                              ],
+                              if ((order.merchantStatus == 'Available' || order.merchantStatus == 'Sold') &&
+                                  order.merchantNote.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text('ملاحظة التاجر: ${order.merchantNote}'),
+                              ],
+                              if ((order.merchantStatus == 'Available' || order.merchantStatus == 'Sold') &&
+                                  order.merchantPhoneVisible &&
+                                  order.merchantWhatsapp.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xffecfdf5),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'رقم التاجر: ${order.merchantWhatsapp}',
+                                    textDirection: TextDirection.ltr,
+                                    style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xff047857)),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: closed || widget.controller.loading
-                                          ? null
-                                          : () => _updateOrder(context, order, 'cancelled'),
-                                      icon: const Icon(Icons.close),
-                                      label: const Text('إلغاء الطلب'),
+                              if (canAct)
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: widget.controller.loading
+                                            ? null
+                                            : () => _updateOrder(context, order, 'cancelled'),
+                                        icon: const Icon(Icons.close),
+                                        label: const Text('إلغاء الطلب'),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: FilledButton.icon(
-                                      onPressed: closed || widget.controller.loading
-                                          ? null
-                                          : () => _updateOrder(context, order, 'purchased'),
-                                      icon: const Icon(Icons.check),
-                                      label: const Text('تم الشراء'),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: widget.controller.loading
+                                            ? null
+                                            : () => _updateOrder(context, order, 'purchased'),
+                                        icon: const Icon(Icons.check),
+                                        label: const Text('تم الشراء'),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
                             ],
                           ),
                         ),

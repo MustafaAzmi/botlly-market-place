@@ -1,9 +1,8 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   ArrowRight,
-  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -18,23 +17,26 @@ import { toast } from "sonner";
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { loginMerchant, signupMerchant } from "@/lib/merchant.functions";
+import { CAR_MAKES } from "@/lib/car-data";
+import {
+  loginMerchant,
+  requestMerchantOtp,
+  resetMerchantPassword,
+  signupMerchant,
+} from "@/lib/merchant.functions";
 import { writeMerchantSession } from "@/lib/merchantSession";
+import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/auth")({
-  // ?mode=signup opens the create-store form directly; anything else → login.
-  validateSearch: (search: Record<string, unknown>): { mode?: AuthMode } => ({
-    mode: search.mode === "signup" ? "signup" : undefined,
-  }),
   head: () => ({
     meta: [
-      { title: "تسجيل دخول التاجر - Botly" },
+      { title: "ØªØ³Ø¬ÙŠÙ„ Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªØ§Ø¬Ø± - Botly" },
       { name: "description", content: "Create or access your Botly merchant account." },
       ...pwaHeadMeta("merchant"),
     ],
@@ -43,51 +45,62 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-type AuthMode = "login" | "signup";
 type ResetMethod = "whatsapp" | "email";
+type AuthMode = "login" | "signup";
+
+const CAR_PART_SPECIALTIES = [
+  "كهربائيات عامة",
+  "محرك",
+  "هيكل وبدن",
+  "تعليق وتوجيه",
+  "فرامل",
+  "تبريد وتكييف",
+  "إكسسوارات",
+  "أخرى",
+];
 
 const copy = {
   ar: {
-    title: "دخول التجار",
-    subtitle: "ادخل برقم واتساب وكلمة المرور، أو أنشئ حساب متجر جديد.",
-    login: "تسجيل الدخول",
-    signup: "إنشاء حساب",
-    whatsapp: "رقم الهاتف / واتساب",
+    title: "Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªØ¬Ø§Ø±",
+    subtitle: "Ø§Ø¯Ø®Ù„ Ø¨Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© ÙŠØªÙ… Ø¹Ù† Ø·Ø±ÙŠÙ‚ Ø§Ù„Ù…Ø´Ø±Ù.",
+    login: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+    signup: "Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨",
+    whatsapp: "Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ / ÙˆØ§ØªØ³Ø§Ø¨",
     whatsappPlaceholder: "07XX XXX XXXX",
-    storeName: "اسم المحل أو الشركة",
-    storeNamePlaceholder: "مثال: بوتلي ستور",
-    city: "المحافظة",
-    cityPlaceholder: "اختر محافظة المتجر",
-    email: "الإيميل",
-    emailOptional: "الإيميل (اختياري)",
+    storeName: "Ø§Ø³Ù… Ø§Ù„Ù…Ø­Ù„ Ø£Ùˆ Ø§Ù„Ø´Ø±ÙƒØ©",
+    storeNamePlaceholder: "Ù…Ø«Ø§Ù„: Ø¨ÙˆØªÙ„ÙŠ Ø³ØªÙˆØ±",
+    city: "Ø§Ù„Ù…Ø­Ø§ÙØ¸Ø©",
+    cityPlaceholder: "Ø§Ø®ØªØ± Ù…Ø­Ø§ÙØ¸Ø© Ø§Ù„Ù…ØªØ¬Ø±",
+    email: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    emailOptional: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)",
     emailPlaceholder: "name@example.com",
-    password: "الباسورد",
-    passwordPlaceholder: "اكتب كلمة المرور",
-    loginSubmit: "دخول إلى اللوحة",
-    signupSubmit: "إنشاء الحساب",
-    forgotPassword: "نسيت كلمة المرور؟",
-    resetTitle: "استعادة كلمة المرور",
-    resetSubtitle: "اختر طريقة إرسال رابط أو كود إعادة التعيين.",
-    resetByWhatsapp: "رقم الواتساب",
-    resetByEmail: "الإيميل",
-    sendReset: "إرسال إعادة التعيين",
-    backToLogin: "رجوع للدخول",
-    terms: "بالاستمرار أنت توافق على شروط الاستخدام وسياسة الخصوصية.",
-    required: "أكمل الحقول المطلوبة",
-    passwordShort: "كلمة المرور يجب أن تكون 6 أحرف على الأقل",
-    emailRequired: "أدخل الإيميل حتى نرسل عليه إعادة التعيين",
-    loginSuccess: "تم تسجيل الدخول",
-    signupSuccess: "تم إنشاء الحساب",
-    resetSentWhatsapp: "تم تجهيز رسالة إعادة التعيين عبر واتساب",
-    resetSentEmail: "تم تجهيز رسالة إعادة التعيين عبر الإيميل",
-    secure: "دخول مختصر وآمن للتاجر",
-    pointOne: "الدخول لاحقاً برقم واتساب وكلمة المرور",
-    pointTwo: "الإيميل يبقى اختياري للحساب",
-    pointThree: "استرجاع كلمة المرور عبر واتساب أو إيميل",
+    password: "Ø§Ù„Ø¨Ø§Ø³ÙˆØ±Ø¯",
+    passwordPlaceholder: "Ø§ÙƒØªØ¨ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    loginSubmit: "Ø¯Ø®ÙˆÙ„ Ø¥Ù„Ù‰ Ø§Ù„Ù„ÙˆØ­Ø©",
+    signupSubmit: "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨",
+    forgotPassword: "Ù†Ø³ÙŠØª ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±ØŸ",
+    resetTitle: "Ø§Ø³ØªØ¹Ø§Ø¯Ø© ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    resetSubtitle: "Ø§Ø®ØªØ± Ø·Ø±ÙŠÙ‚Ø© Ø¥Ø±Ø³Ø§Ù„ Ø±Ø§Ø¨Ø· Ø£Ùˆ ÙƒÙˆØ¯ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†.",
+    resetByWhatsapp: "Ø±Ù‚Ù… Ø§Ù„ÙˆØ§ØªØ³Ø§Ø¨",
+    resetByEmail: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    sendReset: "Ø¥Ø±Ø³Ø§Ù„ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†",
+    backToLogin: "Ø±Ø¬ÙˆØ¹ Ù„Ù„Ø¯Ø®ÙˆÙ„",
+    terms: "Ø¨Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø± Ø£Ù†Øª ØªÙˆØ§ÙÙ‚ Ø¹Ù„Ù‰ Ø´Ø±ÙˆØ· Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… ÙˆØ³ÙŠØ§Ø³Ø© Ø§Ù„Ø®ØµÙˆØµÙŠØ©.",
+    required: "Ø£ÙƒÙ…Ù„ Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©",
+    passwordShort: "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 6 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„",
+    emailRequired: "Ø£Ø¯Ø®Ù„ Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ Ø­ØªÙ‰ Ù†Ø±Ø³Ù„ Ø¹Ù„ÙŠÙ‡ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†",
+    loginSuccess: "ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+    signupSuccess: "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨",
+    resetSentWhatsapp: "ØªÙ… ØªØ¬Ù‡ÙŠØ² Ø±Ø³Ø§Ù„Ø© Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨",
+    resetSentEmail: "ØªÙ… ØªØ¬Ù‡ÙŠØ² Ø±Ø³Ø§Ù„Ø© Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¹Ø¨Ø± Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„",
+    secure: "Ø¯Ø®ÙˆÙ„ Ù…Ø®ØªØµØ± ÙˆØ¢Ù…Ù† Ù„Ù„ØªØ§Ø¬Ø±",
+    pointOne: "Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ø§Ø­Ù‚Ø§Ù‹ Ø¨Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+    pointTwo: "Ø§Ù„Ø¥ÙŠÙ…ÙŠÙ„ ÙŠØ¨Ù‚Ù‰ Ø§Ø®ØªÙŠØ§Ø±ÙŠ Ù„Ù„Ø­Ø³Ø§Ø¨",
+    pointThree: "Ø§Ø³ØªØ±Ø¬Ø§Ø¹ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨ Ø£Ùˆ Ø¥ÙŠÙ…ÙŠÙ„",
   },
   en: {
     title: "Merchant Access",
-    subtitle: "Sign in with your WhatsApp number and password, or create a new store account.",
+    subtitle: "Sign in with your WhatsApp number and password. New accounts are created by a supervisor.",
     login: "Sign in",
     signup: "Create account",
     whatsapp: "Phone / WhatsApp number",
@@ -124,66 +137,44 @@ const copy = {
     pointThree: "Reset password through WhatsApp or email",
   },
   ku: {
-    title: "چوونەژوورەوەی فرۆشیار",
-    subtitle: "بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە، یان هەژماری فرۆشگای نوێ دروست بکە.",
-    login: "چوونەژوورەوە",
-    signup: "دروستکردنی هەژمار",
-    whatsapp: "ژمارەی تەلەفۆن / واتساپ",
+    title: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ÛŒ ÙØ±Û†Ø´ÛŒØ§Ø±",
+    subtitle: "Ø¨Û• Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾ Ùˆ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ú†Û† Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ØŒ ÛŒØ§Ù† Ù‡Û•Ú˜Ù…Ø§Ø±ÛŒ ÙØ±Û†Ø´Ú¯Ø§ÛŒ Ù†ÙˆÛŽ Ø¯Ø±ÙˆØ³Øª Ø¨Ú©Û•.",
+    login: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    signup: "Ø¯Ø±ÙˆØ³ØªÚ©Ø±Ø¯Ù†ÛŒ Ù‡Û•Ú˜Ù…Ø§Ø±",
+    whatsapp: "Ú˜Ù…Ø§Ø±Û•ÛŒ ØªÛ•Ù„Û•ÙÛ†Ù† / ÙˆØ§ØªØ³Ø§Ù¾",
     whatsappPlaceholder: "07XX XXX XXXX",
-    storeName: "ناوی شوێن یان کۆمپانیا",
-    storeNamePlaceholder: "نموونە: Botly Store",
-    city: "پارێزگا",
-    cityPlaceholder: "پارێزگای فرۆشگا هەڵبژێرە",
-    email: "ئیمەیڵ",
-    emailOptional: "ئیمەیڵ (ئارەزوومەندانە)",
+    storeName: "Ù†Ø§ÙˆÛŒ Ø´ÙˆÛŽÙ† ÛŒØ§Ù† Ú©Û†Ù…Ù¾Ø§Ù†ÛŒØ§",
+    storeNamePlaceholder: "Ù†Ù…ÙˆÙˆÙ†Û•: Botly Store",
+    city: "Ù¾Ø§Ø±ÛŽØ²Ú¯Ø§",
+    cityPlaceholder: "Ù¾Ø§Ø±ÛŽØ²Ú¯Ø§ÛŒ ÙØ±Û†Ø´Ú¯Ø§ Ù‡Û•ÚµØ¨Ú˜ÛŽØ±Û•",
+    email: "Ø¦ÛŒÙ…Û•ÛŒÚµ",
+    emailOptional: "Ø¦ÛŒÙ…Û•ÛŒÚµ (Ø¦Ø§Ø±Û•Ø²ÙˆÙˆÙ…Û•Ù†Ø¯Ø§Ù†Û•)",
     emailPlaceholder: "name@example.com",
-    password: "وشەی نهێنی",
-    passwordPlaceholder: "وشەی نهێنی بنووسە",
-    loginSubmit: "کردنەوەی داشبۆرد",
-    signupSubmit: "دروستکردنی هەژمار",
-    forgotPassword: "وشەی نهێنیت لەبیر کردووە؟",
-    resetTitle: "گۆڕینی وشەی نهێنی",
-    resetSubtitle: "شوێنی وەرگرتنی کۆد یان بەستەری گۆڕین هەڵبژێرە.",
-    resetByWhatsapp: "ژمارەی واتساپ",
-    resetByEmail: "ئیمەیڵ",
-    sendReset: "ناردنی گۆڕین",
-    backToLogin: "گەڕانەوە بۆ چوونەژوورەوە",
-    terms: "بە بەردەوامبوونت ڕازی دەبیت بە مەرجەکانی بەکارهێنان و سیاسەتی تایبەتمەندی.",
-    required: "تکایە خانە پێویستەکان پڕ بکە",
-    passwordShort: "وشەی نهێنی دەبێت لانیکەم 6 پیت بێت",
-    emailRequired: "ئیمەیڵ بنووسە بۆ وەرگرتنی گۆڕینی وشەی نهێنی",
-    loginSuccess: "چوویتە ژوورەوە",
-    signupSuccess: "هەژمار دروست کرا",
-    resetSentWhatsapp: "نامەی گۆڕینی وشەی نهێنی بۆ واتساپ ئامادە کرا",
-    resetSentEmail: "نامەی گۆڕینی وشەی نهێنی بۆ ئیمەیڵ ئامادە کرا",
-    secure: "چوونەژوورەوەی کورت و پارێزراو بۆ فرۆشیار",
-    pointOne: "دواتر بە ژمارەی واتساپ و وشەی نهێنی بچۆ ژوورەوە",
-    pointTwo: "ئیمەیڵ لە هەژماردا ئارەزوومەندانە دەمێنێت",
-    pointThree: "گۆڕینی وشەی نهێنی لە ڕێی واتساپ یان ئیمەیڵ",
+    password: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    passwordPlaceholder: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ù†ÙˆÙˆØ³Û•",
+    loginSubmit: "Ú©Ø±Ø¯Ù†Û•ÙˆÛ•ÛŒ Ø¯Ø§Ø´Ø¨Û†Ø±Ø¯",
+    signupSubmit: "Ø¯Ø±ÙˆØ³ØªÚ©Ø±Ø¯Ù†ÛŒ Ù‡Û•Ú˜Ù…Ø§Ø±",
+    forgotPassword: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒØª Ù„Û•Ø¨ÛŒØ± Ú©Ø±Ø¯ÙˆÙˆÛ•ØŸ",
+    resetTitle: "Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    resetSubtitle: "Ø´ÙˆÛŽÙ†ÛŒ ÙˆÛ•Ø±Ú¯Ø±ØªÙ†ÛŒ Ú©Û†Ø¯ ÛŒØ§Ù† Ø¨Û•Ø³ØªÛ•Ø±ÛŒ Ú¯Û†Ú•ÛŒÙ† Ù‡Û•ÚµØ¨Ú˜ÛŽØ±Û•.",
+    resetByWhatsapp: "Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾",
+    resetByEmail: "Ø¦ÛŒÙ…Û•ÛŒÚµ",
+    sendReset: "Ù†Ø§Ø±Ø¯Ù†ÛŒ Ú¯Û†Ú•ÛŒÙ†",
+    backToLogin: "Ú¯Û•Ú•Ø§Ù†Û•ÙˆÛ• Ø¨Û† Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    terms: "Ø¨Û• Ø¨Û•Ø±Ø¯Û•ÙˆØ§Ù…Ø¨ÙˆÙˆÙ†Øª Ú•Ø§Ø²ÛŒ Ø¯Û•Ø¨ÛŒØª Ø¨Û• Ù…Û•Ø±Ø¬Û•Ú©Ø§Ù†ÛŒ Ø¨Û•Ú©Ø§Ø±Ù‡ÛŽÙ†Ø§Ù† Ùˆ Ø³ÛŒØ§Ø³Û•ØªÛŒ ØªØ§ÛŒØ¨Û•ØªÙ…Û•Ù†Ø¯ÛŒ.",
+    required: "ØªÚ©Ø§ÛŒÛ• Ø®Ø§Ù†Û• Ù¾ÛŽÙˆÛŒØ³ØªÛ•Ú©Ø§Ù† Ù¾Ú• Ø¨Ú©Û•",
+    passwordShort: "ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¯Û•Ø¨ÛŽØª Ù„Ø§Ù†ÛŒÚ©Û•Ù… 6 Ù¾ÛŒØª Ø¨ÛŽØª",
+    emailRequired: "Ø¦ÛŒÙ…Û•ÛŒÚµ Ø¨Ù†ÙˆÙˆØ³Û• Ø¨Û† ÙˆÛ•Ø±Ú¯Ø±ØªÙ†ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ",
+    loginSuccess: "Ú†ÙˆÙˆÛŒØªÛ• Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    signupSuccess: "Ù‡Û•Ú˜Ù…Ø§Ø± Ø¯Ø±ÙˆØ³Øª Ú©Ø±Ø§",
+    resetSentWhatsapp: "Ù†Ø§Ù…Û•ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Û† ÙˆØ§ØªØ³Ø§Ù¾ Ø¦Ø§Ù…Ø§Ø¯Û• Ú©Ø±Ø§",
+    resetSentEmail: "Ù†Ø§Ù…Û•ÛŒ Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Û† Ø¦ÛŒÙ…Û•ÛŒÚµ Ø¦Ø§Ù…Ø§Ø¯Û• Ú©Ø±Ø§",
+    secure: "Ú†ÙˆÙˆÙ†Û•Ú˜ÙˆÙˆØ±Û•ÙˆÛ•ÛŒ Ú©ÙˆØ±Øª Ùˆ Ù¾Ø§Ø±ÛŽØ²Ø±Ø§Ùˆ Ø¨Û† ÙØ±Û†Ø´ÛŒØ§Ø±",
+    pointOne: "Ø¯ÙˆØ§ØªØ± Ø¨Û• Ú˜Ù…Ø§Ø±Û•ÛŒ ÙˆØ§ØªØ³Ø§Ù¾ Ùˆ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ø¨Ú†Û† Ú˜ÙˆÙˆØ±Û•ÙˆÛ•",
+    pointTwo: "Ø¦ÛŒÙ…Û•ÛŒÚµ Ù„Û• Ù‡Û•Ú˜Ù…Ø§Ø±Ø¯Ø§ Ø¦Ø§Ø±Û•Ø²ÙˆÙˆÙ…Û•Ù†Ø¯Ø§Ù†Û• Ø¯Û•Ù…ÛŽÙ†ÛŽØª",
+    pointThree: "Ú¯Û†Ú•ÛŒÙ†ÛŒ ÙˆØ´Û•ÛŒ Ù†Ù‡ÛŽÙ†ÛŒ Ù„Û• Ú•ÛŽÛŒ ÙˆØ§ØªØ³Ø§Ù¾ ÛŒØ§Ù† Ø¦ÛŒÙ…Û•ÛŒÚµ",
   },
 } as const;
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
-];
 
 function AuthPage() {
   const { locale } = useLanguage();
@@ -191,14 +182,19 @@ function AuthPage() {
   const navigate = useNavigate();
   const loginMerchantFn = useServerFn(loginMerchant);
   const signupMerchantFn = useServerFn(signupMerchant);
-  const { mode: requestedMode } = Route.useSearch();
-  const [mode, setMode] = useState<AuthMode>(requestedMode === "signup" ? "signup" : "login");
+  const requestOtpFn = useServerFn(requestMerchantOtp);
+  const resetPasswordFn = useServerFn(resetMerchantPassword);
   const [showReset, setShowReset] = useState(false);
-  const [storeName, setStoreName] = useState("");
-  const [city, setCity] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [storeName, setStoreName] = useState("");
+  const [city, setCity] = useState("");
+  const [carMakes, setCarMakes] = useState<string[]>([]);
+  const [carModels, setCarModels] = useState<string[]>([]);
+  const [specialties, setSpecialties] = useState<string[]>([]);
   const [resetMethod, setResetMethod] = useState<ResetMethod>("whatsapp");
   const [loading, setLoading] = useState(false);
 
@@ -221,16 +217,74 @@ function AuthPage() {
       bio: result.profile.bio,
       city: result.profile.city,
       deliveryPhone: result.profile.deliveryPhone,
+      accountStatus: result.profile.accountStatus,
+      firstLoginCompleted: result.profile.firstLoginCompleted,
       signedInAt: new Date().toISOString(),
     });
     toast.success(successMessage);
-    navigate({ to: mode === "signup" ? "/dashboard/store" : "/dashboard" });
+    navigate({ to: "/dashboard/orders" });
+  };
+
+  const toggleValue = (
+    setter: Dispatch<SetStateAction<string[]>>,
+    value: string,
+    checked: boolean,
+  ) => {
+    setter((current) =>
+      checked
+        ? [...new Set([...current, value])]
+        : current.filter((item) => item !== value),
+    );
+  };
+
+  const toggleMake = (makeLabel: string, checked: boolean) => {
+    if (checked) {
+      setCarMakes((current) => [...new Set([...current, makeLabel])]);
+      return;
+    }
+    const remainingMakes = carMakes.filter((item) => item !== makeLabel);
+    const allowedModels = new Set(
+      CAR_MAKES
+        .filter((make) => remainingMakes.includes(make.label))
+        .flatMap((make) => make.models),
+    );
+    setCarMakes(remainingMakes);
+    setCarModels((current) => current.filter((model) => allowedModels.has(model)));
+  };
+
+  const requestOtp = async (purpose: "signup" | "reset") => {
+    if (!whatsapp.trim()) {
+      toast.error(text.required);
+      return;
+    }
+    setLoading(true);
+    try {
+      await requestOtpFn({ data: { whatsapp: whatsapp.trim(), purpose } });
+      toast.success("ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø±Ù…Ø² OTP Ø¥Ù„Ù‰ ÙˆØ§ØªØ³Ø§Ø¨");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.required);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!whatsapp.trim() || !password.trim() || (mode === "signup" && (!storeName.trim() || !city))) {
+    if (!whatsapp.trim() || !password.trim()) {
+      toast.error(text.required);
+      return;
+    }
+
+    if (
+      authMode === "signup" &&
+      (!storeName.trim() ||
+        !city.trim() ||
+        !otpCode.trim() ||
+        carMakes.length === 0 ||
+        carModels.length === 0 ||
+        specialties.length === 0)
+    ) {
       toast.error(text.required);
       return;
     }
@@ -242,24 +296,33 @@ function AuthPage() {
 
     setLoading(true);
     try {
-      const result =
-        mode === "signup"
-          ? await signupMerchantFn({
-              data: {
-                storeName: storeName.trim(),
-                city,
-                whatsapp: whatsapp.trim(),
-                email: email.trim(),
-                password,
-              },
-            })
-          : await loginMerchantFn({
-              data: {
-                whatsapp: whatsapp.trim(),
-                password,
-              },
-            });
-      saveAuthSession(mode === "signup" ? text.signupSuccess : text.loginSuccess, result);
+      if (authMode === "signup") {
+        const result = await withNetworkRetry(() =>
+          signupMerchantFn({
+            data: {
+              storeName: storeName.trim(),
+              city: city.trim(),
+              whatsapp: whatsapp.trim(),
+              password,
+              otpCode: otpCode.trim(),
+              carMakes,
+              carModels,
+              specialties,
+            },
+          }),
+        );
+        saveAuthSession(text.signupSuccess, result);
+      } else {
+        const result = await withNetworkRetry(() =>
+          loginMerchantFn({
+            data: {
+              whatsapp: whatsapp.trim(),
+              password,
+            },
+          }),
+        );
+        saveAuthSession(text.loginSuccess, result);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : text.required);
     } finally {
@@ -267,22 +330,25 @@ function AuthPage() {
     }
   };
 
-  const onResetSubmit = (e: React.FormEvent) => {
+  const onResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!whatsapp.trim() || (resetMethod === "email" && !email.trim())) {
-      toast.error(resetMethod === "email" ? text.emailRequired : text.required);
+    if (!whatsapp.trim() || !otpCode.trim() || !password.trim()) {
+      toast.error(text.required);
       return;
     }
 
     setLoading(true);
-    // TODO(auth): request password reset through email provider or WhatsApp template.
-    setTimeout(() => {
+    try {
+      const result = await resetPasswordFn({
+        data: { whatsapp: whatsapp.trim(), password, otpCode: otpCode.trim() },
+      });
+      saveAuthSession(text.loginSuccess, result);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : text.required);
+    } finally {
       setLoading(false);
-      toast.success(resetMethod === "email" ? text.resetSentEmail : text.resetSentWhatsapp);
-      setShowReset(false);
-      setMode("login");
-    }, 450);
+    }
   };
 
   return (
@@ -348,8 +414,32 @@ function AuthPage() {
                   dir="ltr"
                 />
 
+                <Field
+                  icon={ShieldCheck}
+                  id="resetOtp"
+                  label="Ø±Ù…Ø² OTP"
+                  value={otpCode}
+                  onChange={setOtpCode}
+                  placeholder="Ø§ÙƒØªØ¨ Ø§Ù„Ø±Ù…Ø²"
+                  type="text"
+                  dir="ltr"
+                />
+
+                <PasswordField
+                  id="resetPassword"
+                  label="ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder={text.passwordPlaceholder}
+                />
+
                 <div className="space-y-3">
-                  <Label>{text.sendReset}</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>{text.sendReset}</Label>
+                    <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => requestOtp("reset")}>
+                      Ø¥Ø±Ø³Ø§Ù„ OTP
+                    </Button>
+                  </div>
                   <RadioGroup
                     value={resetMethod}
                     onValueChange={(value) => setResetMethod(value as ResetMethod)}
@@ -385,7 +475,7 @@ function AuthPage() {
 
                 <div className="space-y-3">
                   <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                    {loading ? "..." : text.sendReset}
+                    {loading ? "..." : "ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±"}
                     <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                   </Button>
                   <Button
@@ -394,7 +484,6 @@ function AuthPage() {
                     className="w-full"
                     onClick={() => {
                       setShowReset(false);
-                      setMode("login");
                     }}
                   >
                     {text.backToLogin}
@@ -403,23 +492,25 @@ function AuthPage() {
               </form>
             ) : (
               <form onSubmit={onAuthSubmit} className="space-y-5">
-                {mode === "login" && (
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-normal">{text.login}</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {locale === "ar" ? "ادخل برقم واتساب وكلمة المرور" : "Sign in with WhatsApp number and password"}
-                    </p>
-                  </div>
-                )}
+                <div>
+                  <h2 className="text-xl font-semibold tracking-normal">
+                    {authMode === "login" ? text.login : text.signup}
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {authMode === "login"
+                      ? "ادخل برقم واتساب وكلمة المرور."
+                      : "أنشئ حساب التاجر مباشرة وسيصل رمز OTP إلى رقم واتساب التاجر."}
+                  </p>
+                </div>
 
-                {mode === "signup" && (
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-normal">{text.signup}</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {locale === "ar" ? "أنشئ متجر جديد" : "Create your store"}
-                    </p>
-                  </div>
-                )}
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary p-1">
+                  <Button type="button" variant={authMode === "login" ? "default" : "ghost"} onClick={() => setAuthMode("login")}>
+                    {text.login}
+                  </Button>
+                  <Button type="button" variant={authMode === "signup" ? "default" : "ghost"} onClick={() => setAuthMode("signup")}>
+                    {text.signup}
+                  </Button>
+                </div>
 
                 <Field
                   icon={Phone}
@@ -432,35 +523,55 @@ function AuthPage() {
                   dir="ltr"
                 />
 
-                {mode === "signup" && (
+                {authMode === "signup" && (
                   <>
-                    <div>
-                      <Field
-                        icon={Building2}
-                        id="storeName"
-                        label={text.storeName}
-                        value={storeName}
-                        onChange={setStoreName}
-                        placeholder={text.storeNamePlaceholder}
-                      />
-                      <StoreSlugHint storeName={storeName} locale={locale} />
+                    <Field icon={MessageCircle} id="storeName" label={text.storeName} value={storeName} onChange={setStoreName} placeholder={text.storeNamePlaceholder} />
+                    <Field icon={MessageCircle} id="city" label={text.city} value={city} onChange={setCity} placeholder={text.cityPlaceholder} />
+                    <MultiCheckboxGroup
+                      label="أنواع السيارات"
+                      hint="اختر نوعاً واحداً أو أكثر"
+                      options={CAR_MAKES.map((make) => make.label)}
+                      selected={carMakes}
+                      onCheckedChange={toggleMake}
+                    />
+                    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                      <div>
+                        <Label>الموديلات</Label>
+                        <p className="mt-1 text-xs text-muted-foreground">تظهر موديلات أنواع السيارات المحددة فقط.</p>
+                      </div>
+                      {carMakes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">اختر نوع السيارة أولاً.</p>
+                      ) : (
+                        <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+                          {CAR_MAKES
+                            .filter((make) => carMakes.includes(make.label))
+                            .flatMap((make) =>
+                              make.models.map((model) => (
+                                <CheckboxOption
+                                  key={`${make.key}-${model}`}
+                                  id={`signup-model-${make.key}-${model}`}
+                                  label={`${make.label} - ${model}`}
+                                  checked={carModels.includes(model)}
+                                  onCheckedChange={(checked) => toggleValue(setCarModels, model, checked)}
+                                />
+                              )),
+                            )}
+                        </div>
+                      )}
                     </div>
-                    <CitySelect
-                      label={text.city}
-                      placeholder={text.cityPlaceholder}
-                      value={city}
-                      onChange={setCity}
+                    <MultiCheckboxGroup
+                      label="الاختصاصات"
+                      hint="اختر اختصاصاً واحداً أو أكثر"
+                      options={CAR_PART_SPECIALTIES}
+                      selected={specialties}
+                      onCheckedChange={(value, checked) => toggleValue(setSpecialties, value, checked)}
                     />
-                    <Field
-                      icon={Mail}
-                      id="email"
-                      label={text.emailOptional}
-                      value={email}
-                      onChange={setEmail}
-                      placeholder={text.emailPlaceholder}
-                      type="email"
-                      dir="ltr"
-                    />
+                    <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                      <Field icon={ShieldCheck} id="otpCode" label="رمز OTP" value={otpCode} onChange={setOtpCode} placeholder="اكتب الرمز" type="text" dir="ltr" />
+                      <Button type="button" variant="outline" className="h-12" disabled={loading} onClick={() => requestOtp("signup")}>
+                        إرسال OTP
+                      </Button>
+                    </div>
                   </>
                 )}
 
@@ -472,18 +583,16 @@ function AuthPage() {
                   placeholder={text.passwordPlaceholder}
                 />
 
-                {mode === "login" && (
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="h-auto px-0"
-                      onClick={() => setShowReset(true)}
-                    >
-                      {text.forgotPassword}
-                    </Button>
-                  </div>
-                )}
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto px-0"
+                    onClick={() => setShowReset(true)}
+                  >
+                    {text.forgotPassword}
+                  </Button>
+                </div>
 
                 <Button
                   type="submit"
@@ -491,7 +600,7 @@ function AuthPage() {
                   className="w-full gap-2 rounded-xl shadow-soft"
                   disabled={loading}
                 >
-                  {loading ? "..." : mode === "signup" ? text.signupSubmit : text.loginSubmit}
+                  {loading ? "..." : authMode === "login" ? text.loginSubmit : text.signupSubmit}
                   <ArrowRight className="h-4 w-4 rtl:rotate-180" />
                 </Button>
 
@@ -509,36 +618,6 @@ function AuthPage() {
           </div>
         </section>
       </main>
-    </div>
-  );
-}
-
-function CitySelect({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-12 rounded-xl bg-white">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {IRAQI_GOVERNORATES.map((governorate) => (
-            <SelectItem key={governorate} value={governorate}>
-              {governorate}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }
@@ -581,6 +660,67 @@ function Field({
   );
 }
 
+function MultiCheckboxGroup({
+  label,
+  hint,
+  options,
+  selected,
+  onCheckedChange,
+}: {
+  label: string;
+  hint: string;
+  options: string[];
+  selected: string[];
+  onCheckedChange: (value: string, checked: boolean) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+      <div>
+        <Label>{label}</Label>
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+        {options.map((option) => (
+          <CheckboxOption
+            key={option}
+            id={`${label}-${option}`}
+            label={option}
+            checked={selected.includes(option)}
+            onCheckedChange={(checked) => onCheckedChange(option, checked)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CheckboxOption({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const inputId = `merchant-signup-${encodeURIComponent(id).replace(/%/g, "")}`;
+  return (
+    <label
+      htmlFor={inputId}
+      className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-white px-3 py-2 text-sm transition-colors hover:bg-secondary/70"
+    >
+      <Checkbox
+        id={inputId}
+        checked={checked}
+        onCheckedChange={(value) => onCheckedChange(value === true)}
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
 // Password input with a show/hide toggle.
 function PasswordField({
   id,
@@ -614,58 +754,13 @@ function PasswordField({
           type="button"
           onClick={() => setVisible((v) => !v)}
           className="absolute end-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          aria-label={visible ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
+          aria-label={visible ? "Ø¥Ø®ÙØ§Ø¡ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±" : "Ø¥Ø¸Ù‡Ø§Ø± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±"}
           tabIndex={-1}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
     </div>
-  );
-}
-
-// Client-side mirror of the server slug rules (merchant.functions
-// generateStoreSlug): English names become a readable URL slug; Arabic names
-// get a unique number so URLs never contain Arabic text.
-function previewStoreSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-}
-
-// Live hint under the store-name field showing the store's URL identifier.
-function StoreSlugHint({ storeName, locale }: { storeName: string; locale: "ar" | "en" | "ku" }) {
-  if (!storeName.trim()) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {locale === "ar"
-          ? "يفضّل كتابة اسم المتجر بالإنكليزي حتى يظهر برابط متجرك."
-          : "Prefer an English store name — it becomes your store URL."}
-      </p>
-    );
-  }
-  const slug = previewStoreSlug(storeName);
-  if (slug.length >= 2) {
-    return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {locale === "ar" ? "رابط متجرك: " : "Your store URL: "}
-        <span dir="ltr" className="font-medium text-primary">
-          bot-lly.tech/dashboard?store={slug}
-        </span>
-      </p>
-    );
-  }
-  return (
-    <p className="mt-1.5 text-xs text-amber-600">
-      {locale === "ar"
-        ? "الاسم بالعربي — راح ينعطي متجرك رقم مميز بالرابط بدل الاسم حتى ما يصير خلل بالاستدعاء."
-        : "Arabic name detected — a unique store number will be used in the URL instead."}
-    </p>
   );
 }
 

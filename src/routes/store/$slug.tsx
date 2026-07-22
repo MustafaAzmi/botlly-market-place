@@ -30,14 +30,15 @@ function PublicStorePage() {
   const getPublicStoreFn = useServerFn(getPublicStore);
   const [store, setStore] = useState<PublicStore | null>(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
-    getPublicStoreFn({ data: { slug } })
+    getPublicStoreFn({ data: { slug, page, limit: 20 } })
       .then(setStore)
       .catch(() => setStore(null))
       .finally(() => setLoading(false));
-  }, [getPublicStoreFn, slug]);
+  }, [getPublicStoreFn, page, slug]);
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -102,7 +103,16 @@ function PublicStorePage() {
             </div>
           ) : (
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {store.products.map((product) => (
+              {store.products.map((product) => {
+                const specs = [
+                  product.carYear ? `سنة الصنع: ${product.carYear}` : "",
+                  product.carModel ? `الموديل: ${product.carModel}` : "",
+                  product.color ? `اللون: ${product.color}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" - ");
+
+                return (
                 <div
                   key={product.id}
                   className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated"
@@ -116,9 +126,7 @@ function PublicStorePage() {
                       <div className="min-w-0">
                         <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {[product.description, product.color, product.size]
-                            .filter(Boolean)
-                            .join(" - ") || "منتج"}
+                          {specs || "منتج"}
                         </p>
                       </div>
                       {product.quantity !== undefined && product.quantity > 0 && (
@@ -140,9 +148,19 @@ function PublicStorePage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <Button type="button" variant="outline" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">{page}</span>
+            <Button type="button" variant="outline" disabled={loading || !store.hasMore} onClick={() => setPage((value) => value + 1)}>
+              التالي
+            </Button>
+          </div>
         </main>
       )}
     </div>

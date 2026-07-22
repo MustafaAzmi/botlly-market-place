@@ -9,10 +9,14 @@ import { Logo } from "@/components/layout/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/translations";
 import { loginCustomer, signupCustomer } from "@/lib/customer.functions";
 import { readCustomerSession, writeCustomerSession } from "@/lib/customerSession";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
+import { withNetworkRetry } from "@/lib/networkRetry";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/auth")({
@@ -28,6 +32,28 @@ export const Route = createFileRoute("/customer/auth")({
 });
 
 type AuthMode = "login" | "signup";
+
+const AUTH_FEATURES: ReadonlyArray<{
+  icon: string;
+  titleKey: TranslationKey;
+  descKey: TranslationKey;
+}> = [
+  {
+    icon: "🚗",
+    titleKey: "customer.auth.features.car_filters.title",
+    descKey: "customer.auth.features.car_filters.desc",
+  },
+  {
+    icon: "🛒",
+    titleKey: "customer.auth.features.quick_order.title",
+    descKey: "customer.auth.features.quick_order.desc",
+  },
+  {
+    icon: "💬",
+    titleKey: "customer.auth.features.support.title",
+    descKey: "customer.auth.features.support.desc",
+  },
+];
 
 function CustomerAuthPage() {
   const { t } = useLanguage();
@@ -57,7 +83,7 @@ function CustomerAuthPage() {
 
     setLoading(true);
     try {
-      const result = await loginFn({ data: { whatsapp: whatsapp.trim() } });
+      const result = await withNetworkRetry(() => loginFn({ data: { whatsapp: whatsapp.trim() } }));
       writeCustomerSession(result.customer, result.token);
       toast.success(t("customer.auth.welcome_back", { name: result.customer.name }));
       navigate({ to: "/customer/dashboard" });
@@ -77,14 +103,16 @@ function CustomerAuthPage() {
 
     setLoading(true);
     try {
-      const result = await signupFn({
-        data: {
-          whatsapp: whatsapp.trim(),
-          name: name.trim(),
-          landmark: landmark.trim(),
-          governorate: governorate.trim(),
-        },
-      });
+      const result = await withNetworkRetry(() =>
+        signupFn({
+          data: {
+            whatsapp: whatsapp.trim(),
+            name: name.trim(),
+            landmark: landmark.trim(),
+            governorate: governorate.trim(),
+          },
+        }),
+      );
       writeCustomerSession(result.customer, result.token);
       toast.success(
         result.existed ? t("customer.auth.welcome_back", { name: result.customer.name }) : t("customer.auth.account_created"),
@@ -218,15 +246,18 @@ function CustomerAuthPage() {
                     <MapPin className="h-4 w-4" />
                     {t("customer.auth.governorate")}
                   </Label>
-                  <Input
-                    id="signup-governorate"
-                    type="text"
-                    placeholder={t("customer.auth.governorate.placeholder")}
-                    value={governorate}
-                    onChange={(e) => setGovernorate(e.target.value)}
-                    disabled={loading}
-                    className="h-11"
-                  />
+                  <Select value={governorate} onValueChange={setGovernorate} disabled={loading}>
+                    <SelectTrigger id="signup-governorate" className="h-11">
+                      <SelectValue placeholder={t("customer.auth.governorate.placeholder")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IRAQI_GOVERNORATES.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
@@ -242,15 +273,11 @@ function CustomerAuthPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              { icon: "🚗", titleKey: "customer.auth.features.car_filters.title", descKey: "customer.auth.features.car_filters.desc" },
-              { icon: "🛒", titleKey: "customer.auth.features.quick_order.title", descKey: "customer.auth.features.quick_order.desc" },
-              { icon: "💬", titleKey: "customer.auth.features.support.title", descKey: "customer.auth.features.support.desc" },
-            ].map((item) => (
+            {AUTH_FEATURES.map((item) => (
               <div key={item.titleKey} className="rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
                 <div className="text-3xl">{item.icon}</div>
-                <h3 className="mt-2 font-semibold">{t(item.titleKey as any)}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey as any)}</p>
+                <h3 className="mt-2 font-semibold">{t(item.titleKey)}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{t(item.descKey)}</p>
               </div>
             ))}
           </div>

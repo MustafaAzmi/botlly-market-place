@@ -8,7 +8,6 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -18,7 +17,11 @@ import {
 } from "@/components/ui/select";
 import { ALL_YEARS, type CarMake } from "@/lib/car-data";
 import { useCurrencies } from "@/lib/currenciesStore";
-import { createMerchantProduct, getEnabledCarCatalogueForMerchant } from "@/lib/merchant.functions";
+import {
+  createMerchantProduct,
+  getEnabledCarCatalogueForMerchant,
+  getMerchantPlatformCommission,
+} from "@/lib/merchant.functions";
 import { readMerchantSession } from "@/lib/merchantSession";
 
 export const Route = createFileRoute("/dashboard/products/new")({
@@ -32,6 +35,7 @@ function NewProductPage() {
   const navigate = useNavigate();
   const createMerchantProductFn = useServerFn(createMerchantProduct);
   const getCatalogFn = useServerFn(getEnabledCarCatalogueForMerchant);
+  const getCommissionFn = useServerFn(getMerchantPlatformCommission);
   const currencies = useCurrencies().filter((c) => c.active);
   const [currency, setCurrency] = useState("");
   // Multiple product photos: first one is the primary image.
@@ -39,7 +43,6 @@ function NewProductPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
   const [carMake, setCarMake] = useState("");
@@ -48,6 +51,7 @@ function NewProductPage() {
   const [quantity, setQuantity] = useState("");
   const [currentPrice, setCurrentPrice] = useState("");
   const [finalPrice, setFinalPrice] = useState("");
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState(5);
   const [saving, setSaving] = useState(false);
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [colors, setColors] = useState<string[]>([]);
@@ -64,10 +68,22 @@ function NewProductPage() {
         setYears(catalog.years);
       })
       .catch(() => {});
+    getCommissionFn({ data: { token: merchantSession.token } })
+      .then((settings) => setPlatformCommissionPercent(settings.platformCommissionPercent))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencies]);
 
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
+  const updateCurrentPrice = (value: string) => {
+    setCurrentPrice(value);
+    const price = Number(value);
+    if (Number.isFinite(price) && value.trim()) {
+      setFinalPrice(String(Number((price + (price * platformCommissionPercent) / 100).toFixed(2))));
+    } else {
+      setFinalPrice("");
+    }
+  };
 
   // Resize + recompress the uploaded image to a small JPEG data URL. Raw
   // camera photos are megabytes; the server caps the stored image, and big
@@ -147,8 +163,8 @@ function NewProductPage() {
     const price = Number(currentPrice);
     const customerPrice = finalPrice.trim() ? Number(finalPrice) : undefined;
     const availableQuantity = quantity.trim() ? Number(quantity) : undefined;
-    if (!title.trim() || !description.trim() || !Number.isFinite(price)) {
-      toast.error("اسم المنتج والوصف والسعر مطلوبة");
+    if (!title.trim() || !Number.isFinite(price)) {
+      toast.error("اسم المنتج والسعر مطلوبان");
       return;
     }
     if (customerPrice !== undefined && !Number.isFinite(customerPrice)) {
@@ -166,7 +182,7 @@ function NewProductPage() {
         data: {
           token: merchantSession.token,
           title: title.trim(),
-          description: description.trim(),
+          description: "",
           imageUrl: images[0],
           imageUrls: images,
           currentPrice: price,
@@ -302,17 +318,6 @@ function NewProductPage() {
               />
             </Field>
 
-            <Field id="description" label="وصف مختصر">
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                placeholder="مثال: لايت أمامي أصلي، حالة ممتازة، يناسب موديلات 2016-2020"
-                maxLength={280}
-                required
-              />
-            </Field>
 
             {/* Which car does this part fit? Drives the customer filters. */}
             <div className="grid gap-4 sm:grid-cols-2">
@@ -414,9 +419,10 @@ function NewProductPage() {
               <Input
                 id="currentPrice"
                 value={currentPrice}
-                onChange={(e) => setCurrentPrice(e.target.value)}
+                onChange={(e) => updateCurrentPrice(e.target.value)}
                 type="number"
                 min={0}
+                step="0.01"
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"
@@ -430,6 +436,7 @@ function NewProductPage() {
                 onChange={(e) => setFinalPrice(e.target.value)}
                 type="number"
                 min={0}
+                step="0.01"
                 inputMode="decimal"
                 placeholder="0"
                 className="h-11"

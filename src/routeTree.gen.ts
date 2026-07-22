@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SupervisorRouteImport } from './routes/supervisor'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MerchantAppRouteImport } from './routes/merchant-app'
 import { Route as FRouteImport } from './routes/f'
@@ -20,12 +21,17 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as CustomerIndexRouteImport } from './routes/customer/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as StoreSlugRouteImport } from './routes/store/$slug'
-import { Route as FSettingsRouteImport } from './routes/f.settings'
+import { Route as FSettingsRouteImport } from './routes/f_.settings'
+import { Route as FNotificationsRouteImport } from './routes/f_.notifications'
+import { Route as FAppRouteImport } from './routes/f_.app'
+import { Route as CustomerNotificationsRouteImport } from './routes/customer/notifications'
 import { Route as CustomerDashboardRouteImport } from './routes/customer/dashboard'
 import { Route as CustomerAuthRouteImport } from './routes/customer/auth'
 import { Route as CustomerAppRouteImport } from './routes/customer/app'
 import { Route as Customer_layoutRouteImport } from './routes/customer/__layout'
+import { Route as AdminSupervisorsRouteImport } from './routes/admin/supervisors'
 import { Route as AdminStoresRouteImport } from './routes/admin/stores'
+import { Route as AdminPopularRequestsRouteImport } from './routes/admin/popular-requests'
 import { Route as AdminPackagesRouteImport } from './routes/admin/packages'
 import { Route as AdminMoreRouteImport } from './routes/admin/more'
 import { Route as AdminMediatorsRouteImport } from './routes/admin/mediators'
@@ -45,14 +51,22 @@ import { Route as DashboardOrdersIndexRouteImport } from './routes/dashboard/ord
 import { Route as DashboardProductsNewRouteImport } from './routes/dashboard/products/new'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 import { Route as ApiProductImageIdRouteImport } from './routes/api/product-image/$id'
+import { Route as ApiMissingProductImageIdRouteImport } from './routes/api/missing-product-image/$id'
 import { Route as ApiMerchantMobileRouteImport } from './routes/api/merchant/mobile'
+import { Route as ApiMerchantImageIdRouteImport } from './routes/api/merchant-image/$id'
 import { Route as ApiFitterMobileRouteImport } from './routes/api/fitter/mobile'
 import { Route as ApiCustomerMobileRouteImport } from './routes/api/customer/mobile'
+import { Route as ApiAdminEgressDiagnosticsRouteImport } from './routes/api/admin/egress-diagnostics'
 import { Route as DashboardProductsIdEditRouteImport } from './routes/dashboard/products/$id/edit'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupervisorRoute = SupervisorRouteImport.update({
+  id: '/supervisor',
+  path: '/supervisor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -106,9 +120,24 @@ const StoreSlugRoute = StoreSlugRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const FSettingsRoute = FSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => FRoute,
+  id: '/f_/settings',
+  path: '/f/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FNotificationsRoute = FNotificationsRouteImport.update({
+  id: '/f_/notifications',
+  path: '/f/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FAppRoute = FAppRouteImport.update({
+  id: '/f_/app',
+  path: '/f/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomerNotificationsRoute = CustomerNotificationsRouteImport.update({
+  id: '/customer/notifications',
+  path: '/customer/notifications',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const CustomerDashboardRoute = CustomerDashboardRouteImport.update({
   id: '/customer/dashboard',
@@ -130,9 +159,19 @@ const Customer_layoutRoute = Customer_layoutRouteImport.update({
   path: '/customer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSupervisorsRoute = AdminSupervisorsRouteImport.update({
+  id: '/admin/supervisors',
+  path: '/admin/supervisors',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminStoresRoute = AdminStoresRouteImport.update({
   id: '/admin/stores',
   path: '/admin/stores',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPopularRequestsRoute = AdminPopularRequestsRouteImport.update({
+  id: '/admin/popular-requests',
+  path: '/admin/popular-requests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPackagesRoute = AdminPackagesRouteImport.update({
@@ -230,9 +269,20 @@ const ApiProductImageIdRoute = ApiProductImageIdRouteImport.update({
   path: '/api/product-image/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMissingProductImageIdRoute =
+  ApiMissingProductImageIdRouteImport.update({
+    id: '/api/missing-product-image/$id',
+    path: '/api/missing-product-image/$id',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiMerchantMobileRoute = ApiMerchantMobileRouteImport.update({
   id: '/api/merchant/mobile',
   path: '/api/merchant/mobile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMerchantImageIdRoute = ApiMerchantImageIdRouteImport.update({
+  id: '/api/merchant-image/$id',
+  path: '/api/merchant-image/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiFitterMobileRoute = ApiFitterMobileRouteImport.update({
@@ -245,6 +295,12 @@ const ApiCustomerMobileRoute = ApiCustomerMobileRouteImport.update({
   path: '/api/customer/mobile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAdminEgressDiagnosticsRoute =
+  ApiAdminEgressDiagnosticsRouteImport.update({
+    id: '/api/admin/egress-diagnostics',
+    path: '/api/admin/egress-diagnostics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const DashboardProductsIdEditRoute = DashboardProductsIdEditRouteImport.update({
   id: '/dashboard/products/$id/edit',
   path: '/dashboard/products/$id/edit',
@@ -255,9 +311,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -270,19 +327,27 @@ export interface FileRoutesByFullPath {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/app': typeof FAppRoute
+  '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -297,9 +362,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -312,18 +378,26 @@ export interface FileRoutesByTo {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer': typeof CustomerIndexRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f/app': typeof FAppRoute
+  '/f/notifications': typeof FNotificationsRoute
   '/f/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -339,9 +413,10 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/data-deletion': typeof DataDeletionRoute
-  '/f': typeof FRouteWithChildren
+  '/f': typeof FRoute
   '/merchant-app': typeof MerchantAppRoute
   '/privacy': typeof PrivacyRoute
+  '/supervisor': typeof SupervisorRoute
   '/terms': typeof TermsRoute
   '/admin/bot': typeof AdminBotRoute
   '/admin/broadcasts': typeof AdminBroadcastsRoute
@@ -354,19 +429,27 @@ export interface FileRoutesById {
   '/admin/mediators': typeof AdminMediatorsRoute
   '/admin/more': typeof AdminMoreRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/popular-requests': typeof AdminPopularRequestsRoute
   '/admin/stores': typeof AdminStoresRoute
+  '/admin/supervisors': typeof AdminSupervisorsRoute
   '/customer/__layout': typeof Customer_layoutRoute
   '/customer/app': typeof CustomerAppRoute
   '/customer/auth': typeof CustomerAuthRoute
   '/customer/dashboard': typeof CustomerDashboardRoute
-  '/f/settings': typeof FSettingsRoute
+  '/customer/notifications': typeof CustomerNotificationsRoute
+  '/f_/app': typeof FAppRoute
+  '/f_/notifications': typeof FNotificationsRoute
+  '/f_/settings': typeof FSettingsRoute
   '/store/$slug': typeof StoreSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/customer/': typeof CustomerIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/api/admin/egress-diagnostics': typeof ApiAdminEgressDiagnosticsRoute
   '/api/customer/mobile': typeof ApiCustomerMobileRoute
   '/api/fitter/mobile': typeof ApiFitterMobileRoute
+  '/api/merchant-image/$id': typeof ApiMerchantImageIdRoute
   '/api/merchant/mobile': typeof ApiMerchantMobileRoute
+  '/api/missing-product-image/$id': typeof ApiMissingProductImageIdRoute
   '/api/product-image/$id': typeof ApiProductImageIdRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
   '/dashboard/products/new': typeof DashboardProductsNewRoute
@@ -386,6 +469,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -398,19 +482,27 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer'
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
+    | '/customer/notifications'
+    | '/f/app'
+    | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -428,6 +520,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -440,18 +533,26 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer'
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
+    | '/customer/notifications'
+    | '/f/app'
+    | '/f/notifications'
     | '/f/settings'
     | '/store/$slug'
     | '/admin'
     | '/dashboard'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -469,6 +570,7 @@ export interface FileRouteTypes {
     | '/f'
     | '/merchant-app'
     | '/privacy'
+    | '/supervisor'
     | '/terms'
     | '/admin/bot'
     | '/admin/broadcasts'
@@ -481,19 +583,27 @@ export interface FileRouteTypes {
     | '/admin/mediators'
     | '/admin/more'
     | '/admin/packages'
+    | '/admin/popular-requests'
     | '/admin/stores'
+    | '/admin/supervisors'
     | '/customer/__layout'
     | '/customer/app'
     | '/customer/auth'
     | '/customer/dashboard'
-    | '/f/settings'
+    | '/customer/notifications'
+    | '/f_/app'
+    | '/f_/notifications'
+    | '/f_/settings'
     | '/store/$slug'
     | '/admin/'
     | '/customer/'
     | '/dashboard/'
+    | '/api/admin/egress-diagnostics'
     | '/api/customer/mobile'
     | '/api/fitter/mobile'
+    | '/api/merchant-image/$id'
     | '/api/merchant/mobile'
+    | '/api/missing-product-image/$id'
     | '/api/product-image/$id'
     | '/api/whatsapp/webhook'
     | '/dashboard/products/new'
@@ -509,9 +619,10 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   DataDeletionRoute: typeof DataDeletionRoute
-  FRoute: typeof FRouteWithChildren
+  FRoute: typeof FRoute
   MerchantAppRoute: typeof MerchantAppRoute
   PrivacyRoute: typeof PrivacyRoute
+  SupervisorRoute: typeof SupervisorRoute
   TermsRoute: typeof TermsRoute
   AdminBotRoute: typeof AdminBotRoute
   AdminBroadcastsRoute: typeof AdminBroadcastsRoute
@@ -524,18 +635,27 @@ export interface RootRouteChildren {
   AdminMediatorsRoute: typeof AdminMediatorsRoute
   AdminMoreRoute: typeof AdminMoreRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
+  AdminPopularRequestsRoute: typeof AdminPopularRequestsRoute
   AdminStoresRoute: typeof AdminStoresRoute
+  AdminSupervisorsRoute: typeof AdminSupervisorsRoute
   Customer_layoutRoute: typeof Customer_layoutRoute
   CustomerAppRoute: typeof CustomerAppRoute
   CustomerAuthRoute: typeof CustomerAuthRoute
   CustomerDashboardRoute: typeof CustomerDashboardRoute
+  CustomerNotificationsRoute: typeof CustomerNotificationsRoute
+  FAppRoute: typeof FAppRoute
+  FNotificationsRoute: typeof FNotificationsRoute
+  FSettingsRoute: typeof FSettingsRoute
   StoreSlugRoute: typeof StoreSlugRoute
   AdminIndexRoute: typeof AdminIndexRoute
   CustomerIndexRoute: typeof CustomerIndexRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  ApiAdminEgressDiagnosticsRoute: typeof ApiAdminEgressDiagnosticsRoute
   ApiCustomerMobileRoute: typeof ApiCustomerMobileRoute
   ApiFitterMobileRoute: typeof ApiFitterMobileRoute
+  ApiMerchantImageIdRoute: typeof ApiMerchantImageIdRoute
   ApiMerchantMobileRoute: typeof ApiMerchantMobileRoute
+  ApiMissingProductImageIdRoute: typeof ApiMissingProductImageIdRoute
   ApiProductImageIdRoute: typeof ApiProductImageIdRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
   DashboardProductsNewRoute: typeof DashboardProductsNewRoute
@@ -554,6 +674,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/supervisor': {
+      id: '/supervisor'
+      path: '/supervisor'
+      fullPath: '/supervisor'
+      preLoaderRoute: typeof SupervisorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -626,12 +753,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/f/settings': {
-      id: '/f/settings'
-      path: '/settings'
+    '/f_/settings': {
+      id: '/f_/settings'
+      path: '/f/settings'
       fullPath: '/f/settings'
       preLoaderRoute: typeof FSettingsRouteImport
-      parentRoute: typeof FRoute
+      parentRoute: typeof rootRouteImport
+    }
+    '/f_/notifications': {
+      id: '/f_/notifications'
+      path: '/f/notifications'
+      fullPath: '/f/notifications'
+      preLoaderRoute: typeof FNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/f_/app': {
+      id: '/f_/app'
+      path: '/f/app'
+      fullPath: '/f/app'
+      preLoaderRoute: typeof FAppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customer/notifications': {
+      id: '/customer/notifications'
+      path: '/customer/notifications'
+      fullPath: '/customer/notifications'
+      preLoaderRoute: typeof CustomerNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/customer/dashboard': {
       id: '/customer/dashboard'
@@ -661,11 +809,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Customer_layoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/supervisors': {
+      id: '/admin/supervisors'
+      path: '/admin/supervisors'
+      fullPath: '/admin/supervisors'
+      preLoaderRoute: typeof AdminSupervisorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/stores': {
       id: '/admin/stores'
       path: '/admin/stores'
       fullPath: '/admin/stores'
       preLoaderRoute: typeof AdminStoresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/popular-requests': {
+      id: '/admin/popular-requests'
+      path: '/admin/popular-requests'
+      fullPath: '/admin/popular-requests'
+      preLoaderRoute: typeof AdminPopularRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/packages': {
@@ -801,11 +963,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProductImageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/missing-product-image/$id': {
+      id: '/api/missing-product-image/$id'
+      path: '/api/missing-product-image/$id'
+      fullPath: '/api/missing-product-image/$id'
+      preLoaderRoute: typeof ApiMissingProductImageIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/merchant/mobile': {
       id: '/api/merchant/mobile'
       path: '/api/merchant/mobile'
       fullPath: '/api/merchant/mobile'
       preLoaderRoute: typeof ApiMerchantMobileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/merchant-image/$id': {
+      id: '/api/merchant-image/$id'
+      path: '/api/merchant-image/$id'
+      fullPath: '/api/merchant-image/$id'
+      preLoaderRoute: typeof ApiMerchantImageIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/fitter/mobile': {
@@ -822,6 +998,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCustomerMobileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/egress-diagnostics': {
+      id: '/api/admin/egress-diagnostics'
+      path: '/api/admin/egress-diagnostics'
+      fullPath: '/api/admin/egress-diagnostics'
+      preLoaderRoute: typeof ApiAdminEgressDiagnosticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard/products/$id/edit': {
       id: '/dashboard/products/$id/edit'
       path: '/dashboard/products/$id/edit'
@@ -832,23 +1015,14 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface FRouteChildren {
-  FSettingsRoute: typeof FSettingsRoute
-}
-
-const FRouteChildren: FRouteChildren = {
-  FSettingsRoute: FSettingsRoute,
-}
-
-const FRouteWithChildren = FRoute._addFileChildren(FRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   DataDeletionRoute: DataDeletionRoute,
-  FRoute: FRouteWithChildren,
+  FRoute: FRoute,
   MerchantAppRoute: MerchantAppRoute,
   PrivacyRoute: PrivacyRoute,
+  SupervisorRoute: SupervisorRoute,
   TermsRoute: TermsRoute,
   AdminBotRoute: AdminBotRoute,
   AdminBroadcastsRoute: AdminBroadcastsRoute,
@@ -861,18 +1035,27 @@ const rootRouteChildren: RootRouteChildren = {
   AdminMediatorsRoute: AdminMediatorsRoute,
   AdminMoreRoute: AdminMoreRoute,
   AdminPackagesRoute: AdminPackagesRoute,
+  AdminPopularRequestsRoute: AdminPopularRequestsRoute,
   AdminStoresRoute: AdminStoresRoute,
+  AdminSupervisorsRoute: AdminSupervisorsRoute,
   Customer_layoutRoute: Customer_layoutRoute,
   CustomerAppRoute: CustomerAppRoute,
   CustomerAuthRoute: CustomerAuthRoute,
   CustomerDashboardRoute: CustomerDashboardRoute,
+  CustomerNotificationsRoute: CustomerNotificationsRoute,
+  FAppRoute: FAppRoute,
+  FNotificationsRoute: FNotificationsRoute,
+  FSettingsRoute: FSettingsRoute,
   StoreSlugRoute: StoreSlugRoute,
   AdminIndexRoute: AdminIndexRoute,
   CustomerIndexRoute: CustomerIndexRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  ApiAdminEgressDiagnosticsRoute: ApiAdminEgressDiagnosticsRoute,
   ApiCustomerMobileRoute: ApiCustomerMobileRoute,
   ApiFitterMobileRoute: ApiFitterMobileRoute,
+  ApiMerchantImageIdRoute: ApiMerchantImageIdRoute,
   ApiMerchantMobileRoute: ApiMerchantMobileRoute,
+  ApiMissingProductImageIdRoute: ApiMissingProductImageIdRoute,
   ApiProductImageIdRoute: ApiProductImageIdRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
   DashboardProductsNewRoute: DashboardProductsNewRoute,

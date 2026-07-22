@@ -1,15 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
+  BellRing,
   Car,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Loader2,
   LogOut,
   MessageCircle,
-  Package,
   Save,
   Search,
+  Send,
+  Sparkles,
   User,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -17,10 +20,12 @@ import { toast } from "sonner";
 
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { Logo } from "@/components/layout/Logo";
+import { WebNotificationCountBadge } from "@/components/orders/WebNotificationCountBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -38,11 +43,13 @@ import {
   submitProductOrder,
   type CustomerProduct,
 } from "@/lib/customer.functions";
+import { submitMissingProductRequest } from "@/lib/missing-product.functions";
 import {
   clearCustomerSession,
   readCustomerSession,
   writeCustomerSession,
 } from "@/lib/customerSession";
+import { IRAQI_GOVERNORATES } from "@/lib/governorates";
 import { pwaHeadLinks, pwaHeadMeta } from "@/lib/pwa";
 
 export const Route = createFileRoute("/customer/dashboard")({
@@ -53,29 +60,48 @@ export const Route = createFileRoute("/customer/dashboard")({
   component: CustomerDashboard,
 });
 
-type TabKey = "shop" | "profile";
-
-const IRAQI_GOVERNORATES = [
-  "بغداد",
-  "نينوى",
-  "البصرة",
-  "أربيل",
-  "السليمانية",
-  "دهوك",
-  "كركوك",
-  "الأنبار",
-  "صلاح الدين",
-  "ديالى",
-  "واسط",
-  "بابل",
-  "كربلاء",
-  "النجف",
-  "الديوانية",
-  "المثنى",
-  "ذي قار",
-  "ميسان",
-  "حلبجة",
+type CustomerDashboardView = "home" | "all-parts" | "smart-search" | "profile";
+const CAR_PART_SPECIALTIES = [
+  "كهربائيات",
+  "محرك",
+  "هيكل وبدن",
+  "تعليق وتوجيه",
+  "فرامل",
+  "تبريد وتكييف",
+  "إكسسوارات",
+  "أخرى",
 ];
+
+function compressImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("اختر صورة فقط"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("تعذر قراءة الصورة"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("تعذر فتح الصورة"));
+      img.onload = () => {
+        const maxDim = 1000;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("تعذر معالجة الصورة"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.78));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // wa.me links need digits only (international format, no +).
 function toWhatsAppLink(phone: string) {
@@ -86,16 +112,18 @@ function toWhatsAppLink(phone: string) {
 function CustomerDashboard() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [session, setSession] = useState(() => readCustomerSession());
-  const [tab, setTab] = useState<TabKey>("shop");
+  const [session, setSession] = useState<ReturnType<typeof readCustomerSession>>(null);
+  const [view, setView] = useState<CustomerDashboardView>("smart-search");
   const [mediatorPhone, setMediatorPhone] = useState("");
   const getMediatorFn = useServerFn(getMediatorPhone);
 
   useEffect(() => {
-    if (!session) {
+    const current = readCustomerSession();
+    if (!current) {
       navigate({ to: "/customer/auth" });
       return;
     }
+    setSession(current);
     getMediatorFn({})
       .then((result) => setMediatorPhone(result.phone))
       .catch(() => {});
@@ -113,43 +141,48 @@ function CustomerDashboard() {
   return (
     <div className="min-h-screen bg-secondary/30 pb-24">
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+        <div className="container mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
           <Logo />
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             <LanguageSwitcher />
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <a href="/customer/notifications">
+                <BellRing className="h-4 w-4" />
+                <WebNotificationCountBadge
+                  role="requester"
+                  requesterType="customer"
+                  requesterPhone={customer.whatsapp}
+                />
+                الإشعارات
+              </a>
+            </Button>
             <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
               {t("customer.logout")}
             </Button>
           </div>
         </div>
-        {/* Tabs */}
-        <nav className="container mx-auto flex max-w-6xl gap-1 px-4 pb-2">
-          {(
-            [
-              { key: "shop" as const, icon: Search, label: t("customer.tab.shop") },
-              { key: "profile" as const, icon: User, label: t("customer.tab.profile") },
-            ] as Array<{ key: TabKey; icon: typeof Search; label: string }>
-          ).map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setTab(item.key)}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                tab === item.key
-                  ? "bg-primary-soft text-primary"
-                  : "text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
       </header>
 
       <main className="container mx-auto max-w-6xl px-4 py-6">
-        {tab === "shop" && <ShopTab customer={customer} mediatorPhone={mediatorPhone} />}
-        {tab === "profile" && (
+        {view === "home" && (
+          <SearchModeHome
+            onAllParts={() => setView("all-parts")}
+            onSmartSearch={() => setView("smart-search")}
+          />
+        )}
+        {view === "all-parts" && (
+          <ShopTab
+            customer={customer}
+            mediatorPhone={mediatorPhone}
+            onBack={() => setView("home")}
+            onSmartSearch={() => setView("smart-search")}
+          />
+        )}
+        {view === "smart-search" && (
+          <CustomerSmartSearchTab customer={customer} />
+        )}
+        {view === "profile" && (
           <ProfileTab
             session={session}
             onUpdated={(updated) => setSession(readCustomerSession() ?? updated)}
@@ -177,12 +210,45 @@ function CustomerDashboard() {
 // Shop: car filters → products (specs + final price only, no merchant info)
 // ---------------------------------------------------------------------------
 
+function SearchModeHome({
+  onAllParts,
+  onSmartSearch,
+}: {
+  onAllParts: () => void;
+  onSmartSearch: () => void;
+}) {
+  return (
+    <div className="mx-auto grid min-h-[55vh] max-w-3xl content-center gap-5">
+      <button
+        type="button"
+        onClick={onAllParts}
+        className="rounded-2xl border border-primary/20 bg-card p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-primary hover:shadow-elevated"
+      >
+        <Search className="mx-auto h-12 w-12 text-primary" />
+        <div className="mt-4 text-3xl font-extrabold text-foreground sm:text-4xl">بحث عن كل القطع</div>
+      </button>
+      <button
+        type="button"
+        onClick={onSmartSearch}
+        className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft transition hover:-translate-y-1 hover:border-emerald-500 hover:shadow-elevated"
+      >
+        <Sparkles className="mx-auto h-12 w-12 text-emerald-600" />
+        <div className="mt-4 text-3xl font-extrabold text-emerald-700 sm:text-4xl">البحث الذكي</div>
+      </button>
+    </div>
+  );
+}
+
 function ShopTab({
   customer,
   mediatorPhone,
+  onBack,
+  onSmartSearch,
 }: {
   customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
   mediatorPhone: string;
+  onBack: () => void;
+  onSmartSearch: () => void;
 }) {
   const { t } = useLanguage();
   const browseFn = useServerFn(browseCarProducts);
@@ -195,9 +261,14 @@ function ShopTab({
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [pageCursors, setPageCursors] = useState<Record<number, string>>({ 1: "" });
   const [makes, setMakes] = useState<CarMake[]>([]);
   const [colors, setColors] = useState<string[]>([]);
   const [years, setYears] = useState<string[]>([]);
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
 
   useEffect(() => {
     getCatalogFn({})
@@ -212,23 +283,53 @@ function ShopTab({
 
   const selectedMake = makes.find((m) => m.label === carMake || m.key === carMake);
 
-  const search = useCallback(async () => {
+  const search = useCallback(async (nextPage = 1) => {
     setLoading(true);
     setSearched(true);
     try {
+      const cursor =
+        nextPage === 1
+          ? ""
+          : nextPage > page
+            ? nextCursor ?? ""
+            : pageCursors[nextPage] ?? "";
       const results = await browseFn({
-        data: { carMake, carModel, carYear: carYear === ALL_YEARS ? "" : carYear, color, governorate },
+        data: {
+          carMake,
+          carModel,
+          carYear: carYear === ALL_YEARS ? "" : carYear,
+          color,
+          governorate,
+          searchScope,
+          page: nextPage,
+          limit: 20,
+          cursor,
+        },
       });
-      setProducts(results);
+      setProducts(results.items);
+      setPage(results.page);
+      setHasMore(results.hasMore);
+      setNextCursor(results.nextCursor);
+      setPageCursors((current) =>
+        nextPage === 1 ? { 1: "" } : { ...current, [nextPage]: cursor },
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("common.loading"));
     } finally {
       setLoading(false);
     }
-  }, [browseFn, carMake, carModel, carYear, color, governorate, t]);
+  }, [browseFn, carMake, carModel, carYear, color, governorate, nextCursor, page, pageCursors, searchScope, t]);
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" className="gap-2" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </Button>
+        <h1 className="text-2xl font-extrabold">بحث عن كل القطع</h1>
+      </div>
+
       {/* Filters */}
       <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center gap-2 font-semibold">
@@ -319,7 +420,25 @@ function ShopTab({
             </Select>
           </div>
         </div>
-        <Button onClick={search} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={searchScope === "governorate" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSearchScope("governorate")}
+          >
+            البحث داخل المحافظة
+          </Button>
+          <Button
+            type="button"
+            variant={searchScope === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSearchScope("all")}
+          >
+            البحث في جميع المحافظات
+          </Button>
+        </div>
+        <Button onClick={() => search(1)} disabled={loading} size="lg" className="mt-4 w-full gap-2 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           {t("customer.shop.search")}
         </Button>
@@ -337,11 +456,21 @@ function ShopTab({
           <p className="mt-3 text-sm">{t("customer.shop.empty.desc")}</p>
         </div>
       ) : products.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center text-muted-foreground">
-          <Package className="mx-auto h-10 w-10" />
-          <p className="mt-3 text-sm">
-            {t("customer.shop.no_results")}
+        <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft">
+          <Sparkles className="mx-auto h-10 w-10 text-emerald-600" />
+          <h2 className="mt-3 text-2xl font-extrabold text-emerald-700">البحث الذكي</h2>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-emerald-900">
+            لم تظهر نتائج في بحث كل القطع. استخدم البحث الذكي لإرسال اسم المنتج والوصف مباشرة إلى التجار المختصين.
           </p>
+          <Button type="button" className="mt-4 gap-2 bg-emerald-600 hover:bg-emerald-700" onClick={onSmartSearch}>
+            <Sparkles className="h-4 w-4" />
+            فتح البحث الذكي
+          </Button>
+          {hasMore ? (
+            <Button type="button" variant="outline" className="mt-4" onClick={() => search(page + 1)}>
+              البحث في المزيد
+            </Button>
+          ) : null}
         </div>
       ) : (
         <>
@@ -359,8 +488,335 @@ function ShopTab({
               />
             ))}
           </div>
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || page <= 1}
+              onClick={() => search(page - 1)}
+            >
+              السابق
+            </Button>
+            <span className="text-sm text-muted-foreground">الصفحة {page}</span>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={loading || !hasMore}
+              onClick={() => search(page + 1)}
+            >
+              التالي
+            </Button>
+          </div>
         </>
       )}
+    </div>
+  );
+}
+
+function CustomerSmartSearchTab({
+  customer,
+}: {
+  customer: NonNullable<ReturnType<typeof readCustomerSession>>["customer"];
+}) {
+  const missingRequestFn = useServerFn(submitMissingProductRequest);
+  const getCatalogFn = useServerFn(getEnabledCarCatalogue);
+  const [makes, setMakes] = useState<CarMake[]>([]);
+  const [carMake, setCarMake] = useState("");
+  const [carModel, setCarModel] = useState("");
+  const [specialty, setSpecialty] = useState("");
+  const [governorate, setGovernorate] = useState(customer.governorate);
+  const [searchScope, setSearchScope] = useState<"governorate" | "all">("governorate");
+
+  useEffect(() => {
+    getCatalogFn({})
+      .then((catalog) => setMakes(catalog.makes))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const selectedMake = makes.find((make) => make.label === carMake || make.key === carMake);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3">
+        <h1 className="text-3xl font-extrabold text-emerald-700">اطلب قطعتك</h1>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 shadow-soft">
+        <div className="flex items-center gap-2 text-xl font-extrabold text-emerald-700">
+          <Sparkles className="h-6 w-6" />
+          أنت اطلب... وخلي التجار تتنافس
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>المحافظة</Label>
+            <Select value={governorate} onValueChange={setGovernorate}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر المحافظة" />
+              </SelectTrigger>
+              <SelectContent>
+                {IRAQI_GOVERNORATES.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>نوع السيارة</Label>
+            <Select value={carMake} onValueChange={(value) => { setCarMake(value); setCarModel(""); }}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر نوع السيارة" />
+              </SelectTrigger>
+              <SelectContent>
+                {makes.map((make) => (
+                  <SelectItem key={make.key} value={make.label}>
+                    {make.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>الموديل</Label>
+            <Select value={carModel} onValueChange={setCarModel} disabled={!selectedMake}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر الموديل" />
+              </SelectTrigger>
+              <SelectContent>
+                {(selectedMake?.models ?? []).map((model) => (
+                  <SelectItem key={model} value={model}>{model}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>الاختصاص</Label>
+            <Select value={specialty} onValueChange={setSpecialty}>
+              <SelectTrigger className="h-11 bg-background">
+                <SelectValue placeholder="اختر اختصاص القطعة" />
+              </SelectTrigger>
+              <SelectContent>
+                {CAR_PART_SPECIALTIES.map((item) => (
+                  <SelectItem key={item} value={item}>{item}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant={searchScope === "governorate" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("governorate")}>
+            البحث داخل المحافظة
+          </Button>
+          <Button type="button" variant={searchScope === "all" ? "default" : "outline"} size="sm" onClick={() => setSearchScope("all")}>
+            البحث في جميع المحافظات
+          </Button>
+        </div>
+      </div>
+
+      <MissingProductRequestPanel
+        defaultProductName=""
+        carMake={carMake}
+        carModel={carModel}
+        specialty={specialty}
+        governorate={governorate}
+        requesterName={customer.name}
+        requesterPhone={customer.whatsapp}
+        searchScope={searchScope}
+        requesterType="customer"
+        simpleRequest
+        onSubmit={async (data) => missingRequestFn({ data })}
+      />
+    </div>
+  );
+}
+
+function MissingProductRequestPanel({
+  defaultProductName,
+  carMake,
+  carModel,
+  specialty,
+  governorate,
+  requesterName,
+  requesterPhone,
+  requesterType,
+  searchScope,
+  simpleRequest = false,
+  onSubmit,
+}: {
+  defaultProductName: string;
+  carMake: string;
+  carModel: string;
+  specialty: string;
+  governorate: string;
+  requesterName: string;
+  requesterPhone: string;
+  requesterType: "customer" | "fitter";
+  searchScope: "governorate" | "all";
+  simpleRequest?: boolean;
+  onSubmit: (data: {
+    productName: string;
+    requestDetails?: string;
+    carMake: string;
+    carModel: string;
+    specialty: string;
+    governorate: string;
+    requesterType: "customer" | "fitter";
+    requesterName: string;
+    requesterPhone: string;
+    searchScope: "governorate" | "all";
+    imageDataUrl?: string;
+  }) => Promise<{ targetMerchantCount: number; sentCount: number; webNotificationCount?: number }>;
+}) {
+  const [productName, setProductName] = useState(defaultProductName);
+  const [requestDetails, setRequestDetails] = useState("");
+  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedCount, setSubmittedCount] = useState<number | null>(null);
+
+  const pickImage = async (file?: File) => {
+    if (!file) return;
+    try {
+      setImageDataUrl(await compressImageFile(file));
+      toast.success("تم اختيار الصورة");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر اختيار الصورة");
+    }
+  };
+
+  const submit = async () => {
+    const cleanName = productName.trim() || requestDetails.trim().slice(0, 120) || (imageDataUrl ? "طلب قطعة بصورة" : "");
+    if (!cleanName) {
+      toast.error("اكتب اسم المنتج المطلوب أولاً");
+      return;
+    }
+    if (!carMake || !carModel || !specialty || !governorate) {
+      toast.error("اختر المحافظة ونوع السيارة والموديل والاختصاص");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({
+        productName: cleanName,
+        requestDetails: requestDetails.trim(),
+        carMake,
+        carModel: carModel || "غير محدد",
+        specialty,
+        governorate,
+        requesterType,
+        requesterName,
+        requesterPhone,
+        searchScope,
+        imageDataUrl,
+      });
+      const notifiedCount = result.webNotificationCount ?? result.sentCount ?? result.targetMerchantCount;
+      toast.success(
+        notifiedCount > 0 || result.targetMerchantCount > 0
+          ? `تم إرسال الطلب إلى ${notifiedCount || result.targetMerchantCount} تاجر مختص`
+          : "تم حفظ الطلب، لكن لا يوجد تاجر مختص مطابق حالياً",
+      );
+      setProductName("");
+      setRequestDetails("");
+      setImageDataUrl("");
+      setSubmittedCount(notifiedCount || result.targetMerchantCount);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (submittedCount !== null) {
+    return (
+      <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-8 text-center shadow-soft">
+        <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+        <h2 className="mt-4 text-2xl font-extrabold text-emerald-800">
+          تم إرسال طلبك للتجار المطابقين
+        </h2>
+        <p className="mt-2 text-emerald-900">
+          راح توصلك العروض أول ما التجار يجاوبون.
+        </p>
+        <p className="mt-1 font-semibold text-emerald-800">
+          أنت اطلب... وخلي التجار تتنافس.
+        </p>
+        <Button type="button" variant="outline" className="mt-5" onClick={() => setSubmittedCount(null)}>
+          إرسال طلب آخر
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-6 shadow-soft">
+      <div className="text-center text-muted-foreground">
+        <Sparkles className="mx-auto h-10 w-10 text-emerald-600" />
+        <p className="mx-auto mt-3 max-w-2xl text-sm">
+          اكتب القطعة اللي تحتاجها، وبوتلي يرسل طلبك للتجار المناسبين.
+        </p>
+      </div>
+
+      <div className="mx-auto mt-5 max-w-2xl space-y-4 text-start">
+        {!simpleRequest ? <div className="space-y-2">
+          <Label htmlFor="missing-product-name">اسم المنتج المطلوب</Label>
+          <Input
+            id="missing-product-name"
+            value={productName}
+            onChange={(event) => setProductName(event.target.value)}
+            placeholder="مثال: لايت أمامي، بمبر، مراية..."
+          />
+        </div> : null}
+
+        <div className="space-y-2">
+          <Label htmlFor="missing-product-details">وصف مفصل للمنتج</Label>
+          <Textarea
+            id="missing-product-details"
+            value={requestDetails}
+            onChange={(event) => setRequestDetails(event.target.value)}
+            placeholder="مثال: لايت كامري أمامي جهة يمين موديل 2022"
+            rows={4}
+          />
+        </div>
+
+        {!simpleRequest ? <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            التقاط صورة
+            <input
+              className="hidden"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => pickImage(event.target.files?.[0])}
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">
+            اختيار من المعرض
+            <input
+              className="hidden"
+              type="file"
+              accept="image/*"
+              onChange={(event) => pickImage(event.target.files?.[0])}
+            />
+          </label>
+          <Button type="button" variant="outline" onClick={() => setImageDataUrl("")}>
+            إرسال بدون صورة
+          </Button>
+        </div> : null}
+
+        {!simpleRequest && imageDataUrl && (
+          <img
+            src={imageDataUrl}
+            alt="صورة القطعة المطلوبة"
+            loading="lazy"
+            decoding="async"
+            className="max-h-56 rounded-lg border object-contain"
+          />
+        )}
+
+        <Button onClick={submit} disabled={submitting || !carMake || !carModel || !specialty || !governorate} className="w-full gap-2">
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          إرسال الطلب للتجار المختصين
+        </Button>
+      </div>
     </div>
   );
 }
@@ -389,11 +845,9 @@ function ProductCard({
   const [submitting, setSubmitting] = useState(false);
   const images = product.imageUrls;
   const specs = [
-    product.carMake,
-    product.carModel,
-    product.carYear ? `${t("customer.shop.year")} ${product.carYear}` : undefined,
-    product.color,
-    product.size,
+    product.carYear ? `سنة الصنع: ${product.carYear}` : undefined,
+    product.carModel ? `الموديل: ${product.carModel}` : undefined,
+    product.color ? `اللون: ${product.color}` : undefined,
   ].filter(Boolean);
 
   const handleSubmitOrder = async () => {
@@ -410,10 +864,10 @@ function ProductCard({
           customerLandmark,
         },
       });
-      toast.success(result.message);
+      toast.success(result.message || result.warning || "تم حفظ الطلب وإرساله للمتابعة");
       setShowOrderForm(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("common.loading"));
+      toast.error(cleanOrderError(error, t("common.loading")));
     } finally {
       setSubmitting(false);
     }
@@ -423,7 +877,13 @@ function ProductCard({
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft transition-all hover:-translate-y-1 hover:shadow-elevated">
       <div className="relative aspect-square bg-secondary">
         {images.length > 0 && (
-          <img src={images[imageIndex]} alt={product.title} className="h-full w-full object-cover" />
+          <img
+            src={images[imageIndex]}
+            alt={product.title}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
         )}
         {images.length > 1 && (
           <>
@@ -458,9 +918,6 @@ function ProductCard({
       </div>
       <div className="p-4">
         <h3 className="line-clamp-2 font-semibold">{product.title}</h3>
-        {product.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.description}</p>
-        )}
         {specs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {specs.map((spec) => (
@@ -539,6 +996,16 @@ function ProductCard({
       </div>
     </div>
   );
+}
+
+function cleanOrderError(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const text = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  if (/inactivity timeout|too much time has passed/i.test(text)) {
+    return "تم حفظ الطلب، لكن اتصال الإرسال تأخر. يرجى المحاولة مرة أخرى بعد لحظات أو التواصل مع الوسيط.";
+  }
+  return text.slice(0, 220);
 }
 
 // ---------------------------------------------------------------------------

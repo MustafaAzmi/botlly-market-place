@@ -1,0 +1,74 @@
+name: Flutter Customer and Fitter iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/flutter/**"
+      - "src/lib/customer.functions.ts"
+      - "src/lib/fitter.functions.ts"
+      - "src/lib/eventStore.server.ts"
+      - "src/lib/car-data.ts"
+      - "src/routes/api/customer/mobile.ts"
+      - "src/routes/api/fitter/mobile.ts"
+      - ".github/workflows/flutter-customer-fitter-ios.yml"
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build ${{ matrix.app.label }} iOS app
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - id: customer_app
+            label: customer
+            artifact: botlly-customer-ios-unsigned-app
+          - id: fitter_app
+            label: fitter
+            artifact: botlly-fitter-ios-unsigned-app
+
+    defaults:
+      run:
+        working-directory: apps/flutter/${{ matrix.app.id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS project files
+        run: flutter create --platforms=ios --org tech.botlly .
+
+      - name: Configure iOS bundle id and app metadata
+        run: python3 tool/configure_platforms.py
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Setup CocoaPods
+        run: sudo gem install cocoapods -v 1.16.2
+
+      - name: Analyze
+        continue-on-error: true
+        run: flutter analyze lib
+
+      - name: Build iOS without code signing
+        run: >
+          flutter build ios
+          --release
+          --no-codesign
+          --dart-define=BOTLLY_API_BASE_URL=https://bot-lly.tech
+
+      - name: Upload unsigned iOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.artifact }}
+          path: apps/flutter/${{ matrix.app.id }}/build/ios/iphoneos/Runner.app
+          if-no-files-found: error

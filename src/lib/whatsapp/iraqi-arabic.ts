@@ -139,7 +139,7 @@ export function normalizeArabicText(text: string): string {
   normalized = normalized.replace(/ى/g, "ي");
 
   // Remove zero-width characters
-  normalized = normalized.replace(/[​-‍﻿]/g, "");
+  normalized = normalized.replace(/[\u200B-\u200D\uFEFF]/g, "");
 
   // Trim whitespace
   normalized = normalized.trim();

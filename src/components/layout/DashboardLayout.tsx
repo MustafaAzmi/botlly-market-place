@@ -1,17 +1,24 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Package, Store, ShoppingBag, LogOut } from "lucide-react";
-import { useEffect } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { ShoppingBag, LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Logo } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useT } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
-import { clearMerchantSession, readMerchantSession } from "@/lib/merchantSession";
+import { getCurrentMerchant } from "@/lib/merchant.functions";
+import {
+  clearMerchantSession,
+  readMerchantSession,
+  writeMerchantSession,
+} from "@/lib/merchantSession";
+import {
+  useWebNotificationCount,
+  WebNotificationCountValue,
+} from "@/components/orders/WebNotificationCountBadge";
 
 const items = [
-  { to: "/dashboard", icon: LayoutDashboard, key: "nav.dashboard" as const },
-  { to: "/dashboard/products", icon: Package, key: "nav.products" as const },
   { to: "/dashboard/orders", icon: ShoppingBag, key: "nav.orders" as const },
-  { to: "/dashboard/store", icon: Store, key: "nav.store" as const },
 ];
 
 export function DashboardLayout({
@@ -27,12 +34,40 @@ export function DashboardLayout({
 }) {
   const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const currentMerchantFn = useServerFn(getCurrentMerchant);
+  const [merchantToken, setMerchantToken] = useState("");
+  const merchantNotificationCount = useWebNotificationCount({
+    role: "merchant",
+    token: merchantToken,
+  });
 
   // Keep the signed-in store's unique identifier visible in the URL
   // (?store=<slug>) on every dashboard page, so each store's pages are
   // unambiguously addressed and links/bookmarks never mix stores up.
   useEffect(() => {
     const session = readMerchantSession();
+    setMerchantToken(session?.token ?? "");
+    if (session?.token) {
+      currentMerchantFn({ data: { token: session.token } })
+        .then((profile) => {
+          writeMerchantSession({
+            merchantId: profile.id,
+            storeName: profile.storeName,
+            storeSlug: profile.storeSlug,
+            whatsapp: profile.whatsapp,
+            email: profile.email,
+            bio: profile.bio,
+            city: profile.city,
+            address: profile.address,
+            latitude: profile.latitude,
+            longitude: profile.longitude,
+            deliveryPhone: profile.deliveryPhone,
+            accountStatus: profile.accountStatus,
+            firstLoginCompleted: profile.firstLoginCompleted,
+          });
+        })
+        .catch(() => {});
+    }
     const slug = session?.storeSlug || session?.merchantId?.slice(0, 8);
     if (!slug) return;
     const url = new URL(window.location.href);
@@ -40,7 +75,7 @@ export function DashboardLayout({
       url.searchParams.set("store", slug);
       window.history.replaceState({}, "", url.toString());
     }
-  }, [pathname]);
+  }, [currentMerchantFn, pathname]);
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -66,6 +101,9 @@ export function DashboardLayout({
                 >
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
+                  {item.to === "/dashboard/orders" && merchantToken ? (
+                    <WebNotificationCountValue count={merchantNotificationCount} />
+                  ) : null}
                 </Link>
               );
             })}
@@ -114,6 +152,9 @@ export function DashboardLayout({
                 >
                   <item.icon className="h-4 w-4" />
                   {t(item.key)}
+                  {item.to === "/dashboard/orders" && merchantToken ? (
+                    <WebNotificationCountValue count={merchantNotificationCount} />
+                  ) : null}
                 </Link>
               );
             })}
